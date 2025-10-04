@@ -3,3 +3,5 @@
 - [x] Implement database-specific fallback dump strategies
 - [x] Persist dump artefact and associated logs into output pack
 - [x] Validate solution on sample Laravel project and document usage
+- [ ] Smoke test fallback commands (sqlite3/mysqldump/pg_dump) across macOS + Linux environments
+- [ ] Detect and warn when fallback binaries are missing or not executable

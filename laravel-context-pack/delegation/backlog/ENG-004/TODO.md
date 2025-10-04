@@ -2,4 +2,6 @@
 - [x] Implement route data extraction and parsing logic
 - [x] Generate Markdown/JSON artefacts summarising routes
 - [x] Add route metrics and highlight potential issues
+- [ ] Emit JSON version of route summary for downstream automation
+- [ ] Link routes to controller source files when available
 - [x] Document usage notes and limitations

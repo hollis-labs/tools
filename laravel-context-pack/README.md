@@ -35,8 +35,29 @@ The command validates the Laravel project, prepares the output workspace, captur
 
 ## Developer Tooling
 - Format: `composer lint`
-- Static analysis: `composer analyse`
+- Static analysis: `composer analyse -- --no-progress`
 - Tests: `composer test`
 - Rector dry run: `composer rector -- --dry-run`
 
 Generated context packs follow the contract in `docs/mvp-output-spec.md`; schema, route, model, and static-analysis artefacts are included, with skipped tools clearly noted when unavailable.
+
+## Generated Artefacts
+| File | Description | Notes |
+|------|-------------|-------|
+| `metadata.json` | Environment snapshot (Laravel/PHP versions, tooling availability, DB info, artefact statuses) | Drives conditional behaviour in generators. |
+| `01-schema-dump.sql` | Database schema via `php artisan schema:dump` | Falls back to `sqlite3`, `mysqldump`, or `pg_dump` when artisan support is missing. |
+| `02-route-summary.md` | HTTP contract overview with metrics and warnings | Uses `route:list --json`, falls back to text parsing, highlights unnamed/Closure routes. |
+| `03-model-overview.md` | Eloquent model summaries (tables, fillable/guarded props, relationships) | Static heuristics over `app/Models`; logs skipped/unknown relationships for later review. |
+| `04-static-analysis.md` | Aggregated results from Pint, Pest, PHPStan/Larastan, Rector | Each tool runs only if detected; failures logged and surfaced as `FAILED`/`PARTIAL`. |
+| `logs/*.log` | Raw command output per generator | Useful when artefacts are skipped or fail. |
+
+## Logs & Diagnostics
+Every generator writes to `logs/<name>.log`. Investigate these when artefacts report `FAILED`/`PARTIAL`. The CLI never stores secrets; DB passwords are kept in process env only.
+
+## Tool Detection
+- Painter (`laravel/pint`)
+- Pest (`pestphp/pest` or `tests/Pest.php` present)
+- PHPStan (`phpstan/phpstan`) / Larastan (`nunomaduro/larastan`)
+- Rector (`rector/rector`)
+
+Unavailable tools are marked `SKIPPED` in `metadata.json` and `04-static-analysis.md` so dogfooders understand coverage gaps.
