@@ -152,7 +152,8 @@ test('it prepares the context pack workspace', function (): void {
 
     $process = Process::fromShellCommandline(
         sprintf(
-            'php %s generate --project=%s --output=%s --force',
+            '%s %s generate --project=%s --output=%s --force',
+            escapeshellarg(PHP_BINARY),
             escapeshellarg(__DIR__ . '/../../bin/context-pack.php'),
             escapeshellarg($projectPath),
             escapeshellarg($outputPath)
@@ -213,4 +214,97 @@ test('it prepares the context pack workspace', function (): void {
     expect($staticLog)->toContain('Running Laravel Pint');
 
     $filesystem->remove($workspace);
+});
+
+test('it logs schema fallback when binaries are missing', function (): void {
+    $filesystem = new Filesystem;
+    $workspace = sys_get_temp_dir() . '/lcp-test-' . bin2hex(random_bytes(5));
+    $projectPath = $workspace . '/project';
+    $outputPath = $workspace . '/output';
+
+    $filesystem->mkdir([
+        $workspace,
+        $projectPath,
+        $projectPath . '/storage/framework/cache',
+        $projectPath . '/database',
+    ]);
+
+    file_put_contents($projectPath . '/composer.json', json_encode([
+        'name' => 'acme/sqlite-app',
+    ], JSON_PRETTY_PRINT));
+
+    file_put_contents($projectPath . '/composer.lock', json_encode([
+        'packages' => [
+            [
+                'name' => 'laravel/framework',
+                'version' => 'v11.9.0',
+            ],
+        ],
+    ], JSON_PRETTY_PRINT));
+
+    $sqlitePath = $projectPath . '/database/database.sqlite';
+    $filesystem->dumpFile($sqlitePath, '');
+
+    file_put_contents($projectPath . '/.env', "DB_CONNECTION=sqlite\nDB_DATABASE=database/database.sqlite\n");
+
+    $artisanStub = <<<'PHP'
+    #!/usr/bin/env php
+    <?php
+    $command = $argv[1] ?? null;
+
+    if ($command === null) {
+        echo 'Laravel Framework 11.9.0';
+        exit(0);
+    }
+
+    if ($command === 'schema:dump') {
+        fwrite(STDERR, 'schema dump failed');
+        exit(1);
+    }
+
+    if ($command === 'route:list') {
+        echo '[]';
+        exit(0);
+    }
+
+    echo 'Laravel Framework 11.9.0';
+    PHP;
+    file_put_contents($projectPath . '/artisan', $artisanStub);
+    chmod($projectPath . '/artisan', 0755);
+
+    $binSandbox = $workspace . '/bin';
+    $filesystem->mkdir($binSandbox);
+    symlink(PHP_BINARY, $binSandbox . '/php');
+
+    $originalPath = getenv('PATH');
+    putenv('PATH=' . $binSandbox);
+
+    try {
+        $process = Process::fromShellCommandline(
+            sprintf(
+                '%s %s generate --project=%s --output=%s --force',
+                escapeshellarg(PHP_BINARY),
+                escapeshellarg(__DIR__ . '/../../bin/context-pack.php'),
+                escapeshellarg($projectPath),
+                escapeshellarg($outputPath)
+            ),
+            __DIR__ . '/../../'
+        );
+
+        $process->mustRun();
+
+        $metadata = json_decode(file_get_contents($outputPath . '/metadata.json') ?: 'null', true);
+        expect($metadata['artifacts']['schemaDump']['status'])->toBe('failed');
+        expect($metadata['artifacts']['schemaDump']['message'])->toContain('failed');
+
+        $schemaLog = file_get_contents($outputPath . '/logs/schema-dump.log');
+        expect($schemaLog)->toContain('sqlite3 binary not found');
+    } finally {
+        $filesystem->remove($workspace);
+        if ($originalPath === false) {
+            putenv('PATH');
+        } else {
+            putenv('PATH=' . $originalPath);
+        }
+    }
 });
