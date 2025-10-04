@@ -178,9 +178,15 @@ final class ModelOverviewGenerator
         }
 
         $body = $matches[1];
+        $valueMatches = [[], []];
         preg_match_all('/[\'\"]([^\'\"]+)[\'\"]/m', $body, $valueMatches);
 
-        return array_map('trim', $valueMatches[1] ?? []);
+        $values = $valueMatches[1];
+        if ($values === []) {
+            return [];
+        }
+
+        return array_map('trim', $values);
     }
 
     private function matchPropertyArray(string $contents, string $property): ?string
