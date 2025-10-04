@@ -16,6 +16,7 @@ test('it prepares the context pack workspace', function (): void {
         $projectPath,
         $projectPath . '/storage/framework/cache',
         $projectPath . '/app/Models',
+        $projectPath . '/vendor/bin',
     ]);
 
     file_put_contents($projectPath . '/composer.json', json_encode([
@@ -39,7 +40,25 @@ test('it prepares the context pack workspace', function (): void {
         ],
     ], JSON_PRETTY_PRINT));
 
-    file_put_contents($projectPath . '/.env', "DB_CONNECTION=mysql\n");
+    file_put_contents($projectPath . '/.env', "DB_CONNECTION=mysql\nDB_DATABASE=testing\nDB_USERNAME=root\n");
+
+    file_put_contents($projectPath . '/phpunit.xml', '<phpunit/>' . PHP_EOL);
+
+    $pintStub = <<<'BASH'
+    #!/usr/bin/env bash
+    echo "Pint OK"
+    exit 0
+    BASH;
+    file_put_contents($projectPath . '/vendor/bin/pint', $pintStub);
+    chmod($projectPath . '/vendor/bin/pint', 0755);
+
+    $pestStub = <<<'BASH'
+    #!/usr/bin/env bash
+    echo "Pest OK"
+    exit 0
+    BASH;
+    file_put_contents($projectPath . '/vendor/bin/pest', $pestStub);
+    chmod($projectPath . '/vendor/bin/pest', 0755);
 
     $modelStub = <<<'PHP'
     <?php
@@ -142,6 +161,7 @@ test('it prepares the context pack workspace', function (): void {
     expect($metadata['artifacts']['schemaDump']['status'])->toBe('success');
     expect($metadata['artifacts']['routeSummary']['status'])->toBe('success');
     expect($metadata['artifacts']['modelOverview']['status'])->toBe('success');
+    expect($metadata['artifacts']['staticAnalysis']['status'])->toBe('success');
 
     $schemaContents = file_get_contents($outputPath . '/01-schema-dump.sql');
     expect($schemaContents)->toContain('-- Schema dump');
@@ -162,6 +182,13 @@ test('it prepares the context pack workspace', function (): void {
 
     $modelLog = file_get_contents($outputPath . '/logs/model-overview.log');
     expect($modelLog)->toContain('Model overview generated');
+
+    $staticAnalysis = file_get_contents($outputPath . '/04-static-analysis.md');
+    expect($staticAnalysis)->toContain('# Static Analysis Summary');
+    expect($staticAnalysis)->toContain('Laravel Pint');
+
+    $staticLog = file_get_contents($outputPath . '/logs/static-analysis.log');
+    expect($staticLog)->toContain('Running Laravel Pint');
 
     $filesystem->remove($workspace);
 });

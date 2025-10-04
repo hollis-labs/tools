@@ -1,5 +1,5 @@
-- [ ] Map available tooling signals to executable commands
-- [ ] Build resilient runner that captures stdout/stderr per tool
-- [ ] Parse outputs into actionable summaries and metrics
-- [ ] Persist raw logs and cross-link from summary report
-- [ ] Document configuration requirements and skip behaviour
+- [x] Map available tooling signals to executable commands
+- [x] Build resilient runner that captures stdout/stderr per tool
+- [x] Parse outputs into actionable summaries and metrics
+- [x] Persist raw logs and cross-link from summary report
+- [x] Document configuration requirements and skip behaviour

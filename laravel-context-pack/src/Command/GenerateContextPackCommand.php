@@ -7,6 +7,7 @@ namespace LaravelContextPack\Command;
 use LaravelContextPack\Generator\ModelOverviewGenerator;
 use LaravelContextPack\Generator\RouteSummaryGenerator;
 use LaravelContextPack\Generator\SchemaDumpGenerator;
+use LaravelContextPack\Generator\StaticAnalysisGenerator;
 use LaravelContextPack\Support\MetadataDetector;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -31,12 +32,15 @@ final class GenerateContextPackCommand extends Command
 
     private ModelOverviewGenerator $modelOverviewGenerator;
 
+    private StaticAnalysisGenerator $staticAnalysisGenerator;
+
     public function __construct(
         ?Filesystem $filesystem = null,
         ?MetadataDetector $metadataDetector = null,
         ?SchemaDumpGenerator $schemaDumpGenerator = null,
         ?RouteSummaryGenerator $routeSummaryGenerator = null,
         ?ModelOverviewGenerator $modelOverviewGenerator = null,
+        ?StaticAnalysisGenerator $staticAnalysisGenerator = null,
     ) {
         parent::__construct();
 
@@ -45,6 +49,7 @@ final class GenerateContextPackCommand extends Command
         $this->schemaDumpGenerator = $schemaDumpGenerator ?? new SchemaDumpGenerator;
         $this->routeSummaryGenerator = $routeSummaryGenerator ?? new RouteSummaryGenerator;
         $this->modelOverviewGenerator = $modelOverviewGenerator ?? new ModelOverviewGenerator;
+        $this->staticAnalysisGenerator = $staticAnalysisGenerator ?? new StaticAnalysisGenerator;
     }
 
     protected function configure(): void
@@ -151,6 +156,10 @@ final class GenerateContextPackCommand extends Command
                 'status' => 'skipped',
                 'message' => 'Model overview skipped (dry run).',
             ];
+            $artifactStatuses['staticAnalysis'] = [
+                'status' => 'skipped',
+                'message' => 'Static analysis skipped (dry run).',
+            ];
         } else {
             $io->section('Generating schema dump');
             $artifactStatuses['schemaDump'] = $this->schemaDumpGenerator->generate(
@@ -181,6 +190,19 @@ final class GenerateContextPackCommand extends Command
                 'Model overview status: <info>%s</info> — %s',
                 strtoupper($artifactStatuses['modelOverview']['status']),
                 $artifactStatuses['modelOverview']['message'],
+            ));
+
+            $io->section('Running static analysis');
+            $artifactStatuses['staticAnalysis'] = $this->staticAnalysisGenerator->generate(
+                $projectPath,
+                $outputPath,
+                $metadata['detectedTools'] ?? []
+            );
+
+            $io->writeln(sprintf(
+                'Static analysis status: <info>%s</info> — %s',
+                strtoupper($artifactStatuses['staticAnalysis']['status']),
+                $artifactStatuses['staticAnalysis']['message'],
             ));
         }
 
