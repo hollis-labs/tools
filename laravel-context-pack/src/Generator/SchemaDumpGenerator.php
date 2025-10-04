@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace LaravelContextPack\Generator;
 
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\Process\ExecutableFinder;
 use Symfony\Component\Process\Process;
 
 final class SchemaDumpGenerator
@@ -52,11 +53,15 @@ final class SchemaDumpGenerator
             $this->appendLog($logPath, $process->getOutput());
             $this->appendLog($logPath, $process->getErrorOutput());
 
-            return $this->attemptFallback($database, $projectPath, $outputPath, $logPath)
-                ?? [
-                    'status' => 'failed',
-                    'message' => 'Schema dump command failed. Review logs/schema-dump.log.',
-                ];
+            $fallback = $this->attemptFallback($database, $projectPath, $outputPath, $logPath);
+            if ($fallback !== null) {
+                return $fallback;
+            }
+
+            return [
+                'status' => 'failed',
+                'message' => 'Schema dump command failed and no fallback was executed. Review logs/schema-dump.log.',
+            ];
         }
 
         $this->appendLog($logPath, $process->getOutput());
@@ -119,6 +124,12 @@ final class SchemaDumpGenerator
             return null;
         }
 
+        if (! $this->isBinaryAvailable('sqlite3')) {
+            $this->appendLog($logPath, sprintf('[%s] sqlite3 binary not found in PATH.', $this->now()));
+
+            return null;
+        }
+
         $command = sprintf('sqlite3 %s ".schema"', escapeshellarg($databasePath));
         $process = Process::fromShellCommandline($command);
         $process->setTimeout(20);
@@ -159,6 +170,8 @@ final class SchemaDumpGenerator
         $required = ['DB_DATABASE', 'DB_USERNAME'];
         foreach ($required as $key) {
             if (! isset($credentials[$key]) || $credentials[$key] === '') {
+                $this->appendLog($logPath, sprintf('[%s] mysqldump fallback skipped (missing %s in .env).', $this->now(), $key));
+
                 return null;
             }
         }
@@ -167,6 +180,12 @@ final class SchemaDumpGenerator
         $port = $credentials['DB_PORT'] ?? '3306';
         $databaseName = $credentials['DB_DATABASE'];
         $username = $credentials['DB_USERNAME'];
+
+        if (! $this->isBinaryAvailable('mysqldump')) {
+            $this->appendLog($logPath, sprintf('[%s] mysqldump binary not found in PATH.', $this->now()));
+
+            return null;
+        }
 
         $command = sprintf(
             'mysqldump --no-data --host=%s --port=%s --user=%s %s',
@@ -224,12 +243,20 @@ final class SchemaDumpGenerator
         $username = $credentials['DB_USERNAME'] ?? null;
 
         if ($databaseName === null || $username === null) {
+            $this->appendLog($logPath, sprintf('[%s] pg_dump fallback skipped (missing DB_DATABASE or DB_USERNAME).', $this->now()));
+
             return null;
         }
 
         $host = $credentials['DB_HOST'] ?? '127.0.0.1';
         $port = $credentials['DB_PORT'] ?? '5432';
         $schema = $database['schema'] ?? 'public';
+
+        if (! $this->isBinaryAvailable('pg_dump')) {
+            $this->appendLog($logPath, sprintf('[%s] pg_dump binary not found in PATH.', $this->now()));
+
+            return null;
+        }
 
         $command = sprintf(
             'pg_dump --schema-only --no-privileges --no-owner --host=%s --port=%s --username=%s --schema=%s %s',
@@ -308,6 +335,13 @@ final class SchemaDumpGenerator
         }
 
         return $values;
+    }
+
+    private function isBinaryAvailable(string $binary): bool
+    {
+        $finder = new ExecutableFinder;
+
+        return $finder->find($binary) !== null;
     }
 
     private function createTempSchemaPath(string $projectPath): string
