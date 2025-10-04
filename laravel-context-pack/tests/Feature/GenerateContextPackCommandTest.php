@@ -15,6 +15,7 @@ test('it prepares the context pack workspace', function (): void {
         $workspace,
         $projectPath,
         $projectPath . '/storage/framework/cache',
+        $projectPath . '/app/Models',
     ]);
 
     file_put_contents($projectPath . '/composer.json', json_encode([
@@ -39,6 +40,27 @@ test('it prepares the context pack workspace', function (): void {
     ], JSON_PRETTY_PRINT));
 
     file_put_contents($projectPath . '/.env', "DB_CONNECTION=mysql\n");
+
+    $modelStub = <<<'PHP'
+    <?php
+
+    namespace App\Models;
+
+    use Illuminate\Database\Eloquent\Model;
+
+    class User extends Model
+    {
+        protected $table = 'users';
+
+        protected $fillable = ['name', 'email'];
+
+        public function posts()
+        {
+            return $this->hasMany(Post::class);
+        }
+    }
+    PHP;
+    file_put_contents($projectPath . '/app/Models/User.php', $modelStub);
 
     $artisanStub = <<<'PHP'
     #!/usr/bin/env php
@@ -111,6 +133,7 @@ test('it prepares the context pack workspace', function (): void {
     expect(is_file($outputPath . '/metadata.json'))->toBeTrue();
     expect(is_file($outputPath . '/01-schema-dump.sql'))->toBeTrue();
     expect(is_file($outputPath . '/02-route-summary.md'))->toBeTrue();
+    expect(is_file($outputPath . '/03-model-overview.md'))->toBeTrue();
 
     $metadata = json_decode(file_get_contents($outputPath . '/metadata.json') ?: 'null', true);
     expect($metadata['project']['name'])->toBe('acme/example-app');
@@ -118,6 +141,7 @@ test('it prepares the context pack workspace', function (): void {
     expect($metadata['detectedTools']['pint']['available'])->toBeTrue();
     expect($metadata['artifacts']['schemaDump']['status'])->toBe('success');
     expect($metadata['artifacts']['routeSummary']['status'])->toBe('success');
+    expect($metadata['artifacts']['modelOverview']['status'])->toBe('success');
 
     $schemaContents = file_get_contents($outputPath . '/01-schema-dump.sql');
     expect($schemaContents)->toContain('-- Schema dump');
@@ -127,9 +151,17 @@ test('it prepares the context pack workspace', function (): void {
 
     $routeSummary = file_get_contents($outputPath . '/02-route-summary.md');
     expect($routeSummary)->toContain('| GET,HEAD | api/users');
+    expect($routeSummary)->toContain('## Metrics');
 
     $routeLog = file_get_contents($outputPath . '/logs/route-summary.log');
     expect($routeLog)->toContain('route:list --json');
+
+    $modelOverview = file_get_contents($outputPath . '/03-model-overview.md');
+    expect($modelOverview)->toContain('App\\Models\\User');
+    expect($modelOverview)->toContain('| HASMANY | Post |');
+
+    $modelLog = file_get_contents($outputPath . '/logs/model-overview.log');
+    expect($modelLog)->toContain('Model overview generated');
 
     $filesystem->remove($workspace);
 });

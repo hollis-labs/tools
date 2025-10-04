@@ -1,5 +1,5 @@
 - [x] Confirm artisan route export options for target Laravel versions
 - [x] Implement route data extraction and parsing logic
 - [x] Generate Markdown/JSON artefacts summarising routes
-- [ ] Add route metrics and highlight potential issues
+- [x] Add route metrics and highlight potential issues
 - [x] Document usage notes and limitations

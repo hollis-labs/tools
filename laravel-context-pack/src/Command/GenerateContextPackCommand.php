@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace LaravelContextPack\Command;
 
+use LaravelContextPack\Generator\ModelOverviewGenerator;
 use LaravelContextPack\Generator\RouteSummaryGenerator;
 use LaravelContextPack\Generator\SchemaDumpGenerator;
 use LaravelContextPack\Support\MetadataDetector;
@@ -28,11 +29,14 @@ final class GenerateContextPackCommand extends Command
 
     private RouteSummaryGenerator $routeSummaryGenerator;
 
+    private ModelOverviewGenerator $modelOverviewGenerator;
+
     public function __construct(
         ?Filesystem $filesystem = null,
         ?MetadataDetector $metadataDetector = null,
         ?SchemaDumpGenerator $schemaDumpGenerator = null,
         ?RouteSummaryGenerator $routeSummaryGenerator = null,
+        ?ModelOverviewGenerator $modelOverviewGenerator = null,
     ) {
         parent::__construct();
 
@@ -40,6 +44,7 @@ final class GenerateContextPackCommand extends Command
         $this->metadataDetector = $metadataDetector ?? new MetadataDetector;
         $this->schemaDumpGenerator = $schemaDumpGenerator ?? new SchemaDumpGenerator;
         $this->routeSummaryGenerator = $routeSummaryGenerator ?? new RouteSummaryGenerator;
+        $this->modelOverviewGenerator = $modelOverviewGenerator ?? new ModelOverviewGenerator;
     }
 
     protected function configure(): void
@@ -142,9 +147,17 @@ final class GenerateContextPackCommand extends Command
                 'status' => 'skipped',
                 'message' => 'Route summary skipped (dry run).',
             ];
+            $artifactStatuses['modelOverview'] = [
+                'status' => 'skipped',
+                'message' => 'Model overview skipped (dry run).',
+            ];
         } else {
             $io->section('Generating schema dump');
-            $artifactStatuses['schemaDump'] = $this->schemaDumpGenerator->generate($projectPath, $outputPath);
+            $artifactStatuses['schemaDump'] = $this->schemaDumpGenerator->generate(
+                $projectPath,
+                $outputPath,
+                $metadata['database'] ?? [],
+            );
 
             $io->writeln(sprintf(
                 'Schema dump status: <info>%s</info> — %s',
@@ -160,6 +173,15 @@ final class GenerateContextPackCommand extends Command
                 strtoupper($artifactStatuses['routeSummary']['status']),
                 $artifactStatuses['routeSummary']['message'],
             ));
+
+            $io->section('Generating model overview');
+            $artifactStatuses['modelOverview'] = $this->modelOverviewGenerator->generate($projectPath, $outputPath);
+
+            $io->writeln(sprintf(
+                'Model overview status: <info>%s</info> — %s',
+                strtoupper($artifactStatuses['modelOverview']['status']),
+                $artifactStatuses['modelOverview']['message'],
+            ));
         }
 
         $metadata['artifacts'] = $artifactStatuses;
@@ -168,7 +190,7 @@ final class GenerateContextPackCommand extends Command
             $this->writeJson($outputPath . '/metadata.json', $metadata);
             $this->writeFile($outputPath . '/README.md', $this->buildReadme($metadata, $artifactStatuses));
 
-            foreach (['schema-dump.log', 'route-summary.log', 'static-analysis.log'] as $logFile) {
+            foreach (['schema-dump.log', 'route-summary.log', 'model-overview.log', 'static-analysis.log'] as $logFile) {
                 $this->ensureLogFile($outputPath . '/logs/' . $logFile);
             }
         }

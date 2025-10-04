@@ -1,5 +1,5 @@
-- [ ] Choose model analysis approach (AST library vs heuristics)
-- [ ] Discover and catalogue Laravel models with key metadata
-- [ ] Extract and document relationships between models
-- [ ] Generate Markdown/JSON summaries for inclusion in context pack
-- [ ] Test against sample apps and record follow-up improvements
+- [x] Choose model analysis approach (AST library vs heuristics)
+- [x] Discover and catalogue Laravel models with key metadata
+- [x] Extract and document relationships between models
+- [x] Generate Markdown summary for inclusion in context pack (JSON deferred)
+- [x] Test against sample apps and record follow-up improvements

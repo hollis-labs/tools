@@ -1,5 +1,5 @@
 - [x] Confirm schema dump output format and filename
 - [x] Execute `php artisan schema:dump` within CLI workflow
-- [ ] Implement database-specific fallback dump strategies
+- [x] Implement database-specific fallback dump strategies
 - [x] Persist dump artefact and associated logs into output pack
 - [x] Validate solution on sample Laravel project and document usage

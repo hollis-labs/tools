@@ -153,10 +153,29 @@ final class RouteSummaryGenerator
     {
         $totalRoutes = count($routes);
         $methods = [];
+        $methodTotals = [];
+        $routesMissingNames = [];
+        $closureRoutes = [];
+
         foreach ($routes as $route) {
-            $methods = array_merge($methods, (array) ($route['method'] ?? []));
+            $methodList = (array) ($route['method'] ?? []);
+            foreach ($methodList as $method) {
+                $method = strtoupper((string) $method);
+                $methods[] = $method;
+                $methodTotals[$method] = ($methodTotals[$method] ?? 0) + 1;
+            }
+
+            if (($route['name'] ?? null) === null || $route['name'] === '') {
+                $routesMissingNames[] = $route;
+            }
+
+            $action = (string) ($route['action'] ?? '');
+            if ($action === 'Closure' || str_contains(strtolower($action), 'closure@')) {
+                $closureRoutes[] = $route;
+            }
         }
-        $uniqueMethods = implode(', ', array_unique(array_map('strtoupper', $methods)));
+
+        $uniqueMethods = implode(', ', array_unique($methods));
 
         $lines = [];
         $lines[] = '# Route Summary';
@@ -165,6 +184,27 @@ final class RouteSummaryGenerator
         $lines[] = sprintf('- Total routes: %d', $totalRoutes);
         $lines[] = sprintf('- Methods: %s', $uniqueMethods ?: 'N/A');
         $lines[] = '';
+        $lines[] = '## Metrics';
+        if ($methodTotals !== []) {
+            foreach ($methodTotals as $method => $count) {
+                $lines[] = sprintf('- %s routes: %d', $method, $count);
+            }
+        } else {
+            $lines[] = '- No routes detected.';
+        }
+        $lines[] = '';
+
+        if ($routesMissingNames !== [] || $closureRoutes !== []) {
+            $lines[] = '## Warnings';
+            if ($routesMissingNames !== []) {
+                $lines[] = sprintf('- %d route(s) missing a name.', count($routesMissingNames));
+            }
+            if ($closureRoutes !== []) {
+                $lines[] = sprintf('- %d route(s) using Closure actions.', count($closureRoutes));
+            }
+            $lines[] = '';
+        }
+
         $lines[] = '## Routes';
 
         $grouped = $this->groupRoutes($routes);

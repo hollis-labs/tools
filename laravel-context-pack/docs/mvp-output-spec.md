@@ -35,7 +35,7 @@ context-pack/
 ### 3. `02-route-summary.md` (Mandatory)
 - Source: `php artisan route:list --json` when supported; fallback to parsing text output.
 - Structure: overview section (total routes, methods breakdown), grouped tables per prefix/domain with columns (Method, URI, Name, Controller@action, Middleware).
-- Include callouts for routes missing names or using `Closure` actions.
+- Include metrics by HTTP verb and warnings for routes missing names or using `Closure` actions.
 
 ### 4. `03-model-overview.md` (Mandatory)
 - Source: static analysis of `app/Models` (and configured directories) plus schema metadata.
@@ -48,7 +48,7 @@ context-pack/
 - When a tool is unavailable, note "Skipped (not installed)".
 
 ### 6. `logs/*.log` (Mandatory directory, files conditional)
-- Store raw stdout/stderr for each generator step.
+- Store raw stdout/stderr for each generator step (`schema-dump.log`, `route-summary.log`, `model-overview.log`, `static-analysis.log`).
 - Each log file should include timestamp header and executed command for traceability.
 
 ### 7. `README.md` (Mandatory)

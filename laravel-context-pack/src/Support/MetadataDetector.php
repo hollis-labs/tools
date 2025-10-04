@@ -44,9 +44,7 @@ final class MetadataDetector
             'php' => [
                 'version' => PHP_VERSION,
             ],
-            'database' => [
-                'driver' => $this->detectDatabaseDriver($projectPath),
-            ],
+            'database' => $this->detectDatabaseInfo($projectPath, $composerLock),
             'detectedTools' => $this->detectTooling($packages, $projectPath),
             'packages' => $packages,
         ];
@@ -161,18 +159,77 @@ final class MetadataDetector
         return $output;
     }
 
-    private function detectDatabaseDriver(string $projectPath): ?string
+    /**
+     * @return array<string, mixed>
+     */
+    private function detectDatabaseInfo(string $projectPath, array $composerLock): array
     {
-        $envPath = $projectPath . '/.env';
-        if (! is_file($envPath)) {
-            return null;
+        $env = $this->parseEnvFile($projectPath . '/.env');
+
+        $driver = $env['DB_CONNECTION'] ?? null;
+        $database = $env['DB_DATABASE'] ?? null;
+        $host = $env['DB_HOST'] ?? null;
+        $port = $env['DB_PORT'] ?? null;
+        $username = $env['DB_USERNAME'] ?? null;
+        $schema = $env['DB_SCHEMA'] ?? null;
+
+        if ($driver === null) {
+            $driver = $this->resolveDriverFallback($composerLock);
         }
 
-        $contents = file_get_contents($envPath) ?: '';
-        if (preg_match('/^DB_CONNECTION=([^\n\r]+)/m', $contents, $matches) === 1) {
-            return trim($matches[1]);
+        return [
+            'driver' => $driver,
+            'database' => $database,
+            'host' => $host,
+            'port' => $port,
+            'username' => $username,
+            'schema' => $schema,
+            'hasPassword' => isset($env['DB_PASSWORD']) && $env['DB_PASSWORD'] !== '',
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function parseEnvFile(string $path): array
+    {
+        if (! is_file($path)) {
+            return [];
         }
 
+        $lines = preg_split('/\r?\n/', (string) file_get_contents($path)) ?: [];
+        $values = [];
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '' || str_starts_with($line, '#')) {
+                continue;
+            }
+
+            if (strpos($line, '=') === false) {
+                continue;
+            }
+
+            [$key, $value] = explode('=', $line, 2);
+            $key = trim($key);
+            $value = trim($value);
+
+            if ($key === '') {
+                continue;
+            }
+
+            if ($value !== '') {
+                $value = trim($value, "'\"");
+            }
+
+            $values[$key] = $value;
+        }
+
+        return $values;
+    }
+
+    private function resolveDriverFallback(array $composerLock): ?string
+    {
         return null;
     }
 
