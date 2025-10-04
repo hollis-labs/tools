@@ -31,7 +31,7 @@ final class RouteSummaryGenerator
         if ($jsonResult['success']) {
             $routes = $this->decodeJsonRoutes($jsonResult['output']);
             if ($routes !== null) {
-                $normalized = $this->normalizeRoutes($routes);
+                $normalized = $this->normalizeRoutes($routes, $projectPath);
                 $this->writeOutputs($normalized, $outputPath);
 
                 return [
@@ -45,7 +45,7 @@ final class RouteSummaryGenerator
         if ($textResult['success']) {
             $routes = $this->parseTextRoutes($textResult['output']);
             if ($routes !== null) {
-                $normalized = $this->normalizeRoutes($routes);
+                $normalized = $this->normalizeRoutes($routes, $projectPath);
                 $this->writeOutputs($normalized, $outputPath);
 
                 return [
@@ -216,19 +216,21 @@ final class RouteSummaryGenerator
         foreach ($grouped as $group => $items) {
             $lines[] = sprintf('### Prefix: %s', $group === '__root__' ? 'none' : $group);
             $lines[] = '';
-            $lines[] = '| Method | URI | Name | Action | Middleware |';
-            $lines[] = '|-------|-----|------|--------|------------|';
+            $lines[] = '| Method | URI | Name | Action | Middleware | Source |';
+            $lines[] = '|-------|-----|------|--------|------------|--------|';
 
             foreach ($items as $route) {
                 $middleware = implode(', ', $route['middleware'] ?? []);
+                $sourceCell = $this->formatSourceCell($route);
 
                 $lines[] = sprintf(
-                    '| %s | %s | %s | %s | %s |',
+                    '| %s | %s | %s | %s | %s | %s |',
                     $this->escapePipe(implode(',', $route['method'] ?? [])),
                     $this->escapePipe((string) ($route['uri'] ?? '')),
                     $this->escapePipe((string) ($route['name'] ?? '—')),
                     $this->escapePipe((string) ($route['action'] ?? '—')),
                     $this->escapePipe($middleware ?: '—'),
+                    $this->escapePipe($sourceCell),
                 );
             }
 
@@ -275,7 +277,7 @@ final class RouteSummaryGenerator
      * @param  array<int, array<string, mixed>>  $routes
      * @return array<int, array{method: array<int, string>, uri: string, name: ?string, action: string, middleware: array<int, string>, prefix: ?string}>
      */
-    private function normalizeRoutes(array $routes): array
+    private function normalizeRoutes(array $routes, string $projectPath): array
     {
         $normalized = [];
 
@@ -285,17 +287,90 @@ final class RouteSummaryGenerator
                 $methods = [(string) $route['method']];
             }
 
+            $action = (string) ($route['action'] ?? '');
+            [$controller, $controllerMethod] = $this->parseController($action);
+            $controllerPath = $controller !== null
+                ? $this->resolveControllerPath($controller, $projectPath)
+                : null;
+
             $normalized[] = [
                 'method' => array_values(array_map(static fn ($method) => strtoupper((string) $method), $methods)),
                 'uri' => (string) ($route['uri'] ?? ''),
                 'name' => ($route['name'] ?? null) !== '' ? ($route['name'] ?? null) : null,
-                'action' => (string) ($route['action'] ?? ''),
+                'action' => $action,
+                'controller' => $controller,
+                'controllerMethod' => $controllerMethod,
+                'controllerPath' => $controllerPath,
                 'middleware' => array_values(array_map(static fn ($mw) => (string) $mw, (array) ($route['middleware'] ?? []))),
                 'prefix' => isset($route['prefix']) && $route['prefix'] !== '' ? (string) $route['prefix'] : null,
             ];
         }
 
         return $normalized;
+    }
+
+    /**
+     * @return array{0: ?string, 1: ?string}
+     */
+    private function parseController(string $action): array
+    {
+        if ($action === '' || str_starts_with(strtolower($action), 'closure')) {
+            return [null, null];
+        }
+
+        if (str_contains($action, '@')) {
+            [$controller, $method] = explode('@', $action, 2);
+
+            return [$controller !== '' ? $controller : null, $method !== '' ? $method : null];
+        }
+
+        if (str_contains($action, '::')) {
+            [$controller, $method] = explode('::', $action, 2);
+
+            return [$controller !== '' ? $controller : null, $method !== '' ? $method : null];
+        }
+
+        return [$action, null];
+    }
+
+    private function resolveControllerPath(string $controller, string $projectPath): ?string
+    {
+        $controller = ltrim($controller, '\\');
+        $candidates = [];
+
+        if (str_starts_with($controller, 'App\\')) {
+            $candidates[] = $projectPath . '/app/' . str_replace('\\', '/', substr($controller, 4)) . '.php';
+        }
+
+        $candidates[] = $projectPath . '/' . str_replace('\\', '/', $controller) . '.php';
+
+        foreach ($candidates as $candidate) {
+            if (is_file($candidate)) {
+                return rtrim($this->filesystem->makePathRelative($candidate, $projectPath . '/'), '/');
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $route
+     */
+    private function formatSourceCell(array $route): string
+    {
+        $controllerPath = $route['controllerPath'] ?? null;
+        $controller = $route['controller'] ?? null;
+        $method = $route['controllerMethod'] ?? null;
+
+        if ($controllerPath !== null) {
+            return sprintf('`%s%s`', $controllerPath, $method !== null ? '@' . $method : '');
+        }
+
+        if ($controller !== null) {
+            return sprintf('`%s%s`', $controller, $method !== null ? '@' . $method : '');
+        }
+
+        return '—';
     }
 
     private function now(): string

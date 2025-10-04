@@ -16,6 +16,7 @@ test('it prepares the context pack workspace', function (): void {
         $projectPath,
         $projectPath . '/storage/framework/cache',
         $projectPath . '/app/Models',
+        $projectPath . '/app/Http/Controllers/Api',
         $projectPath . '/vendor/bin',
     ]);
 
@@ -80,6 +81,20 @@ test('it prepares the context pack workspace', function (): void {
     }
     PHP;
     file_put_contents($projectPath . '/app/Models/User.php', $modelStub);
+
+    $controllerStub = <<<'PHP'
+    <?php
+
+    namespace App\Http\Controllers\Api;
+
+    class UserController
+    {
+        public function index(): void
+        {
+        }
+    }
+    PHP;
+    file_put_contents($projectPath . '/app/Http/Controllers/Api/UserController.php', $controllerStub);
 
     $artisanStub = <<<'PHP'
     #!/usr/bin/env php
@@ -171,12 +186,14 @@ test('it prepares the context pack workspace', function (): void {
     expect($logContents)->toContain('Schema dump copied to');
 
     $routeSummary = file_get_contents($outputPath . '/02-route-summary.md');
-    expect($routeSummary)->toContain('| GET,HEAD | api/users');
+    expect($routeSummary)->toContain('| Method | URI | Name | Action | Middleware | Source |');
     expect($routeSummary)->toContain('## Metrics');
 
     $routeJson = json_decode(file_get_contents($outputPath . '/02-route-summary.json') ?: 'null', true);
     expect($routeJson[0]['method'])->toBe(['GET', 'HEAD']);
     expect($routeJson[0]['uri'])->toBe('api/users');
+    expect($routeJson[0]['controllerPath'])->toEndWith('UserController.php');
+    expect($routeJson[0]['controllerMethod'])->toBe('index');
 
     $routeLog = file_get_contents($outputPath . '/logs/route-summary.log');
     expect($routeLog)->toContain('route:list --json');
