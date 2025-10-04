@@ -19,7 +19,7 @@ php bin/context-pack.php generate --project=/path/to/laravel-app
 php bin/context-pack.php generate --project=/path/to/app --output=./build/context-pack --force
 ```
 
-The command validates the Laravel project, prepares the output workspace, writes initial metadata, and seeds log files. Subsequent modules (schema dump, routes, models, static analysis) will build on this structure.
+The command validates the Laravel project, prepares the output workspace, captures metadata, generates `01-schema-dump.sql` via `php artisan schema:dump`, and seeds log files. Route, model, and static-analysis generators will build on this structure next.
 
 ## Project Layout
 ```
@@ -39,4 +39,4 @@ The command validates the Laravel project, prepares the output workspace, writes
 - Tests: `composer test`
 - Rector dry run: `composer rector -- --dry-run`
 
-Generated context packs follow the contract in `docs/mvp-output-spec.md` and include placeholders for artefacts still under development.
+Generated context packs follow the contract in `docs/mvp-output-spec.md`; the schema dump is available today, with route, model, and static-analysis artefacts still marked as pending.

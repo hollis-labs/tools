@@ -28,7 +28,7 @@ context-pack/
 - Purpose: drive conditional logic for downstream generators and provide quick situational awareness.
 
 ### 2. `01-schema-dump.sql` (Mandatory)
-- Source: `php artisan schema:dump` when available; fall back to database-specific dump commands.
+- Source: `php artisan schema:dump --no-interaction --prune --schema-path=<tmp>` when available; fall back to database-specific dump commands.
 - Acceptance: dump should include current schema with relationships (FKs) and be reproducible by re-running generator.
 - Notes: include warning header if fallback strategy used or dump incomplete.
 

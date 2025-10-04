@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace LaravelContextPack\Command;
 
+use LaravelContextPack\Generator\SchemaDumpGenerator;
 use LaravelContextPack\Support\MetadataDetector;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -22,12 +23,18 @@ final class GenerateContextPackCommand extends Command
 
     private MetadataDetector $metadataDetector;
 
-    public function __construct(?Filesystem $filesystem = null, ?MetadataDetector $metadataDetector = null)
-    {
+    private SchemaDumpGenerator $schemaDumpGenerator;
+
+    public function __construct(
+        ?Filesystem $filesystem = null,
+        ?MetadataDetector $metadataDetector = null,
+        ?SchemaDumpGenerator $schemaDumpGenerator = null,
+    ) {
         parent::__construct();
 
         $this->filesystem = $filesystem ?? new Filesystem;
         $this->metadataDetector = $metadataDetector ?? new MetadataDetector;
+        $this->schemaDumpGenerator = $schemaDumpGenerator ?? new SchemaDumpGenerator;
     }
 
     protected function configure(): void
@@ -119,9 +126,29 @@ final class GenerateContextPackCommand extends Command
         $io->writeln(sprintf('✔ Laravel version detected: <info>%s</info>', $metadata['laravel']['version'] ?? 'unknown'));
         $io->writeln(sprintf('✔ PHP version detected: <info>%s</info>', $metadata['php']['version'] ?? 'unknown'));
 
+        $artifactStatuses = $this->initialArtifactStatuses();
+
+        if ($dryRun) {
+            $artifactStatuses['schemaDump'] = [
+                'status' => 'skipped',
+                'message' => 'Schema dump skipped (dry run).',
+            ];
+        } else {
+            $io->section('Generating schema dump');
+            $artifactStatuses['schemaDump'] = $this->schemaDumpGenerator->generate($projectPath, $outputPath);
+
+            $io->writeln(sprintf(
+                'Schema dump status: <info>%s</info> — %s',
+                strtoupper($artifactStatuses['schemaDump']['status']),
+                $artifactStatuses['schemaDump']['message'],
+            ));
+        }
+
+        $metadata['artifacts'] = $artifactStatuses;
+
         if (! $dryRun) {
             $this->writeJson($outputPath . '/metadata.json', $metadata);
-            $this->writeFile($outputPath . '/README.md', $this->buildReadme($metadata));
+            $this->writeFile($outputPath . '/README.md', $this->buildReadme($metadata, $artifactStatuses));
 
             foreach (['schema-dump.log', 'route-summary.log', 'static-analysis.log'] as $logFile) {
                 $this->ensureLogFile($outputPath . '/logs/' . $logFile);
@@ -204,7 +231,10 @@ final class GenerateContextPackCommand extends Command
         $this->writeFile($path, sprintf("[%s] log initialised\n", (new \DateTimeImmutable)->format(DATE_ATOM)));
     }
 
-    private function buildReadme(array $metadata): string
+    /**
+     * @param  array<string, array{status: string, message: string}>  $artifactStatuses
+     */
+    private function buildReadme(array $metadata, array $artifactStatuses): string
     {
         $lines = [];
         $lines[] = '# Laravel Context Pack';
@@ -214,10 +244,10 @@ final class GenerateContextPackCommand extends Command
         $lines[] = '';
         $lines[] = '## Artefacts';
         $lines[] = '- `metadata.json` — captured environment metadata for downstream generators';
-        $lines[] = '- `01-schema-dump.sql` — pending';
-        $lines[] = '- `02-route-summary.md` — pending';
-        $lines[] = '- `03-model-overview.md` — pending';
-        $lines[] = '- `04-static-analysis.md` — pending';
+        $lines[] = sprintf('- `01-schema-dump.sql` — %s (%s)', $artifactStatuses['schemaDump']['status'], $artifactStatuses['schemaDump']['message']);
+        $lines[] = sprintf('- `02-route-summary.md` — %s', $artifactStatuses['routeSummary']['status']);
+        $lines[] = sprintf('- `03-model-overview.md` — %s', $artifactStatuses['modelOverview']['status']);
+        $lines[] = sprintf('- `04-static-analysis.md` — %s', $artifactStatuses['staticAnalysis']['status']);
         $lines[] = '- `logs/` — raw command output for debugging';
         $lines[] = '';
         $lines[] = '## Next Steps';
@@ -225,5 +255,18 @@ final class GenerateContextPackCommand extends Command
         $lines[] = '- Review `metadata.json` for accuracy; report discrepancies.';
 
         return implode(PHP_EOL, $lines) . PHP_EOL;
+    }
+
+    /**
+     * @return array<string, array{status: string, message: string}>
+     */
+    private function initialArtifactStatuses(): array
+    {
+        return [
+            'schemaDump' => ['status' => 'pending', 'message' => 'Awaiting generation.'],
+            'routeSummary' => ['status' => 'pending', 'message' => 'Awaiting implementation.'],
+            'modelOverview' => ['status' => 'pending', 'message' => 'Awaiting implementation.'],
+            'staticAnalysis' => ['status' => 'pending', 'message' => 'Awaiting implementation.'],
+        ];
     }
 }
