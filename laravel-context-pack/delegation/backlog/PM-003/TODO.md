@@ -1,0 +1,4 @@
+- [ ] Select dogfooding target projects and secure owner buy-in
+- [ ] Align feature milestones with dogfooding schedule
+- [ ] Define success metrics and feedback channel
+- [ ] Publish and socialise dogfooding plan

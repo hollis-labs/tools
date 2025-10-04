@@ -1,0 +1,4 @@
+- [ ] Capture MVP validation requirements and risk areas
+- [ ] Draft test matrix covering unit, integration, and E2E scopes
+- [ ] Recommend automation tooling and coverage targets
+- [ ] Publish testing strategy document with next steps

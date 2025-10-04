@@ -1,0 +1,5 @@
+- [x] Initialize project scaffold aligned with PM-001 decision
+- [x] Implement CLI argument parsing for project and output paths
+- [x] Validate Laravel environment prerequisites on run
+- [x] Create output directory structure with placeholder artefacts
+- [x] Document usage examples for the new CLI entrypoint

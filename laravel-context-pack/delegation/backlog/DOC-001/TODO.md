@@ -1,0 +1,4 @@
+- [ ] Gather finalised MVP features and artefact examples
+- [ ] Outline documentation structure and placement
+- [ ] Draft installation, usage, and outputs guidance
+- [ ] Validate instructions end-to-end and publish update

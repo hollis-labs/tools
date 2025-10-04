@@ -1,0 +1,11 @@
+/vendor/
+/context-pack/
+.phpunit.cache/
+.phpstan/
+rector.php.cache
+.pint.cache
+.DS_Store
+.idea/
+/humbug.json
+/build/
+var/
