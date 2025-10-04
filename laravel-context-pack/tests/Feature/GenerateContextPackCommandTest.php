@@ -152,6 +152,7 @@ test('it prepares the context pack workspace', function (): void {
     expect(is_file($outputPath . '/metadata.json'))->toBeTrue();
     expect(is_file($outputPath . '/01-schema-dump.sql'))->toBeTrue();
     expect(is_file($outputPath . '/02-route-summary.md'))->toBeTrue();
+    expect(is_file($outputPath . '/02-route-summary.json'))->toBeTrue();
     expect(is_file($outputPath . '/03-model-overview.md'))->toBeTrue();
 
     $metadata = json_decode(file_get_contents($outputPath . '/metadata.json') ?: 'null', true);
@@ -172,6 +173,10 @@ test('it prepares the context pack workspace', function (): void {
     $routeSummary = file_get_contents($outputPath . '/02-route-summary.md');
     expect($routeSummary)->toContain('| GET,HEAD | api/users');
     expect($routeSummary)->toContain('## Metrics');
+
+    $routeJson = json_decode(file_get_contents($outputPath . '/02-route-summary.json') ?: 'null', true);
+    expect($routeJson[0]['method'])->toBe(['GET', 'HEAD']);
+    expect($routeJson[0]['uri'])->toBe('api/users');
 
     $routeLog = file_get_contents($outputPath . '/logs/route-summary.log');
     expect($routeLog)->toContain('route:list --json');

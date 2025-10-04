@@ -31,7 +31,8 @@ final class RouteSummaryGenerator
         if ($jsonResult['success']) {
             $routes = $this->decodeJsonRoutes($jsonResult['output']);
             if ($routes !== null) {
-                $this->writeSummary($routes, $outputPath);
+                $normalized = $this->normalizeRoutes($routes);
+                $this->writeOutputs($normalized, $outputPath);
 
                 return [
                     'status' => 'success',
@@ -44,7 +45,8 @@ final class RouteSummaryGenerator
         if ($textResult['success']) {
             $routes = $this->parseTextRoutes($textResult['output']);
             if ($routes !== null) {
-                $this->writeSummary($routes, $outputPath);
+                $normalized = $this->normalizeRoutes($routes);
+                $this->writeOutputs($normalized, $outputPath);
 
                 return [
                     'status' => 'success',
@@ -139,10 +141,14 @@ final class RouteSummaryGenerator
     /**
      * @param  array<int, array<string, mixed>>  $routes
      */
-    private function writeSummary(array $routes, string $outputPath): void
+    private function writeOutputs(array $routes, string $outputPath): void
     {
         $summary = $this->buildMarkdown($routes);
         $this->filesystem->dumpFile($outputPath . '/02-route-summary.md', $summary);
+        $this->filesystem->dumpFile(
+            $outputPath . '/02-route-summary.json',
+            json_encode($routes, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL,
+        );
     }
 
     /**
@@ -214,14 +220,11 @@ final class RouteSummaryGenerator
             $lines[] = '|-------|-----|------|--------|------------|';
 
             foreach ($items as $route) {
-                $middleware = $route['middleware'] ?? [];
-                if (is_array($middleware)) {
-                    $middleware = implode(', ', $middleware);
-                }
+                $middleware = implode(', ', $route['middleware'] ?? []);
 
                 $lines[] = sprintf(
                     '| %s | %s | %s | %s | %s |',
-                    $this->escapePipe(is_array($route['method'] ?? null) ? implode(',', $route['method']) : (string) ($route['method'] ?? '')),
+                    $this->escapePipe(implode(',', $route['method'] ?? [])),
                     $this->escapePipe((string) ($route['uri'] ?? '')),
                     $this->escapePipe((string) ($route['name'] ?? '—')),
                     $this->escapePipe((string) ($route['action'] ?? '—')),
@@ -266,6 +269,33 @@ final class RouteSummaryGenerator
         }
 
         $this->filesystem->appendToFile($logPath, $message . PHP_EOL);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $routes
+     * @return array<int, array{method: array<int, string>, uri: string, name: ?string, action: string, middleware: array<int, string>, prefix: ?string}>
+     */
+    private function normalizeRoutes(array $routes): array
+    {
+        $normalized = [];
+
+        foreach ($routes as $route) {
+            $methods = (array) ($route['method'] ?? []);
+            if ($methods === [] && isset($route['method'])) {
+                $methods = [(string) $route['method']];
+            }
+
+            $normalized[] = [
+                'method' => array_values(array_map(static fn ($method) => strtoupper((string) $method), $methods)),
+                'uri' => (string) ($route['uri'] ?? ''),
+                'name' => ($route['name'] ?? null) !== '' ? ($route['name'] ?? null) : null,
+                'action' => (string) ($route['action'] ?? ''),
+                'middleware' => array_values(array_map(static fn ($mw) => (string) $mw, (array) ($route['middleware'] ?? []))),
+                'prefix' => isset($route['prefix']) && $route['prefix'] !== '' ? (string) $route['prefix'] : null,
+            ];
+        }
+
+        return $normalized;
     }
 
     private function now(): string

@@ -32,9 +32,9 @@ context-pack/
 - Acceptance: dump should include current schema with relationships (FKs) and be reproducible by re-running generator.
 - Notes: include warning header if fallback strategy used or dump incomplete.
 
-### 3. `02-route-summary.md` (Mandatory)
+-### 3. `02-route-summary.md/.json` (Mandatory)
 - Source: `php artisan route:list --json` when supported; fallback to parsing text output.
-- Structure: overview section (total routes, methods breakdown), grouped tables per prefix/domain with columns (Method, URI, Name, Controller@action, Middleware).
+- Structure: Markdown overview (total routes, methods breakdown, grouped tables) plus JSON export capturing normalised method/URI/action/middleware data.
 - Include metrics by HTTP verb and warnings for routes missing names or using `Closure` actions.
 
 ### 4. `03-model-overview.md` (Mandatory)
