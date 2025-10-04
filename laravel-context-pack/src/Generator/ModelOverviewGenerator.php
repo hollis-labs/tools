@@ -180,11 +180,7 @@ final class ModelOverviewGenerator
         $body = $matches[1];
         preg_match_all('/[\'\"]([^\'\"]+)[\'\"]/m', $body, $valueMatches);
 
-        if (! isset($valueMatches[1])) {
-            return [];
-        }
-
-        return array_map('trim', $valueMatches[1]);
+        return array_map('trim', $valueMatches[1] ?? []);
     }
 
     private function matchPropertyArray(string $contents, string $property): ?string
