@@ -91,6 +91,10 @@ final class MetadataDetector
     /**
      * @return array<string, string>
      */
+    /**
+     * @param  array<string, mixed>  $composerLock
+     * @return array<string, string>
+     */
     private function collectPackages(array $composerLock): array
     {
         $packages = [];
@@ -110,6 +114,9 @@ final class MetadataDetector
         return $packages;
     }
 
+    /**
+     * @param  array<string, mixed>  $composerLock
+     */
     private function resolveLaravelVersion(array $composerLock, string $projectPath): ?string
     {
         $packages = $this->collectPackages($composerLock);
@@ -162,6 +169,10 @@ final class MetadataDetector
     /**
      * @return array<string, mixed>
      */
+    /**
+     * @param  array<string, mixed>  $composerLock
+     * @return array<string, mixed>
+     */
     private function detectDatabaseInfo(string $projectPath, array $composerLock): array
     {
         $env = $this->parseEnvFile($projectPath . '/.env');
@@ -188,6 +199,9 @@ final class MetadataDetector
         ];
     }
 
+    /**
+     * @return array<string, string>
+     */
     /**
      * @return array<string, string>
      */
@@ -228,8 +242,26 @@ final class MetadataDetector
         return $values;
     }
 
+    /**
+     * @param  array<string, mixed>  $composerLock
+     */
     private function resolveDriverFallback(array $composerLock): ?string
     {
+        $packages = $this->collectPackages($composerLock);
+
+        $driverMap = [
+            'laravel/framework' => 'mysql',
+            'illuminate/database' => 'mysql',
+            'doctrine/dbal' => 'mysql',
+            'laravel/lumen-framework' => 'mysql',
+        ];
+
+        foreach ($driverMap as $package => $driver) {
+            if (isset($packages[$package])) {
+                return $driver;
+            }
+        }
+
         return null;
     }
 

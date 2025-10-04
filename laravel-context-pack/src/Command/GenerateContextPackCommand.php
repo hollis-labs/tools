@@ -83,8 +83,8 @@ final class GenerateContextPackCommand extends Command
         $io = new SymfonyStyle($input, $output);
 
         $projectOption = $input->getOption('project');
-        $projectPath = $projectOption !== null ? (string) $projectOption : getcwd();
-        $projectPath = $this->normalisePath($projectPath ?? '.');
+        $projectPath = $projectOption !== null ? (string) $projectOption : (string) getcwd();
+        $projectPath = $this->normalisePath($projectPath);
 
         if ($projectPath === null || ! is_dir($projectPath)) {
             $io->error('The provided project path could not be found.');
@@ -268,6 +268,9 @@ final class GenerateContextPackCommand extends Command
             || (bool) preg_match('/^[A-Za-z]:\\\\/', $path);
     }
 
+    /**
+     * @param  array<string, mixed>  $payload
+     */
     private function writeJson(string $path, array $payload): void
     {
         $json = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -295,6 +298,10 @@ final class GenerateContextPackCommand extends Command
 
     /**
      * @param  array<string, array{status: string, message: string}>  $artifactStatuses
+     */
+    /**
+     * @param  array<string, mixed>  $metadata
+     * @param  array<string, array{status: string, message: string, tools?: array<string, array{status: string, message: string}>}>  $artifactStatuses
      */
     private function buildReadme(array $metadata, array $artifactStatuses): string
     {

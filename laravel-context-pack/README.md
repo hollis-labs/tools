@@ -19,7 +19,7 @@ php bin/context-pack.php generate --project=/path/to/laravel-app
 php bin/context-pack.php generate --project=/path/to/app --output=./build/context-pack --force
 ```
 
-The command validates the Laravel project, prepares the output workspace, captures metadata, generates `01-schema-dump.sql` via `php artisan schema:dump` (with fallbacks for SQLite/MySQL/Postgres), produces `02-route-summary.md` from `php artisan route:list --json`, assembles a `03-model-overview.md`, and seeds log files. Static-analysis generators will build on this structure next.
+The command validates the Laravel project, prepares the output workspace, captures metadata, generates `01-schema-dump.sql` via `php artisan schema:dump` (with fallbacks for SQLite/MySQL/Postgres), produces `02-route-summary.md` from `php artisan route:list --json`, assembles a `03-model-overview.md`, and runs available tooling (Pint, Pest, PHPStan/Larastan, Rector) to summarise findings in `04-static-analysis.md`, seeding logs for each step.
 
 ## Project Layout
 ```
@@ -39,4 +39,4 @@ The command validates the Laravel project, prepares the output workspace, captur
 - Tests: `composer test`
 - Rector dry run: `composer rector -- --dry-run`
 
-Generated context packs follow the contract in `docs/mvp-output-spec.md`; schema, route, and model artefacts are available today, with static-analysis outputs still marked as pending.
+Generated context packs follow the contract in `docs/mvp-output-spec.md`; schema, route, model, and static-analysis artefacts are included, with skipped tools clearly noted when unavailable.

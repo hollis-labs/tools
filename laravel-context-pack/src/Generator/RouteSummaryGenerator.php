@@ -85,7 +85,6 @@ final class RouteSummaryGenerator
     }
 
     /**
-     * @param  array<int, array<string, mixed>>|null  $routes
      * @return array<int, array<string, mixed>>|null
      */
     private function decodeJsonRoutes(string $output): ?array

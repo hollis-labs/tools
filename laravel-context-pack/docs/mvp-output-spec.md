@@ -44,8 +44,8 @@ context-pack/
 
 ### 5. `04-static-analysis.md` (Optional per availability, but file must exist)
 - Source: Pint, Larastan/PHPStan, Pest, Rector (dry-run) depending on detected tooling.
-- Structure: summary table noting which tools ran, exit status, issue counts. Detailed subsections per tool with top findings (first N issues) and link to raw logs.
-- When a tool is unavailable, note "Skipped (not installed)".
+- Structure: summary table noting which tools ran, exit status, and notes; logs contain raw output.
+- When a tool is unavailable, note "Skipped (not installed)"; when commands fail, mark status `FAILED` with guidance to inspect logs.
 
 ### 6. `logs/*.log` (Mandatory directory, files conditional)
 - Store raw stdout/stderr for each generator step (`schema-dump.log`, `route-summary.log`, `model-overview.log`, `static-analysis.log`).
