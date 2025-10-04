@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace LaravelContextPack\Command;
 
+use LaravelContextPack\Generator\RouteSummaryGenerator;
 use LaravelContextPack\Generator\SchemaDumpGenerator;
 use LaravelContextPack\Support\MetadataDetector;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -25,16 +26,20 @@ final class GenerateContextPackCommand extends Command
 
     private SchemaDumpGenerator $schemaDumpGenerator;
 
+    private RouteSummaryGenerator $routeSummaryGenerator;
+
     public function __construct(
         ?Filesystem $filesystem = null,
         ?MetadataDetector $metadataDetector = null,
         ?SchemaDumpGenerator $schemaDumpGenerator = null,
+        ?RouteSummaryGenerator $routeSummaryGenerator = null,
     ) {
         parent::__construct();
 
         $this->filesystem = $filesystem ?? new Filesystem;
         $this->metadataDetector = $metadataDetector ?? new MetadataDetector;
         $this->schemaDumpGenerator = $schemaDumpGenerator ?? new SchemaDumpGenerator;
+        $this->routeSummaryGenerator = $routeSummaryGenerator ?? new RouteSummaryGenerator;
     }
 
     protected function configure(): void
@@ -133,6 +138,10 @@ final class GenerateContextPackCommand extends Command
                 'status' => 'skipped',
                 'message' => 'Schema dump skipped (dry run).',
             ];
+            $artifactStatuses['routeSummary'] = [
+                'status' => 'skipped',
+                'message' => 'Route summary skipped (dry run).',
+            ];
         } else {
             $io->section('Generating schema dump');
             $artifactStatuses['schemaDump'] = $this->schemaDumpGenerator->generate($projectPath, $outputPath);
@@ -141,6 +150,15 @@ final class GenerateContextPackCommand extends Command
                 'Schema dump status: <info>%s</info> — %s',
                 strtoupper($artifactStatuses['schemaDump']['status']),
                 $artifactStatuses['schemaDump']['message'],
+            ));
+
+            $io->section('Generating route summary');
+            $artifactStatuses['routeSummary'] = $this->routeSummaryGenerator->generate($projectPath, $outputPath);
+
+            $io->writeln(sprintf(
+                'Route summary status: <info>%s</info> — %s',
+                strtoupper($artifactStatuses['routeSummary']['status']),
+                $artifactStatuses['routeSummary']['message'],
             ));
         }
 
