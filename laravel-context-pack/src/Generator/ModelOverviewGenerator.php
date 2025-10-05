@@ -343,6 +343,9 @@ final class ModelOverviewGenerator
         }
 
         $names = $matches[1] ?? [];
+        if ($names === []) {
+            return [];
+        }
 
         return array_map(static fn (string $match): string => lcfirst($match), $names);
     }
@@ -413,6 +416,9 @@ final class ModelOverviewGenerator
         }
 
         $names = $matches[1] ?? [];
+        if ($names === []) {
+            return [];
+        }
 
         return array_map(static fn (string $match): string => lcfirst($match), $names);
     }
