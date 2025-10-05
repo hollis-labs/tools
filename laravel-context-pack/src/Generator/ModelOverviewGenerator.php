@@ -338,12 +338,11 @@ final class ModelOverviewGenerator
     private function extractAccessors(string $contents): array
     {
         $matchCount = preg_match_all('/function\s+get([A-Za-z0-9_]+)Attribute\s*\(/', $contents, $matches);
-        if ($matchCount === false || $matchCount === 0 || ! isset($matches[1])) {
+        if ($matchCount === false || $matchCount === 0) {
             return [];
         }
 
-        /** @var list<string> $names */
-        $names = $matches[1];
+        $names = $matches[1] ?? [];
 
         return array_map(static fn (string $match): string => lcfirst($match), $names);
     }
@@ -409,12 +408,11 @@ final class ModelOverviewGenerator
     private function extractMutators(string $contents): array
     {
         $matchCount = preg_match_all('/function\s+set([A-Za-z0-9_]+)Attribute\s*\(/', $contents, $matches);
-        if ($matchCount === false || $matchCount === 0 || ! isset($matches[1])) {
+        if ($matchCount === false || $matchCount === 0) {
             return [];
         }
 
-        /** @var list<string> $names */
-        $names = $matches[1];
+        $names = $matches[1] ?? [];
 
         return array_map(static fn (string $match): string => lcfirst($match), $names);
     }
