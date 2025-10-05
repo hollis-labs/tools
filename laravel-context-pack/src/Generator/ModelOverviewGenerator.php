@@ -111,6 +111,11 @@ final class ModelOverviewGenerator
             $lines[] = sprintf('- Table: `%s`', $model['table'] ?? 'not specified');
             $lines[] = sprintf('- Fillable: %s', $model['fillable'] !== [] ? '`' . implode('`, `', $model['fillable']) . '`' : 'not specified');
             $lines[] = sprintf('- Guarded: %s', $model['guarded'] !== [] ? '`' . implode('`, `', $model['guarded']) . '`' : 'not specified');
+            $lines[] = sprintf('- Soft Deletes: %s', $model['softDeletes'] ? 'yes' : 'no');
+
+            if ($model['casts'] !== []) {
+                $lines[] = sprintf('- Casts: `%s`', $this->formatAssociative($model['casts']));
+            }
 
             if ($model['relationships'] !== []) {
                 $lines[] = '';
@@ -152,10 +157,12 @@ final class ModelOverviewGenerator
 
         $class = $matches[1];
         $fqn = $namespace !== null ? $namespace . '\\' . $class : $class;
-        $table = $this->matchPropertyArray($contents, 'table');
+        $table = $this->matchPropertyString($contents, 'table');
         $fillable = $this->extractArrayValues($contents, 'fillable');
         $guarded = $this->extractArrayValues($contents, 'guarded');
+        $casts = $this->extractAssociativeArray($contents, 'casts');
         $relationships = $this->extractRelationships($contents);
+        $usesSoftDeletes = $this->detectSoftDeletes($contents);
 
         return [
             'fqn' => $fqn,
@@ -163,6 +170,8 @@ final class ModelOverviewGenerator
             'table' => $table,
             'fillable' => $fillable,
             'guarded' => $guarded,
+            'casts' => $casts,
+            'softDeletes' => $usesSoftDeletes,
             'relationships' => $relationships,
         ];
     }
@@ -189,7 +198,7 @@ final class ModelOverviewGenerator
         return array_map('trim', $values);
     }
 
-    private function matchPropertyArray(string $contents, string $property): ?string
+    private function matchPropertyString(string $contents, string $property): ?string
     {
         $pattern = sprintf('/protected\s+\$%s\s*=\s*[\'\"]([^\'\"]+)[\'\"];/', preg_quote($property, '/'));
         if (preg_match($pattern, $contents, $matches) !== 1) {
@@ -239,6 +248,65 @@ final class ModelOverviewGenerator
         }
 
         return $raw;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function extractAssociativeArray(string $contents, string $property): array
+    {
+        $pattern = sprintf('/protected\s+\$%s\s*=\s*\[(.*?)\];/s', preg_quote($property, '/'));
+        if (preg_match($pattern, $contents, $matches) !== 1) {
+            return [];
+        }
+
+        $body = $matches[1];
+        $result = [];
+
+        if (preg_match_all('/[\'\"]([^\'\"]+)[\'\"]\s*=>\s*([^,\n]+)/', $body, $pairs, PREG_SET_ORDER) === false) {
+            return [];
+        }
+
+        foreach ($pairs as $pair) {
+            $key = trim($pair[1]);
+            $value = trim($pair[2]);
+            $value = rtrim($value, ',');
+            $value = trim($value, "'\" ");
+
+            if (str_ends_with($value, '::class')) {
+                $value = str_replace('::class', '', $value);
+            }
+
+            $result[$key] = $value;
+        }
+
+        return $result;
+    }
+
+    private function detectSoftDeletes(string $contents): bool
+    {
+        if (preg_match('/use\s+SoftDeletes;/', $contents) === 1) {
+            return true;
+        }
+
+        if (preg_match('/use\s+Illuminate\\\\Database\\\\Eloquent\\\\SoftDeletes;/', $contents) === 1) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<string, string>  $values
+     */
+    private function formatAssociative(array $values): string
+    {
+        $formatted = [];
+        foreach ($values as $key => $value) {
+            $formatted[] = sprintf('%s: %s', $key, $value);
+        }
+
+        return implode(', ', $formatted);
     }
 
     private function appendLog(string $logPath, string $message): void

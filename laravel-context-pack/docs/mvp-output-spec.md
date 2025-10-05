@@ -39,8 +39,8 @@ context-pack/
 
 ### 4. `03-model-overview.md` (Mandatory)
 - Source: static analysis of `app/Models` (and configured directories) plus schema metadata.
-- Sections per model summarising table, fillable/guarded props, relationships (type, target model, keys), noteworthy traits/scopes.
-- Provide aggregate metrics (model count, relationships per model, soft deletes usage).
+- Sections per model summarising table, fillable/guarded props, casts, soft deletes usage, relationships (type, target model, keys), noteworthy traits/scopes.
+- Provide aggregate metrics (model count, relationships per model, soft delete usage).
 
 ### 5. `04-static-analysis.md` (Optional per availability, but file must exist)
 - Source: Pint, Larastan/PHPStan, Pest, Rector (dry-run) depending on detected tooling.

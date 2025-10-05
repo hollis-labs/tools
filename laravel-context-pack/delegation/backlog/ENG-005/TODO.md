@@ -3,5 +3,6 @@
 - [x] Extract and document relationships between models
 - [x] Generate Markdown summary for inclusion in context pack (JSON deferred)
 - [x] Test against sample apps and record follow-up improvements
-- [ ] Detect casts, accessors/mutators, and soft deletes for each model
+- [x] Detect casts and soft deletes for each model
+- [ ] Surface accessors/mutators with descriptive output
 - [ ] Generate Mermaid entity-relationship diagrams for high-level visualisation

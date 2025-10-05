@@ -67,12 +67,19 @@ test('it prepares the context pack workspace', function (): void {
     namespace App\Models;
 
     use Illuminate\Database\Eloquent\Model;
+    use Illuminate\Database\Eloquent\SoftDeletes;
 
     class User extends Model
     {
+        use SoftDeletes;
+
         protected $table = 'users';
 
         protected $fillable = ['name', 'email'];
+
+        protected $casts = [
+            'email_verified_at' => 'datetime',
+        ];
 
         public function posts()
         {
@@ -201,6 +208,8 @@ test('it prepares the context pack workspace', function (): void {
 
     $modelOverview = file_get_contents($outputPath . '/03-model-overview.md');
     expect($modelOverview)->toContain('App\\Models\\User');
+    expect($modelOverview)->toContain('Soft Deletes: yes');
+    expect($modelOverview)->toContain('Casts: `email_verified_at: datetime`');
     expect($modelOverview)->toContain('| HASMANY | Post |');
 
     $modelLog = file_get_contents($outputPath . '/logs/model-overview.log');
