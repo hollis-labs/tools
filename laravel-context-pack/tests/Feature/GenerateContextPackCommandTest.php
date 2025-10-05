@@ -223,6 +223,9 @@ test('it prepares the context pack workspace', function (): void {
     expect($modelOverview)->toContain('Accessor: `name`');
     expect($modelOverview)->toContain('Mutator: `email`');
     expect($modelOverview)->toContain('| HASMANY | Post |');
+    expect($modelOverview)->toContain('```mermaid');
+    expect($modelOverview)->toContain('erDiagram');
+    expect($modelOverview)->toContain('User ||--o{ Post');
 
     $modelLog = file_get_contents($outputPath . '/logs/model-overview.log');
     expect($modelLog)->toContain('Model overview generated');

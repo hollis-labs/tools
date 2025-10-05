@@ -104,6 +104,15 @@ final class ModelOverviewGenerator
         }
         $lines[] = '';
 
+        $diagram = $this->buildMermaidDiagram($models);
+        if ($diagram !== null) {
+            $lines[] = '## Entity Relationship Diagram';
+            $lines[] = '```mermaid';
+            $lines[] = $diagram;
+            $lines[] = '```';
+            $lines[] = '';
+        }
+
         foreach ($models as $model) {
             $lines[] = sprintf('## %s', $model['fqn']);
             $lines[] = '';
@@ -333,6 +342,61 @@ final class ModelOverviewGenerator
         }
 
         return array_map(static fn ($match) => lcfirst($match), $matches[1] ?? []);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $models
+     */
+    private function buildMermaidDiagram(array $models): ?string
+    {
+        $edges = [];
+
+        foreach ($models as $model) {
+            $source = $this->shortClass($model['fqn'] ?? '');
+            if ($source === null) {
+                continue;
+            }
+
+            foreach ($model['relationships'] as $relationship) {
+                $target = $this->shortClass($relationship['target'] ?? '');
+                if ($target === null) {
+                    continue;
+                }
+
+                $symbol = $this->relationshipCardinality($relationship['type'] ?? '');
+                $label = $relationship['name'] ?? '';
+                $edgeKey = sprintf('%s|%s|%s|%s', $source, $target, $symbol, $label);
+                $edges[$edgeKey] = sprintf('    %s %s %s : %s', $source, $symbol, $target, $label);
+            }
+        }
+
+        if ($edges === []) {
+            return null;
+        }
+
+        return implode(PHP_EOL, array_merge(['erDiagram'], array_values($edges)));
+    }
+
+    private function shortClass(?string $fqn): ?string
+    {
+        if ($fqn === null || $fqn === '' || strtolower($fqn) === 'unknown') {
+            return null;
+        }
+
+        $parts = explode('\\', $fqn);
+        $short = end($parts);
+
+        return $short !== false && $short !== '' ? $short : null;
+    }
+
+    private function relationshipCardinality(string $type): string
+    {
+        return match (strtolower($type)) {
+            'hasone', 'morphone', 'hasonethrough' => '||--||',
+            'belongsto', 'morphto' => 'o{--||',
+            'belongstomany', 'hasmany', 'morphmany', 'morphtomany', 'hasmanythrough' => '||--o{',
+            default => '||--o{',
+        };
     }
 
     /**
