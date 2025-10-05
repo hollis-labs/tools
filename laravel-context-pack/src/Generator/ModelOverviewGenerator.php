@@ -342,10 +342,8 @@ final class ModelOverviewGenerator
             return [];
         }
 
-        $names = $matches[1] ?? [];
-        if ($names === []) {
-            return [];
-        }
+        /** @var list<string> $names */
+        $names = $matches[1];
 
         return array_map(static fn (string $match): string => lcfirst($match), $names);
     }
@@ -415,10 +413,8 @@ final class ModelOverviewGenerator
             return [];
         }
 
-        $names = $matches[1] ?? [];
-        if ($names === []) {
-            return [];
-        }
+        /** @var list<string> $names */
+        $names = $matches[1];
 
         return array_map(static fn (string $match): string => lcfirst($match), $names);
     }
