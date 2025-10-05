@@ -9,3 +9,4 @@ rector.php.cache
 /humbug.json
 /build/
 var/
+.claude/

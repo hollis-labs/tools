@@ -2,138 +2,110 @@
 
 ## 📊 Current Sprint Overview
 
-**Active Sprint**: Not Started  
-**Sprint Focus**: Awaiting task planning and agent assignment  
-**Start Date**: TBD  
-**Target Completion**: TBD  
+**Active Sprint**: Sprint 001 – Foundation & Architecture  
+**Sprint Focus**: Stabilise context generators and quality gates  
+**Start Date**: 2024-06-01  
+**Target Completion**: 2024-06-21  
 
 ## 🎯 Sprint Priorities
 
-### Sprint 001: Foundation & Architecture (Recommended Start)
-**Status**: `ready-for-planning` | **Estimated**: 2-3 weeks | **Priority**: `HIGH`
+### Sprint 001: Foundation & Architecture
+**Status**: `in-progress` | **Estimated**: 3 weeks | **Priority**: `HIGH`
 
-**Objective**: Establish core Laravel package structure and integration foundation
+**Objective**: Deliver reliable CLI generators for schema, routes, models, and static analysis output.
 
-**Key Focus Areas**:
-- Laravel package scaffold with proper PSR-4 structure
-- Service provider implementation and configuration management
-- Basic Artisan commands for package functionality
-- Testing foundation with Laravel Testbench integration
-- Initial documentation and developer experience setup
+**Completed This Sprint**:
+- Schema fallback logic handles missing binaries/env vars with actionable logging
+- Route summary generator now links controllers and exports JSON metadata
+- Model overview generator reports soft deletes, casts, hooks, and renders Mermaid ERD
+- Static analysis aggregator auto-detects phpstan configs and reports per-tool counts
+- PHPStan baseline cleared locally (`composer analyse -- --no-progress`)
+
+**In Flight / Upcoming**:
+- Polish Mermaid output (grouping, legend, optional assets)
+- Expand route JSON consumer story (docs + downstream usage)
+- Harden generator logging & UX under failure modes
 
 ### Sprint 002: Core Functionality
 **Status**: `pending` | **Estimated**: 3-4 weeks | **Priority**: `HIGH`
 
-**Objective**: Implement core context management features
-
-**Dependencies**: Requires Sprint 001 completion
-
-### Sprint 003: Frontend Integration  
+### Sprint 003: Frontend Integration
 **Status**: `pending` | **Estimated**: 2-3 weeks | **Priority**: `MEDIUM`
-
-**Objective**: Frontend tooling and component development
-
-**Dependencies**: Requires Sprint 001 foundation
 
 ### Sprint 004: Documentation & Examples
 **Status**: `pending` | **Estimated**: 2 weeks | **Priority**: `MEDIUM`
 
-**Objective**: Comprehensive documentation and user guides
-
-**Dependencies**: Requires Sprint 002 core functionality
-
 ### Sprint 005: Quality & Distribution
 **Status**: `pending` | **Estimated**: 2 weeks | **Priority**: `MEDIUM`
 
-**Objective**: Final testing, optimization, and release preparation
-
-**Dependencies**: Requires all previous sprints
-
 ## 👥 Agent Allocation
 
-**Available Agents**: 0 active  
-**Agent Templates**: 5 specialized roles available
-
-**Ready Agent Templates**:
-- `backend-engineer` - Laravel package development specialist
-- `frontend-engineer` - UI components and build integration
-- `project-manager` - Coordination and task management
-- `qa-engineer` - Testing and quality validation
-- `ux-designer` - Developer experience and CLI design
+**Active Agents**: project-manager (you), backend-engineer (Claude agent assisting)  
+**Agent Templates Available**: backend-engineer, frontend-engineer, project-manager, qa-engineer, ux-designer
 
 ## 📋 Task Status Tracking
 
-### Sprint 001 Tasks (Not Yet Created)
-*Task packs will be created when sprint planning begins*
+### Sprint 001 Task Pack Status
 
-**Expected Task Categories**:
-- Package structure and Composer setup
-- Service provider implementation
-- Configuration system design
-- Basic CLI commands
-- Testing foundation setup
+- `PM-001` Runtime decision analysis — ✅ complete
+- `PM-002` MVP runtime recommendation approval — ✅ complete
+- `ENG-003` Schema generator fallbacks — ✅ merged
+- `ENG-004` Route summary enrichment — ✅ merged
+- `ENG-005` Model overview enhancements — ✅ merged
+- `ENG-006` Static analysis aggregation — ✅ merged
+- `QA-001` PHPStan suite regression — ✅ passing after guard fixes
+- `ENG-007` Mermaid diagram polish — ⏳ queued
+- `DOC-001` Route JSON consumer docs — ⏳ queued
 
 ## 🔄 Development Workflow Status
 
 ### Git Worktrees
-**Status**: `not-configured`  
-**Available Environments**: None active  
-**Setup Command**: `./delegation/setup-worktree.sh 001`
+**Status**: `configured` for main repo only  
+**Next Action**: Create feature worktrees as new task packs start (`./delegation/setup-worktree.sh 001` optional)
 
 ### CI/CD Pipeline
-**Status**: `not-configured`  
-**Testing Matrix**: Not defined  
-**Coverage Target**: 85% minimum
+**Status**: `manual`  
+**Testing Matrix**: Pest + PHPStan run locally  
+**Coverage Target**: 85% (tracking TBD)
 
 ### Package Standards
-**PSR Compliance**: Not validated  
-**Laravel Compatibility**: Target versions not defined  
-**Documentation Coverage**: Not established
+**PSR Compliance**: In review  
+**Laravel Compatibility**: Targeting Laravel 10/11  
+**Documentation Coverage**: README + AGENTS drafted; feature docs pending
 
 ## ⚠️ Blockers and Dependencies
 
-**Current Blockers**: None identified  
-**External Dependencies**: 
-- Laravel package development requirements
-- Composer/Packagist publication guidelines
-- NPM package distribution (for frontend components)
+**Current Blockers**: None  
+**Watch List**:
+- Mermaid ERD readability for large model sets
+- Route JSON consumer requirements from downstream teams
 
 ## 📈 Progress Metrics
 
-**Overall Progress**: 0% (0/5 sprints completed)  
-**Current Sprint Progress**: N/A (no active sprint)  
-**Quality Gates Passed**: 0/6 defined standards  
-**Test Coverage**: N/A (no tests implemented)
+**Overall Progress**: 20% (1/5 sprints underway)  
+**Current Sprint Progress**: ~60% (6/10 key tasks complete)  
+**Quality Gates Passed**: Pint, Pest smoke, PHPStan  
+**Test Coverage**: Pest suites exist; coverage reporting TBD
 
 ## 🎯 Next Steps
 
-### Immediate Actions Needed:
-1. **Sprint Planning**: Begin with Sprint 001 foundation work
-2. **Agent Creation**: Create backend-engineer agent for package structure
-3. **Environment Setup**: Initialize git worktrees for parallel development
-4. **Task Pack Creation**: Develop detailed task packs for Sprint 001
-5. **Quality Standards**: Define specific quality gates and acceptance criteria
+### Immediate Actions
+1. Finalise `ENG-007`: Enhance Mermaid output formatting and add snapshot tests
+2. Kick off `DOC-001`: Document JSON route export and provide usage examples
+3. Scope `ENG-008`: CLI UX polish (progress output, failure guidance)
+4. Align on telemetry/logging strategy for generator runs (decision note)
 
-### Recommended Starting Point:
-```bash
-# 1. Create backend engineer agent
-/delegation-system agent/create role=backend-engineer name=alice
-
-# 2. Set up development environment
-/delegation-system worktree/setup sprint=001
-
-# 3. Begin Sprint 001 planning with package structure task
-# (Task packs to be created during sprint planning)
-```
+### Near-Term Prep
+- Identify candidate repos to dogfood the updated generators
+- Define QA acceptance checklist for each generator output
 
 ## 📝 Notes
 
-- All sprints are currently in planning phase
-- Quality standards need to be established based on Laravel ecosystem requirements
-- Task packs will be created as sprints are planned and initiated
-- MCP commands are available for system management once sprints begin
+- Claude agent resolved lingering PHPStan false positives; ensure guard code remains covered
+- Continue to log key decisions in backlog notes to aid future release hardening
+- Consider spinning up QA agent once Mermaid polish enters review phase
 
 ---
 
-**Last Updated**: Sprint planning phase - awaiting initial task creation  
-**Next Review**: After Sprint 001 initiation
+**Last Updated**: 2024-06-18 — after PHPStan regression fix  
+**Next Review**: Post-`ENG-007` completion

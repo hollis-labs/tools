@@ -333,21 +333,19 @@ final class ModelOverviewGenerator
     }
 
     /**
-     * @return list<string>
+     * @return list<non-empty-string>
      */
     private function extractAccessors(string $contents): array
     {
-        $matchCount = preg_match_all('/function\s+get([A-Za-z0-9_]+)Attribute\s*\(/', $contents, $matches);
+        $matchCount = preg_match_all('/function\s+get([A-Za-z0-9_]+)Attribute\s*\(/', $contents, $matches, PREG_SET_ORDER);
         if ($matchCount === false || $matchCount === 0) {
             return [];
         }
 
-        $names = $matches[1] ?? [];
-        if (! is_array($names)) {
-            return [];
-        }
-
-        return array_map(static fn (string $match): string => lcfirst($match), $names);
+        return array_map(
+            static fn (array $match): string => lcfirst((string) $match[1]),
+            $matches,
+        );
     }
 
     /**
@@ -406,21 +404,19 @@ final class ModelOverviewGenerator
     }
 
     /**
-     * @return list<string>
+     * @return list<non-empty-string>
      */
     private function extractMutators(string $contents): array
     {
-        $matchCount = preg_match_all('/function\s+set([A-Za-z0-9_]+)Attribute\s*\(/', $contents, $matches);
+        $matchCount = preg_match_all('/function\s+set([A-Za-z0-9_]+)Attribute\s*\(/', $contents, $matches, PREG_SET_ORDER);
         if ($matchCount === false || $matchCount === 0) {
             return [];
         }
 
-        $names = $matches[1] ?? [];
-        if (! is_array($names)) {
-            return [];
-        }
-
-        return array_map(static fn (string $match): string => lcfirst($match), $names);
+        return array_map(
+            static fn (array $match): string => lcfirst((string) $match[1]),
+            $matches,
+        );
     }
 
     private function appendLog(string $logPath, string $message): void
