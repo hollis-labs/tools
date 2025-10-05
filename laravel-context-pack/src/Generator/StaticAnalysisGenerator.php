@@ -7,7 +7,7 @@ namespace LaravelContextPack\Generator;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Process\Process;
 
-final class StaticAnalysisGenerator
+final class StaticAnalysisGenerator extends AbstractGenerator
 {
     /**
      * @var array<string, array{label: string, command: string}>
@@ -35,19 +35,59 @@ final class StaticAnalysisGenerator
         ],
     ];
 
-    private Filesystem $filesystem;
+    /**
+     * @var array<string, array<string, mixed>>
+     */
+    private array $detectedToolsConfig = [];
 
     public function __construct(?Filesystem $filesystem = null)
     {
-        $this->filesystem = $filesystem ?? new Filesystem;
+        parent::__construct($filesystem);
+    }
+
+    public function getName(): string
+    {
+        return 'static-analysis';
+    }
+
+    public function getDescription(): string
+    {
+        return 'Aggregate static analysis tool output (PHPStan, Pint, Pest, Rector)';
     }
 
     /**
-     * @param  array<string, array<string, mixed>>  $detectedTools
+     * @return array<string, array<string, mixed>>
+     */
+    public function getConfigSchema(): array
+    {
+        return [
+            'detected_tools' => [
+                'type' => 'array',
+                'description' => 'Detected tools configuration',
+                'default' => [],
+            ],
+        ];
+    }
+
+    /**
+     * Set detected tools configuration.
+     *
+     * @param array<string, array<string, mixed>> $detectedTools
+     */
+    public function setDetectedToolsConfig(array $detectedTools): void
+    {
+        $this->detectedToolsConfig = $detectedTools;
+    }
+
+    /**
+     * @param  array<string, array<string, mixed>>  $detectedTools Optional for backward compatibility
      * @return array{status: string, message: string, tools: array<string, array{status: string, message: string}>}
      */
-    public function generate(string $projectPath, string $outputPath, array $detectedTools): array
+    public function generate(string $projectPath, string $outputPath, array $detectedTools = []): array
     {
+        // Merge provided detected tools with instance config
+        $toolsConfig = array_merge($this->detectedToolsConfig, $detectedTools);
+
         $logPath = $outputPath . '/logs/static-analysis.log';
         $results = [];
 
@@ -55,7 +95,7 @@ final class StaticAnalysisGenerator
         $availableToolFailed = false;
 
         foreach (self::TOOL_COMMANDS as $key => $config) {
-            $available = (bool) ($detectedTools[$key]['available'] ?? false);
+            $available = (bool) ($toolsConfig[$key]['available'] ?? false);
             if (! $available) {
                 $results[$key] = [
                     'status' => 'skipped',
@@ -186,16 +226,6 @@ final class StaticAnalysisGenerator
         return $count;
     }
 
-    private function appendLog(string $logPath, string $message): void
-    {
-        $message = trim($message);
-        if ($message === '') {
-            return;
-        }
-
-        $this->filesystem->appendToFile($logPath, $message . PHP_EOL);
-    }
-
     private function commandForTool(string $toolKey, string $projectPath, string $defaultCommand): string
     {
         if (in_array($toolKey, ['phpstan', 'larastan'], true)) {
@@ -228,10 +258,5 @@ final class StaticAnalysisGenerator
     private function escapePipe(string $value): string
     {
         return str_replace('|', '\\|', $value);
-    }
-
-    private function now(): string
-    {
-        return (new \DateTimeImmutable)->format(DATE_ATOM);
     }
 }

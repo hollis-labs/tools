@@ -7,17 +7,25 @@ namespace LaravelContextPack\Generator;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Process\Process;
 
-final class RouteSummaryGenerator
+final class RouteSummaryGenerator extends AbstractGenerator
 {
     private const JSON_COMMAND = 'php artisan route:list --json';
 
     private const TEXT_COMMAND = 'php artisan route:list';
 
-    private Filesystem $filesystem;
-
     public function __construct(?Filesystem $filesystem = null)
     {
-        $this->filesystem = $filesystem ?? new Filesystem;
+        parent::__construct($filesystem);
+    }
+
+    public function getName(): string
+    {
+        return 'route-summary';
+    }
+
+    public function getDescription(): string
+    {
+        return 'Generate route summary with controller mapping and JSON metadata';
     }
 
     /**
@@ -263,16 +271,6 @@ final class RouteSummaryGenerator
         return $grouped;
     }
 
-    private function appendLog(string $logPath, string $message): void
-    {
-        $message = trim($message);
-        if ($message === '') {
-            return;
-        }
-
-        $this->filesystem->appendToFile($logPath, $message . PHP_EOL);
-    }
-
     /**
      * @param  array<int, array<string, mixed>>  $routes
      * @return array<int, array{method: array<int, string>, uri: string, name: ?string, action: string, middleware: array<int, string>, prefix: ?string}>
@@ -371,11 +369,6 @@ final class RouteSummaryGenerator
         }
 
         return '—';
-    }
-
-    private function now(): string
-    {
-        return (new \DateTimeImmutable)->format(DATE_ATOM);
     }
 
     private function escapePipe(string $value): string

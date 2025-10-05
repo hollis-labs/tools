@@ -1,6 +1,7 @@
 {
     "name": "hollis-labs/laravel-context-pack",
     "description": "CLI tool to generate rich context packs for Laravel applications",
+    "version": "0.1.0-beta",
     "type": "project",
     "license": "MIT",
     "require": {

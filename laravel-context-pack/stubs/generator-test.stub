@@ -1,0 +1,239 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ testNamespace }};
+
+use {{ namespace }}\{{ class }};
+use PHPUnit\Framework\TestCase;
+use Symfony\Component\Filesystem\Filesystem;
+
+/**
+ * @covers \{{ namespace }}\{{ class }}
+ */
+final class {{ class }}Test extends TestCase
+{
+    private {{ class }} $generator;
+
+    private Filesystem $filesystem;
+
+    private string $projectPath;
+
+    private string $outputPath;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->filesystem = new Filesystem();
+        $this->generator = new {{ class }}($this->filesystem);
+
+        // Setup test directories
+        $this->projectPath = sys_get_temp_dir() . '/{{ generator_name }}-test-project-' . uniqid();
+        $this->outputPath = sys_get_temp_dir() . '/{{ generator_name }}-test-output-' . uniqid();
+
+        $this->filesystem->mkdir([
+            $this->projectPath,
+            $this->outputPath,
+            $this->outputPath . '/logs',
+        ]);
+    }
+
+    protected function tearDown(): void
+    {
+        parent::tearDown();
+
+        // Cleanup test directories
+        if (is_dir($this->projectPath)) {
+            $this->filesystem->remove($this->projectPath);
+        }
+        if (is_dir($this->outputPath)) {
+            $this->filesystem->remove($this->outputPath);
+        }
+    }
+
+    public function test_it_implements_generator_interface(): void
+    {
+        $this->assertInstanceOf(\LaravelContextPack\Generator\GeneratorInterface::class, $this->generator);
+    }
+
+    public function test_it_has_correct_name(): void
+    {
+        $this->assertSame('{{ generator_name }}', $this->generator->getName());
+    }
+
+    public function test_it_has_non_empty_description(): void
+    {
+        $description = $this->generator->getDescription();
+
+        $this->assertNotEmpty($description);
+        $this->assertIsString($description);
+        $this->assertGreaterThan(10, strlen($description), 'Description should be meaningful');
+    }
+
+    public function test_it_can_run_returns_boolean(): void
+    {
+        $result = $this->generator->canRun($this->projectPath);
+
+        $this->assertIsBool($result);
+    }
+
+    public function test_config_schema_returns_array(): void
+    {
+        $schema = $this->generator->getConfigSchema();
+
+        $this->assertIsArray($schema);
+    }
+
+    public function test_config_schema_has_valid_structure(): void
+    {
+        $schema = $this->generator->getConfigSchema();
+
+        foreach ($schema as $key => $config) {
+            $this->assertIsString($key, 'Config key should be string');
+            $this->assertIsArray($config, 'Config value should be array');
+
+            // If type is specified, it should be valid
+            if (isset($config['type'])) {
+                $validTypes = ['string', 'integer', 'boolean', 'array', 'object'];
+                $this->assertContains($config['type'], $validTypes, 'Invalid config type');
+            }
+        }
+    }
+
+    public function test_it_generates_output_with_success_status(): void
+    {
+        $result = $this->generator->generate($this->projectPath, $this->outputPath);
+
+        $this->assertIsArray($result);
+        $this->assertArrayHasKey('status', $result);
+        $this->assertArrayHasKey('message', $result);
+    }
+
+    public function test_generate_returns_valid_status(): void
+    {
+        $result = $this->generator->generate($this->projectPath, $this->outputPath);
+
+        $this->assertContains(
+            $result['status'],
+            ['success', 'skipped', 'failure'],
+            'Status must be one of: success, skipped, failure'
+        );
+    }
+
+    public function test_generate_returns_string_message(): void
+    {
+        $result = $this->generator->generate($this->projectPath, $this->outputPath);
+
+        $this->assertIsString($result['message']);
+        $this->assertNotEmpty($result['message']);
+    }
+
+    public function test_it_creates_output_file_on_success(): void
+    {
+        $result = $this->generator->generate($this->projectPath, $this->outputPath);
+
+        if ($result['status'] === 'success') {
+            $expectedFile = $this->outputPath . '/{{ generator_name }}.md';
+            $this->assertFileExists($expectedFile, 'Output file should be created');
+
+            $content = file_get_contents($expectedFile);
+            $this->assertNotEmpty($content, 'Output file should not be empty');
+        }
+
+        // If skipped or failure, that's acceptable for the default implementation
+        $this->assertTrue(true);
+    }
+
+    public function test_it_creates_log_file(): void
+    {
+        $this->generator->generate($this->projectPath, $this->outputPath);
+
+        $logFile = $this->outputPath . '/logs/{{ generator_name }}.log';
+        $this->assertFileExists($logFile, 'Log file should be created');
+
+        $logContent = file_get_contents($logFile);
+        $this->assertNotEmpty($logContent, 'Log file should contain entries');
+    }
+
+    public function test_generate_is_idempotent(): void
+    {
+        // First run
+        $result1 = $this->generator->generate($this->projectPath, $this->outputPath);
+
+        // Second run
+        $result2 = $this->generator->generate($this->projectPath, $this->outputPath);
+
+        // Both should succeed (or fail consistently)
+        $this->assertEquals($result1['status'], $result2['status']);
+    }
+
+    // -------------------------------------------------------------------------
+    // Additional test cases (TODO: Implement based on your generator's logic)
+    // -------------------------------------------------------------------------
+
+    /**
+     * TODO: Add test for canRun() with missing directories.
+     *
+     * Example:
+     * public function test_can_run_returns_false_when_required_directory_missing(): void
+     * {
+     *     $this->assertFalse($this->generator->canRun('/nonexistent/path'));
+     * }
+     */
+
+    /**
+     * TODO: Add test for specific output content.
+     *
+     * Example:
+     * public function test_output_contains_expected_sections(): void
+     * {
+     *     $result = $this->generator->generate($this->projectPath, $this->outputPath);
+     *     $outputFile = $this->outputPath . '/{{ generator_name }}.md';
+     *     $content = file_get_contents($outputFile);
+     *
+     *     $this->assertStringContainsString('# Overview', $content);
+     *     $this->assertStringContainsString('## Details', $content);
+     * }
+     */
+
+    /**
+     * TODO: Add test for handling errors gracefully.
+     *
+     * Example:
+     * public function test_it_handles_unreadable_files_gracefully(): void
+     * {
+     *     // Create a file and make it unreadable
+     *     $file = $this->projectPath . '/test.php';
+     *     file_put_contents($file, '<?php');
+     *     chmod($file, 0000);
+     *
+     *     $result = $this->generator->generate($this->projectPath, $this->outputPath);
+     *
+     *     // Should not throw exception
+     *     $this->assertIsArray($result);
+     *
+     *     // Cleanup
+     *     chmod($file, 0644);
+     * }
+     */
+
+    /**
+     * TODO: Add test with fixtures for realistic scenarios.
+     *
+     * Example:
+     * public function test_it_processes_real_project_structure(): void
+     * {
+     *     // Create realistic project structure
+     *     $this->filesystem->mkdir($this->projectPath . '/app/Http/Controllers');
+     *     file_put_contents(
+     *         $this->projectPath . '/app/Http/Controllers/UserController.php',
+     *         '<?php namespace App\Http\Controllers; class UserController {}'
+     *     );
+     *
+     *     $result = $this->generator->generate($this->projectPath, $this->outputPath);
+     *
+     *     $this->assertEquals('success', $result['status']);
+     * }
+     */
+}

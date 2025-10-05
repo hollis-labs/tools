@@ -8,26 +8,64 @@ use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Process\ExecutableFinder;
 use Symfony\Component\Process\Process;
 
-final class SchemaDumpGenerator
+final class SchemaDumpGenerator extends AbstractGenerator
 {
     private const ARTISAN_COMMAND = 'php artisan schema:dump --no-interaction --prune --schema-path=%s';
 
-    private Filesystem $filesystem;
+    /**
+     * @var array<string, mixed>
+     */
+    private array $databaseConfig = [];
 
     public function __construct(?Filesystem $filesystem = null)
     {
-        $this->filesystem = $filesystem ?? new Filesystem;
+        parent::__construct($filesystem);
+    }
+
+    public function getName(): string
+    {
+        return 'schema-dump';
+    }
+
+    public function getDescription(): string
+    {
+        return 'Generate database schema dump using Laravel schema:dump or fallback methods';
     }
 
     /**
-     * @return array{status: string, message: string}
+     * @return array<string, array<string, mixed>>
      */
+    public function getConfigSchema(): array
+    {
+        return [
+            'database' => [
+                'type' => 'array',
+                'description' => 'Database configuration for fallback methods',
+                'default' => [],
+            ],
+        ];
+    }
+
     /**
-     * @param  array<string, mixed>  $database
-     * @return array{status: string, message: string}
+     * Set database configuration for fallback methods.
+     *
+     * @param array<string, mixed> $database
+     */
+    public function setDatabaseConfig(array $database): void
+    {
+        $this->databaseConfig = $database;
+    }
+
+    /**
+     * {@inheritdoc}
+     *
+     * @param array<string, mixed> $database Optional database config for backward compatibility
      */
     public function generate(string $projectPath, string $outputPath, array $database = []): array
     {
+        // Merge provided database config with instance config
+        $databaseConfig = array_merge($this->databaseConfig, $database);
+
         $logPath = $outputPath . '/logs/schema-dump.log';
 
         $tmpSchemaPath = $this->createTempSchemaPath($projectPath);
@@ -53,7 +91,7 @@ final class SchemaDumpGenerator
             $this->appendLog($logPath, $process->getOutput());
             $this->appendLog($logPath, $process->getErrorOutput());
 
-            $fallback = $this->attemptFallback($database, $projectPath, $outputPath, $logPath);
+            $fallback = $this->attemptFallback($databaseConfig, $projectPath, $outputPath, $logPath);
             if ($fallback !== null) {
                 return $fallback;
             }
@@ -362,15 +400,5 @@ final class SchemaDumpGenerator
         if ($this->filesystem->exists($path)) {
             $this->filesystem->remove($path);
         }
-    }
-
-    private function appendLog(string $logPath, string $message): void
-    {
-        $this->filesystem->appendToFile($logPath, trim($message) . PHP_EOL);
-    }
-
-    private function now(): string
-    {
-        return (new \DateTimeImmutable)->format(DATE_ATOM);
     }
 }

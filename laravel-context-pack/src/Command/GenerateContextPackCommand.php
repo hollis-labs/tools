@@ -4,10 +4,21 @@ declare(strict_types=1);
 
 namespace LaravelContextPack\Command;
 
+use LaravelContextPack\Formatter\JsonFormatter;
+use LaravelContextPack\Formatter\MarkdownFormatter;
+use LaravelContextPack\Formatter\OutputFormatter;
 use LaravelContextPack\Generator\ModelOverviewGenerator;
 use LaravelContextPack\Generator\RouteSummaryGenerator;
 use LaravelContextPack\Generator\SchemaDumpGenerator;
 use LaravelContextPack\Generator\StaticAnalysisGenerator;
+use LaravelContextPack\Optimizer\ApproximateTokenCounter;
+use LaravelContextPack\Optimizer\ContextOptimizer;
+use LaravelContextPack\Optimizer\GeneratorOutput;
+use LaravelContextPack\Optimizer\Gpt4TokenCounter;
+use LaravelContextPack\Optimizer\Strategy\HierarchicalStrategy;
+use LaravelContextPack\Optimizer\Strategy\ProportionalStrategy;
+use LaravelContextPack\Optimizer\Strategy\RelevanceStrategy;
+use LaravelContextPack\Optimizer\TokenCounter;
 use LaravelContextPack\Support\MetadataDetector;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -75,6 +86,26 @@ final class GenerateContextPackCommand extends Command
                 'dry-run',
                 mode: InputOption::VALUE_NONE,
                 description: 'Execute all validation steps without writing any files'
+            )
+            ->addOption(
+                'max-tokens',
+                mode: InputOption::VALUE_REQUIRED,
+                description: 'Maximum token budget for generated context (default: 200000)'
+            )
+            ->addOption(
+                'optimization-strategy',
+                mode: InputOption::VALUE_REQUIRED,
+                description: 'Summarization strategy: proportional, hierarchical, relevance (default: none)'
+            )
+            ->addOption(
+                'token-counter',
+                mode: InputOption::VALUE_REQUIRED,
+                description: 'Token counter to use: approximate, gpt4 (default: approximate)'
+            )
+            ->addOption(
+                'format',
+                mode: InputOption::VALUE_REQUIRED,
+                description: 'Output format: markdown, json (default: markdown)'
             );
     }
 
@@ -217,6 +248,24 @@ final class GenerateContextPackCommand extends Command
             }
         }
 
+        // Apply optimization and formatting if requested
+        $maxTokensOption = $input->getOption('max-tokens');
+        $strategyOption = $input->getOption('optimization-strategy');
+        $formatOption = $input->getOption('format');
+
+        if ($maxTokensOption !== null || $strategyOption !== null || $formatOption !== null) {
+            $this->applyOptimizationAndFormatting(
+                $io,
+                $dryRun,
+                $outputPath,
+                $artifactStatuses,
+                $maxTokensOption !== null ? (int) $maxTokensOption : null,
+                $strategyOption !== null ? (string) $strategyOption : null,
+                $input->getOption('token-counter') !== null ? (string) $input->getOption('token-counter') : 'approximate',
+                $formatOption !== null ? (string) $formatOption : 'markdown'
+            );
+        }
+
         $io->success('Workspace prepared. Ready for schema, route, and analysis generators.');
 
         return Command::SUCCESS;
@@ -337,5 +386,172 @@ final class GenerateContextPackCommand extends Command
             'modelOverview' => ['status' => 'pending', 'message' => 'Awaiting implementation.'],
             'staticAnalysis' => ['status' => 'pending', 'message' => 'Awaiting implementation.'],
         ];
+    }
+
+    /**
+     * Apply optimization and formatting to generated outputs.
+     *
+     * @param array<string, array{status: string, message: string}> $artifactStatuses
+     */
+    private function applyOptimizationAndFormatting(
+        SymfonyStyle $io,
+        bool $dryRun,
+        string $outputPath,
+        array $artifactStatuses,
+        ?int $maxTokens,
+        ?string $strategyName,
+        string $counterName,
+        string $formatName
+    ): void {
+        if ($dryRun) {
+            return;
+        }
+
+        $io->section('Applying Optimization & Formatting');
+
+        // Create token counter
+        $counter = $this->createTokenCounter($counterName);
+        $io->writeln(sprintf('Token counter: <info>%s</info>', $counter->getName()));
+
+        // Create strategy if specified
+        $strategy = $strategyName !== null ? $this->createStrategy($strategyName) : null;
+        if ($strategy !== null) {
+            $io->writeln(sprintf('Optimization strategy: <info>%s</info>', $strategy->getName()));
+        }
+
+        // Create optimizer
+        $optimizer = new ContextOptimizer(
+            $counter,
+            $strategy,
+            $maxTokens ?? 200000
+        );
+
+        if ($maxTokens !== null) {
+            $io->writeln(sprintf('Token budget: <info>%s</info>', number_format($maxTokens)));
+        }
+
+        // Collect generated outputs
+        $outputs = $this->collectGeneratorOutputs($outputPath, $artifactStatuses);
+
+        if ($outputs === []) {
+            $io->warning('No outputs available for optimization.');
+            return;
+        }
+
+        // Optimize
+        $optimizedContext = $optimizer->optimize($outputs);
+
+        // Display token usage
+        $io->writeln(sprintf(
+            'Original tokens: <info>%s</info> → Optimized tokens: <info>%s</info>',
+            number_format($optimizedContext->metadata['originalTokens']),
+            number_format($optimizedContext->metadata['optimizedTokens'])
+        ));
+
+        if ($optimizedContext->wasTruncated()) {
+            $saved = $optimizedContext->metadata['originalTokens'] - $optimizedContext->metadata['optimizedTokens'];
+            $percentage = ($saved / $optimizedContext->metadata['originalTokens']) * 100;
+            $io->writeln(sprintf('<comment>Tokens saved: %s (%.1f%%)</comment>', number_format($saved), $percentage));
+        }
+
+        // Format and write output
+        $formatter = $this->createFormatter($formatName);
+        $io->writeln(sprintf('Output format: <info>%s</info>', $formatter->getName()));
+
+        $formattedOutput = $formatter->format($optimizedContext, [
+            'generatedAt' => date('c'),
+        ]);
+
+        $outputFile = $outputPath . '/optimized-context.' . $formatter->getExtension();
+        $this->writeFile($outputFile, $formattedOutput);
+
+        $io->writeln(sprintf('✔ Optimized output written to: <info>%s</info>', $outputFile));
+    }
+
+    /**
+     * Create token counter from name.
+     */
+    private function createTokenCounter(string $name): TokenCounter
+    {
+        return match ($name) {
+            'gpt4' => new Gpt4TokenCounter(),
+            'approximate' => new ApproximateTokenCounter(),
+            default => new ApproximateTokenCounter(),
+        };
+    }
+
+    /**
+     * Create summarization strategy from name.
+     */
+    private function createStrategy(string $name): ?\LaravelContextPack\Optimizer\SummarizationStrategy
+    {
+        return match ($name) {
+            'proportional' => new ProportionalStrategy(),
+            'hierarchical' => new HierarchicalStrategy(),
+            'relevance' => new RelevanceStrategy(),
+            default => null,
+        };
+    }
+
+    /**
+     * Create output formatter from name.
+     */
+    private function createFormatter(string $name): OutputFormatter
+    {
+        return match ($name) {
+            'json' => new JsonFormatter(),
+            'markdown' => new MarkdownFormatter(),
+            default => new MarkdownFormatter(),
+        };
+    }
+
+    /**
+     * Collect generator outputs from files.
+     *
+     * @param array<string, array{status: string, message: string}> $artifactStatuses
+     * @return list<GeneratorOutput>
+     */
+    private function collectGeneratorOutputs(string $outputPath, array $artifactStatuses): array
+    {
+        $outputs = [];
+        $fileMap = [
+            'schemaDump' => '01-schema-dump.sql',
+            'routeSummary' => '02-route-summary.md',
+            'modelOverview' => '03-model-overview.md',
+            'staticAnalysis' => '04-static-analysis.md',
+        ];
+
+        foreach ($fileMap as $generatorName => $fileName) {
+            $filePath = $outputPath . '/' . $fileName;
+
+            if (! is_file($filePath)) {
+                continue;
+            }
+
+            $content = file_get_contents($filePath);
+            if ($content === false) {
+                continue;
+            }
+
+            // Calculate relevance score based on status
+            $status = $artifactStatuses[$generatorName] ?? ['status' => 'unknown'];
+            $relevanceScore = match ($status['status']) {
+                'success' => 1.0,
+                'skipped' => 0.5,
+                default => 0.8,
+            };
+
+            $outputs[] = new GeneratorOutput(
+                generatorName: $generatorName,
+                content: $content,
+                relevanceScore: $relevanceScore,
+                metadata: [
+                    'fileName' => $fileName,
+                    'status' => $status['status'],
+                ]
+            );
+        }
+
+        return $outputs;
     }
 }

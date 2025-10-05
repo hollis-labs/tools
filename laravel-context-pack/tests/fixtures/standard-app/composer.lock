@@ -1,0 +1,18 @@
+{
+    "packages": [
+        {
+            "name": "laravel/framework",
+            "version": "v11.9.0"
+        }
+    ],
+    "packages-dev": [
+        {
+            "name": "laravel/pint",
+            "version": "v1.15.0"
+        },
+        {
+            "name": "phpstan/phpstan",
+            "version": "1.11.5"
+        }
+    ]
+}

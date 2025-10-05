@@ -61,3 +61,87 @@ Every generator writes to `logs/<name>.log`. Investigate these when artefacts re
 - Rector (`rector/rector`)
 
 Unavailable tools are marked `SKIPPED` in `metadata.json` and `04-static-analysis.md` so dogfooders understand coverage gaps.
+
+## Extensibility
+
+Laravel Context Pack is designed to be extended with custom generators. Create generators to document any aspect of your Laravel application.
+
+### Creating a Custom Generator
+
+Use the scaffolding command to quickly create a new generator:
+
+```bash
+php bin/context-pack.php make:generator YourGenerator
+```
+
+This creates:
+- Generator class in `src/App/Generators/` (or custom namespace)
+- Test file with basic test cases
+- PHPStan-compliant, production-ready code
+
+### Example Generators
+
+The following example generators demonstrate real-world use cases:
+
+- **ApiDocumentationGenerator** - Document REST API endpoints from routes and controllers
+- **FeatureFlagGenerator** - Track feature flags and their usage across the codebase
+- **PermissionMatrixGenerator** - Generate authorization matrix for policies and gates
+
+See [docs/extensibility.md](docs/extensibility.md) for complete documentation and [docs/examples/](docs/examples/) for working implementations.
+
+### Generator Interface
+
+All generators implement `GeneratorInterface`:
+
+```php
+interface GeneratorInterface
+{
+    public function getName(): string;              // Unique identifier (e.g., 'api-documentation')
+    public function getDescription(): string;       // Human-readable description
+    public function generate(string $projectPath, string $outputPath): array;
+    public function canRun(string $projectPath): bool;
+    public function getConfigSchema(): array;
+}
+```
+
+### Quick Example
+
+```php
+use LaravelContextPack\Generator\AbstractGenerator;
+
+final class MyGenerator extends AbstractGenerator
+{
+    public function getName(): string
+    {
+        return 'my-generator';
+    }
+
+    public function getDescription(): string
+    {
+        return 'Generate custom documentation';
+    }
+
+    public function generate(string $projectPath, string $outputPath): array
+    {
+        $outputFile = $outputPath . '/my-output.md';
+        $content = $this->buildDocumentation($projectPath);
+
+        $this->filesystem->dumpFile($outputFile, $content);
+
+        return [
+            'status' => 'success',
+            'message' => 'Documentation generated',
+        ];
+    }
+}
+```
+
+### Key Features
+
+- **Type-safe**: PHPStan level 6 compliant
+- **Base functionality**: Common utilities via `AbstractGenerator`
+- **Registry system**: Dynamic discovery and registration
+- **Scaffolding tools**: Quick generator creation
+- **Comprehensive docs**: Full guide with examples
+
+For complete documentation, see [docs/extensibility.md](docs/extensibility.md).

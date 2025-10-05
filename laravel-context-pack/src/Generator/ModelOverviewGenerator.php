@@ -7,13 +7,21 @@ namespace LaravelContextPack\Generator;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Finder\Finder;
 
-final class ModelOverviewGenerator
+final class ModelOverviewGenerator extends AbstractGenerator
 {
-    private Filesystem $filesystem;
-
     public function __construct(?Filesystem $filesystem = null)
     {
-        $this->filesystem = $filesystem ?? new Filesystem;
+        parent::__construct($filesystem);
+    }
+
+    public function getName(): string
+    {
+        return 'model-overview';
+    }
+
+    public function getDescription(): string
+    {
+        return 'Generate comprehensive model documentation with relationships and Mermaid ERD';
     }
 
     /**
@@ -248,7 +256,7 @@ final class ModelOverviewGenerator
 
             if (preg_match('/return\s+\$this->' . $type . '\(([^\)]*)\)/', $match[2], $targetMatches) === 1) {
                 $raw = trim($targetMatches[1]);
-                $target = $this->normaliseRelationshipTarget($raw);
+                $target = $this->extractRelationshipTarget($raw);
             } else {
                 $target = 'unknown';
             }
@@ -261,6 +269,22 @@ final class ModelOverviewGenerator
         }
 
         return $relationships;
+    }
+
+    /**
+     * Extract the target model from relationship parameters
+     */
+    private function extractRelationshipTarget(string $raw): string
+    {
+        // Split by comma to get first parameter
+        $parts = explode(',', $raw);
+        $firstParam = trim($parts[0] ?? '');
+
+        if ($firstParam === '') {
+            return 'unknown';
+        }
+
+        return $this->normaliseRelationshipTarget($firstParam);
     }
 
     private function normaliseRelationshipTarget(string $raw): string
@@ -419,23 +443,8 @@ final class ModelOverviewGenerator
         );
     }
 
-    private function appendLog(string $logPath, string $message): void
-    {
-        $message = trim($message);
-        if ($message === '') {
-            return;
-        }
-
-        $this->filesystem->appendToFile($logPath, $message . PHP_EOL);
-    }
-
     private function escapePipe(string $value): string
     {
         return str_replace('|', '\\|', $value);
-    }
-
-    private function now(): string
-    {
-        return (new \DateTimeImmutable)->format(DATE_ATOM);
     }
 }
