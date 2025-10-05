@@ -44,7 +44,7 @@ context-pack/
 
 ### 5. `04-static-analysis.md` (Optional per availability, but file must exist)
 - Source: Pint, Larastan/PHPStan, Pest, Rector (dry-run) depending on detected tooling.
-- Structure: summary table noting which tools ran, exit status, and notes; logs contain raw output.
+- Structure: summary table noting which tools ran, exit status, issue counts, and notes; logs contain raw output.
 - When a tool is unavailable, note "Skipped (not installed)"; when commands fail, mark status `FAILED` with guidance to inspect logs.
 
 ### 6. `logs/*.log` (Mandatory directory, files conditional)

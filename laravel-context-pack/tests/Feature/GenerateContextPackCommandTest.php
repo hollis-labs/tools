@@ -196,6 +196,8 @@ test('it prepares the context pack workspace', function (): void {
     expect($metadata['artifacts']['routeSummary']['status'])->toBe('success');
     expect($metadata['artifacts']['modelOverview']['status'])->toBe('success');
     expect($metadata['artifacts']['staticAnalysis']['status'])->toBe('success');
+    expect($metadata['artifacts']['staticAnalysis']['tools']['pint']['issues'])->toBe(0);
+    expect($metadata['artifacts']['staticAnalysis']['tools']['pest']['issues'])->toBe(0);
 
     $schemaContents = file_get_contents($outputPath . '/01-schema-dump.sql');
     expect($schemaContents)->toContain('-- Schema dump');
@@ -232,7 +234,9 @@ test('it prepares the context pack workspace', function (): void {
 
     $staticAnalysis = file_get_contents($outputPath . '/04-static-analysis.md');
     expect($staticAnalysis)->toContain('# Static Analysis Summary');
+    expect($staticAnalysis)->toContain('| Tool | Status | Issues | Details |');
     expect($staticAnalysis)->toContain('Laravel Pint');
+    expect($staticAnalysis)->toContain('SUCCESS | 0 |');
 
     $staticLog = file_get_contents($outputPath . '/logs/static-analysis.log');
     expect($staticLog)->toContain('Running Laravel Pint');

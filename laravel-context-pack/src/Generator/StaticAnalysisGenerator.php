@@ -60,6 +60,7 @@ final class StaticAnalysisGenerator
                 $results[$key] = [
                     'status' => 'skipped',
                     'message' => 'Tool not available in target project.',
+                    'issues' => null,
                 ];
 
                 continue;
@@ -83,11 +84,14 @@ final class StaticAnalysisGenerator
                 $this->appendLog($logPath, $errorOutput);
             }
 
+            $issueCount = $this->countIssues($process->getOutput(), $process->getErrorOutput());
+
             if (! $process->isSuccessful()) {
                 $availableToolFailed = true;
                 $results[$key] = [
                     'status' => 'failed',
                     'message' => sprintf('%s exited with code %d.', $config['label'], $process->getExitCode() ?? -1),
+                    'issues' => $issueCount,
                 ];
 
                 continue;
@@ -97,6 +101,7 @@ final class StaticAnalysisGenerator
             $results[$key] = [
                 'status' => 'success',
                 'message' => sprintf('%s completed successfully.', $config['label']),
+                'issues' => $issueCount,
             ];
         }
 
@@ -124,7 +129,7 @@ final class StaticAnalysisGenerator
     }
 
     /**
-     * @param  array<string, array{status: string, message: string}>  $results
+     * @param  array<string, array{status: string, message: string, issues: ?int}>  $results
      */
     private function writeMarkdownSummary(string $path, array $results, string $status, string $message): void
     {
@@ -134,15 +139,18 @@ final class StaticAnalysisGenerator
         $lines[] = sprintf('**Overall Status:** %s — %s', strtoupper($status), $message);
         $lines[] = '';
         $lines[] = '## Tool Results';
-        $lines[] = '| Tool | Status | Details |';
-        $lines[] = '|------|--------|---------|';
+        $lines[] = '| Tool | Status | Issues | Details |';
+        $lines[] = '|------|--------|--------|---------|';
 
         foreach (self::TOOL_COMMANDS as $key => $config) {
-            $result = $results[$key] ?? ['status' => 'skipped', 'message' => 'Not evaluated.'];
+            $result = $results[$key] ?? ['status' => 'skipped', 'message' => 'Not evaluated.', 'issues' => null];
+            $issues = $result['issues'];
+            $issuesCell = $issues === null ? '—' : (string) $issues;
             $lines[] = sprintf(
-                '| %s | %s | %s |',
+                '| %s | %s | %s | %s |',
                 $this->escapePipe($config['label']),
                 strtoupper($result['status']),
+                $issuesCell,
                 $this->escapePipe($result['message'])
             );
         }
@@ -152,6 +160,30 @@ final class StaticAnalysisGenerator
         $lines[] = '';
 
         $this->filesystem->dumpFile($path, implode(PHP_EOL, $lines));
+    }
+
+    private function countIssues(string $output, string $errorOutput): int
+    {
+        $content = strtolower($output . PHP_EOL . $errorOutput);
+
+        $patterns = [
+            '/\b(error|errors|fail|failed|warning)s?:?\b/',
+            '/\b\d+\s+failures?\b/',
+            '/\[fail\]/',
+        ];
+
+        $count = 0;
+        foreach ($patterns as $pattern) {
+            if (preg_match_all($pattern, $content, $matches) !== false) {
+                $count += count($matches[0]);
+            }
+        }
+
+        if ($count === 0 && str_contains(strtolower($content), 'error')) {
+            $count = 1;
+        }
+
+        return $count;
     }
 
     private function appendLog(string $logPath, string $message): void

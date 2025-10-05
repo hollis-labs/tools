@@ -48,7 +48,7 @@ Generated context packs follow the contract in `docs/mvp-output-spec.md`; schema
 | `01-schema-dump.sql` | Database schema via `php artisan schema:dump` | Falls back to `sqlite3`, `mysqldump`, or `pg_dump` when artisan support is missing. |
 | `02-route-summary.md/.json` | HTTP contract overview with metrics, warnings, and JSON export | Uses `route:list --json`, falls back to text parsing, highlights unnamed/Closure routes, links to controller source files when discoverable. |
 | `03-model-overview.md` | Eloquent model summaries (tables, fillable/guarded props, casts, soft deletes, relationships) | Static heuristics over `app/Models`; logs skipped/unknown relationships for later review. |
-| `04-static-analysis.md` | Aggregated results from Pint, Pest, PHPStan/Larastan, Rector | Each tool runs only if detected; failures logged and surfaced as `FAILED`/`PARTIAL`. |
+| `04-static-analysis.md` | Aggregated results from Pint, Pest, PHPStan/Larastan, Rector | Each tool runs only if detected; issues counted per tool and failures marked `FAILED`/`PARTIAL`. |
 | `logs/*.log` | Raw command output per generator | Useful when artefacts are skipped or fail. |
 
 ## Logs & Diagnostics
