@@ -337,13 +337,12 @@ final class ModelOverviewGenerator
      */
     private function extractAccessors(string $contents): array
     {
-        if (preg_match_all('/function\s+get([A-Za-z0-9_]+)Attribute\s*\(/', $contents, $matches) !== 1) {
+        $matchCount = preg_match_all('/function\s+get([A-Za-z0-9_]+)Attribute\s*\(/', $contents, $matches);
+        if ($matchCount === false || $matchCount === 0 || ! isset($matches[1])) {
             return [];
         }
 
-        $names = $matches[1] ?? [];
-
-        return array_map(static fn ($match) => lcfirst($match), $names);
+        return array_map(static fn ($match) => lcfirst($match), $matches[1]);
     }
 
     /**
@@ -406,13 +405,12 @@ final class ModelOverviewGenerator
      */
     private function extractMutators(string $contents): array
     {
-        if (preg_match_all('/function\s+set([A-Za-z0-9_]+)Attribute\s*\(/', $contents, $matches) !== 1) {
+        $matchCount = preg_match_all('/function\s+set([A-Za-z0-9_]+)Attribute\s*\(/', $contents, $matches);
+        if ($matchCount === false || $matchCount === 0 || ! isset($matches[1])) {
             return [];
         }
 
-        $names = $matches[1] ?? [];
-
-        return array_map(static fn ($match) => lcfirst($match), $names);
+        return array_map(static fn ($match) => lcfirst($match), $matches[1]);
     }
 
     private function appendLog(string $logPath, string $message): void
