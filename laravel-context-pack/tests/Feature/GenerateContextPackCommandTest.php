@@ -38,12 +38,17 @@ test('it prepares the context pack workspace', function (): void {
                 'name' => 'pestphp/pest',
                 'version' => 'v2.0.0',
             ],
+            [
+                'name' => 'phpstan/phpstan',
+                'version' => '1.12.32',
+            ],
         ],
     ], JSON_PRETTY_PRINT));
 
     file_put_contents($projectPath . '/.env', "DB_CONNECTION=mysql\nDB_DATABASE=testing\nDB_USERNAME=root\n");
 
     file_put_contents($projectPath . '/phpunit.xml', '<phpunit/>' . PHP_EOL);
+    file_put_contents($projectPath . '/phpstan.neon', 'parameters:' . PHP_EOL);
 
     $pintStub = <<<'BASH'
     #!/usr/bin/env bash
@@ -60,6 +65,14 @@ test('it prepares the context pack workspace', function (): void {
     BASH;
     file_put_contents($projectPath . '/vendor/bin/pest', $pestStub);
     chmod($projectPath . '/vendor/bin/pest', 0755);
+
+    $phpstanStub = <<<'BASH'
+    #!/usr/bin/env bash
+    echo "PHPStan OK"
+    exit 0
+    BASH;
+    file_put_contents($projectPath . '/vendor/bin/phpstan', $phpstanStub);
+    chmod($projectPath . '/vendor/bin/phpstan', 0755);
 
     $modelStub = <<<'PHP'
     <?php
@@ -198,6 +211,7 @@ test('it prepares the context pack workspace', function (): void {
     expect($metadata['artifacts']['staticAnalysis']['status'])->toBe('success');
     expect($metadata['artifacts']['staticAnalysis']['tools']['pint']['issues'])->toBe(0);
     expect($metadata['artifacts']['staticAnalysis']['tools']['pest']['issues'])->toBe(0);
+    expect($metadata['artifacts']['staticAnalysis']['tools']['phpstan']['issues'])->toBe(0);
 
     $schemaContents = file_get_contents($outputPath . '/01-schema-dump.sql');
     expect($schemaContents)->toContain('-- Schema dump');
@@ -240,6 +254,8 @@ test('it prepares the context pack workspace', function (): void {
 
     $staticLog = file_get_contents($outputPath . '/logs/static-analysis.log');
     expect($staticLog)->toContain('Running Laravel Pint');
+    expect($staticLog)->toContain('Running PHPStan');
+    expect($staticLog)->toContain("--configuration='phpstan.neon'");
 
     $filesystem->remove($workspace);
 });

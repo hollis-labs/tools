@@ -66,7 +66,7 @@ final class StaticAnalysisGenerator
                 continue;
             }
 
-            $command = $config['command'];
+            $command = $this->commandForTool($key, $projectPath, $config['command']);
             $this->appendLog($logPath, sprintf('[%s] Running %s: %s', $this->now(), $config['label'], $command));
 
             $process = Process::fromShellCommandline($command, $projectPath);
@@ -194,6 +194,35 @@ final class StaticAnalysisGenerator
         }
 
         $this->filesystem->appendToFile($logPath, $message . PHP_EOL);
+    }
+
+    private function commandForTool(string $toolKey, string $projectPath, string $defaultCommand): string
+    {
+        if (in_array($toolKey, ['phpstan', 'larastan'], true)) {
+            $config = $this->resolvePhpStanConfig($projectPath);
+            if ($config !== null) {
+                return $defaultCommand . ' --configuration=' . escapeshellarg($config);
+            }
+        }
+
+        return $defaultCommand;
+    }
+
+    private function resolvePhpStanConfig(string $projectPath): ?string
+    {
+        $candidates = [
+            'phpstan.neon',
+            'phpstan.neon.dist',
+            'phpstan.neon.php',
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_file($projectPath . '/' . $candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     private function escapePipe(string $value): string
