@@ -117,6 +117,16 @@ final class ModelOverviewGenerator
                 $lines[] = sprintf('- Casts: `%s`', $this->formatAssociative($model['casts']));
             }
 
+            if (($model['accessors'] ?? []) !== [] || ($model['mutators'] ?? []) !== []) {
+                $lines[] = '- Accessors/Mutators:';
+                foreach ($model['accessors'] ?? [] as $accessor) {
+                    $lines[] = sprintf('  - Accessor: `%s`', $accessor);
+                }
+                foreach ($model['mutators'] ?? [] as $mutator) {
+                    $lines[] = sprintf('  - Mutator: `%s`', $mutator);
+                }
+            }
+
             if ($model['relationships'] !== []) {
                 $lines[] = '';
                 $lines[] = '| Relationship | Target | Method |';
@@ -161,6 +171,8 @@ final class ModelOverviewGenerator
         $fillable = $this->extractArrayValues($contents, 'fillable');
         $guarded = $this->extractArrayValues($contents, 'guarded');
         $casts = $this->extractAssociativeArray($contents, 'casts');
+        $accessors = $this->extractAccessors($contents);
+        $mutators = $this->extractMutators($contents);
         $relationships = $this->extractRelationships($contents);
         $usesSoftDeletes = $this->detectSoftDeletes($contents);
 
@@ -171,6 +183,8 @@ final class ModelOverviewGenerator
             'fillable' => $fillable,
             'guarded' => $guarded,
             'casts' => $casts,
+            'accessors' => $accessors,
+            'mutators' => $mutators,
             'softDeletes' => $usesSoftDeletes,
             'relationships' => $relationships,
         ];
@@ -307,6 +321,30 @@ final class ModelOverviewGenerator
         }
 
         return implode(', ', $formatted);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function extractAccessors(string $contents): array
+    {
+        if (preg_match_all('/function\s+get([A-Za-z0-9_]+)Attribute\s*\(/', $contents, $matches) === false) {
+            return [];
+        }
+
+        return array_map(static fn ($match) => lcfirst($match), $matches[1] ?? []);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function extractMutators(string $contents): array
+    {
+        if (preg_match_all('/function\s+set([A-Za-z0-9_]+)Attribute\s*\(/', $contents, $matches) === false) {
+            return [];
+        }
+
+        return array_map(static fn ($match) => lcfirst($match), $matches[1] ?? []);
     }
 
     private function appendLog(string $logPath, string $message): void

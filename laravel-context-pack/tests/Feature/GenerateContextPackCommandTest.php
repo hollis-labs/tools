@@ -81,6 +81,16 @@ test('it prepares the context pack workspace', function (): void {
             'email_verified_at' => 'datetime',
         ];
 
+        public function getNameAttribute($value)
+        {
+            return strtoupper($value);
+        }
+
+        public function setEmailAttribute($value)
+        {
+            $this->attributes['email'] = strtolower($value);
+        }
+
         public function posts()
         {
             return $this->hasMany(Post::class);
@@ -210,6 +220,8 @@ test('it prepares the context pack workspace', function (): void {
     expect($modelOverview)->toContain('App\\Models\\User');
     expect($modelOverview)->toContain('Soft Deletes: yes');
     expect($modelOverview)->toContain('Casts: `email_verified_at: datetime`');
+    expect($modelOverview)->toContain('Accessor: `name`');
+    expect($modelOverview)->toContain('Mutator: `email`');
     expect($modelOverview)->toContain('| HASMANY | Post |');
 
     $modelLog = file_get_contents($outputPath . '/logs/model-overview.log');
