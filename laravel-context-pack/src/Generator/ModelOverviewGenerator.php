@@ -342,8 +342,10 @@ final class ModelOverviewGenerator
             return [];
         }
 
-        /** @var list<string> $names */
-        $names = $matches[1];
+        $names = $matches[1] ?? [];
+        if (! is_array($names)) {
+            return [];
+        }
 
         return array_map(static fn (string $match): string => lcfirst($match), $names);
     }
@@ -413,8 +415,10 @@ final class ModelOverviewGenerator
             return [];
         }
 
-        /** @var list<string> $names */
-        $names = $matches[1];
+        $names = $matches[1] ?? [];
+        if (! is_array($names)) {
+            return [];
+        }
 
         return array_map(static fn (string $match): string => lcfirst($match), $names);
     }
