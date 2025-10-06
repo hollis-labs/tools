@@ -6,6 +6,8 @@ use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 use HollisLabs\ToolCrate\Console\DevJqCommand;
 use HollisLabs\ToolCrate\Console\DevSearchCommand;
+use HollisLabs\ToolCrate\Servers\ToolCrateServer;
+use Laravel\Mcp\Facades\Mcp;
 
 class ToolCrateServiceProvider extends PackageServiceProvider
 {
@@ -16,5 +18,13 @@ class ToolCrateServiceProvider extends PackageServiceProvider
             ->hasConfigFile('tool-crate')
             ->hasRoute('ai')
             ->hasCommands([DevJqCommand::class, DevSearchCommand::class]);
+    }
+
+    public function boot(): void
+    {
+        parent::boot();
+
+        // Register the MCP server
+        Mcp::local('laravel-tool-crate', ToolCrateServer::class);
     }
 }
