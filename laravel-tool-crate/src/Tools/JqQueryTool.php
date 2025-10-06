@@ -11,7 +11,7 @@ use HollisLabs\ToolCrate\Tools\Contracts\SummarizesTool;
 
 class JqQueryTool extends Tool implements SummarizesTool
 {
-    protected string $name = 'json.query';
+    protected string $name = 'json_query';
     protected string $title = 'Query JSON with jq';
     protected string $description = 'Query/transform JSON via jq.';
 
@@ -43,7 +43,7 @@ class JqQueryTool extends Tool implements SummarizesTool
         return Response::json(['stdout' => $res->stdout]);
     }
 
-    public static function summaryName(): string { return 'json.query'; }
+    public static function summaryName(): string { return 'json_query'; }
     public static function summaryTitle(): string { return 'Query JSON with jq'; }
     public static function summaryDescription(): string { return 'Query/transform JSON via jq.'; }
     public static function schemaSummary(): array

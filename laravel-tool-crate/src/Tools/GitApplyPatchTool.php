@@ -11,7 +11,7 @@ use HollisLabs\ToolCrate\Tools\Contracts\SummarizesTool;
 
 class GitApplyPatchTool extends Tool implements SummarizesTool
 {
-    protected string $name = 'git.apply_patch';
+    protected string $name = 'git_apply_patch';
     protected string $title = 'Git apply patch';
     protected string $description = 'Apply a unified diff patch; defaults to check-only for safety.';
 
@@ -51,7 +51,7 @@ class GitApplyPatchTool extends Tool implements SummarizesTool
         ]);
     }
 
-    public static function summaryName(): string { return 'git.apply_patch'; }
+    public static function summaryName(): string { return 'git_apply_patch'; }
     public static function summaryTitle(): string { return 'Git apply patch'; }
     public static function summaryDescription(): string { return 'Apply patch (defaults to check-only).'; }
     public static function schemaSummary(): array

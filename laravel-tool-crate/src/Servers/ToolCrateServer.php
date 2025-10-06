@@ -10,12 +10,16 @@ use HollisLabs\ToolCrate\Tools\FileReadTool;
 use HollisLabs\ToolCrate\Tools\TextReplaceTool;
 use HollisLabs\ToolCrate\Tools\HelpIndexTool;
 use HollisLabs\ToolCrate\Tools\HelpToolDetail;
+use HollisLabs\ToolCrate\Tools\GitStatusTool;
+use HollisLabs\ToolCrate\Tools\GitDiffTool;
+use HollisLabs\ToolCrate\Tools\GitApplyPatchTool;
+use HollisLabs\ToolCrate\Tools\TableQueryTool;
 
 class ToolCrateServer extends Server
 {
     protected string $name = 'ToolCrate';
-    protected string $version = '0.2.1';
-    protected string $instructions = 'Local dev toolbox. Use help.index to discover JSON, search, and file helpers.';
+    protected string $version = '0.2.2';
+    protected string $instructions = 'Local dev toolbox. Use help_index to discover JSON, search, and file helpers.';
 
     protected array $tools = [
         JqQueryTool::class,
@@ -44,12 +48,16 @@ class ToolCrateServer extends Server
     private function getToolConfigKey(string $toolClass): string
     {
         $map = [
-            JqQueryTool::class => 'json.query',
-            TextSearchTool::class => 'text.search',
-            FileReadTool::class => 'file.read',
-            TextReplaceTool::class => 'text.replace',
-            HelpIndexTool::class => 'help.index',
-            HelpToolDetail::class => 'help.tool',
+            JqQueryTool::class      => 'json_query',
+            TextSearchTool::class   => 'text_search',
+            FileReadTool::class     => 'file_read',
+            TextReplaceTool::class  => 'text_replace',
+            HelpIndexTool::class    => 'help_index',
+            HelpToolDetail::class   => 'help_tool',
+            GitStatusTool::class    => 'git_status',
+            GitDiffTool::class      => 'git_diff',
+            GitApplyPatchTool::class=> 'git_apply_patch',
+            TableQueryTool::class   => 'table_query',
         ];
 
         return $map[$toolClass] ?? '';

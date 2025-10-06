@@ -11,7 +11,7 @@ use HollisLabs\ToolCrate\Tools\Contracts\SummarizesTool;
 
 class GitDiffTool extends Tool implements SummarizesTool
 {
-    protected string $name = 'git.diff';
+    protected string $name = 'git_diff';
     protected string $title = 'Git diff';
     protected string $description = 'Return a unified diff for a range, commit, PR (via gh), or working tree.';
 
@@ -52,7 +52,7 @@ class GitDiffTool extends Tool implements SummarizesTool
         return Response::json([ 'source' => 'git', 'diff' => $res->stdout ]);
     }
 
-    public static function summaryName(): string { return 'git.diff'; }
+    public static function summaryName(): string { return 'git_diff'; }
     public static function summaryTitle(): string { return 'Git diff'; }
     public static function summaryDescription(): string { return 'Unified diff from git or gh PR.'; }
     public static function schemaSummary(): array

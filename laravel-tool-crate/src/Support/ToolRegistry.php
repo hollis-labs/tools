@@ -36,7 +36,7 @@ class ToolRegistry
                 'name'        => $name,
                 'title'       => $title,
                 'description' => $description,
-                'hint'        => sprintf("Use help.tool { name: '%s' }", $name),
+                'hint'        => sprintf("Use help_tool { name: '%s' }", $name),
                 'schema'      => $summaryDefaults['schema'],
             ];
         }

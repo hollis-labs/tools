@@ -10,7 +10,7 @@ use HollisLabs\ToolCrate\Tools\Contracts\SummarizesTool;
 
 class TextReplaceTool extends Tool implements SummarizesTool
 {
-    protected string $name = 'text.replace';
+    protected string $name = 'text_replace';
     protected string $title = 'Replace text (diff preview)';
     protected string $description = 'Apply regex/literal replacement and return a unified diff preview (no write yet).';
 
@@ -64,7 +64,7 @@ class TextReplaceTool extends Tool implements SummarizesTool
         return implode("\n", $out) . "\n";
     }
 
-    public static function summaryName(): string { return 'text.replace'; }
+    public static function summaryName(): string { return 'text_replace'; }
     public static function summaryTitle(): string { return 'Replace text (diff preview)'; }
     public static function summaryDescription(): string { return 'Regex/literal replace; returns diff.'; }
     public static function schemaSummary(): array

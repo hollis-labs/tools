@@ -11,7 +11,7 @@ use HollisLabs\ToolCrate\Support\ToolRegistry;
 
 class HelpIndexTool extends Tool
 {
-    protected string $name = 'help.index';
+    protected string $name = 'help_index';
     protected string $title = 'List tools (prioritized)';
     protected string $description = 'Return top tools + categorized full list with short hints.';
 
@@ -51,7 +51,7 @@ class HelpIndexTool extends Tool
         return Response::json([
             'recommended' => $recommended,
             'categories' => $cats,
-            'note' => "For details call: help.tool { name: '<tool-name>' }"
+            'note' => "For details call: help_tool { name: '<tool-name>' }"
         ]);
     }
 }

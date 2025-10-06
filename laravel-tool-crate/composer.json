@@ -1,6 +1,6 @@
 {
   "name": "hollis-labs/laravel-tool-crate",
-  "description": "Opinionated local dev MCP server for Laravel (official laravel/mcp), with a context-lean help layer, git tools, and table.query.",
+  "description": "Opinionated local dev MCP server for Laravel (official laravel/mcp), with a context-lean help layer, git tools, and table_query.",
   "type": "library",
   "license": "MIT",
   "autoload": {

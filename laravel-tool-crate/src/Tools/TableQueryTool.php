@@ -11,7 +11,7 @@ use PDO;
 
 class TableQueryTool extends Tool implements SummarizesTool
 {
-    protected string $name = 'table.query';
+    protected string $name = 'table_query';
     protected string $title = 'Query CSV/TSV with SQL';
     protected string $description = 'Load a CSV/TSV into SQLite (in-memory) and run a SELECT.';
 
@@ -140,7 +140,7 @@ class TableQueryTool extends Tool implements SummarizesTool
         $stmt->execute($vals);
     }
 
-    public static function summaryName(): string { return 'table.query'; }
+    public static function summaryName(): string { return 'table_query'; }
     public static function summaryTitle(): string { return 'Query CSV/TSV with SQL'; }
     public static function summaryDescription(): string { return 'Load CSV/TSV to SQLite and SELECT.'; }
     public static function schemaSummary(): array

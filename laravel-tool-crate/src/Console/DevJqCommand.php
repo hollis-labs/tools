@@ -8,7 +8,7 @@ use HollisLabs\ToolCrate\Support\Exec;
 class DevJqCommand extends Command
 {
     protected $signature = 'tool:jq {program} {--json=} {--file=} {--raw} {--slurp} {--cwd=}';
-    protected $description = 'Run jq via the same implementation backing the MCP json.query tool.';
+    protected $description = 'Run jq via the same implementation backing the MCP json_query tool.';
 
     public function handle(): int
     {

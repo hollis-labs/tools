@@ -10,7 +10,7 @@ use HollisLabs\ToolCrate\Tools\Contracts\SummarizesTool;
 
 class FileReadTool extends Tool implements SummarizesTool
 {
-    protected string $name = 'file.read';
+    protected string $name = 'file_read';
     protected string $title = 'Read file';
     protected string $description = 'Read a text file (UTF-8) with optional size cap & slice.';
 
@@ -53,7 +53,7 @@ class FileReadTool extends Tool implements SummarizesTool
         ]);
     }
 
-    public static function summaryName(): string { return 'file.read'; }
+    public static function summaryName(): string { return 'file_read'; }
     public static function summaryTitle(): string { return 'Read file'; }
     public static function summaryDescription(): string { return 'Read file content with size cap.'; }
     public static function schemaSummary(): array

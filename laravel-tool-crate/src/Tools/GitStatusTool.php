@@ -11,7 +11,7 @@ use HollisLabs\ToolCrate\Tools\Contracts\SummarizesTool;
 
 class GitStatusTool extends Tool implements SummarizesTool
 {
-    protected string $name = 'git.status';
+    protected string $name = 'git_status';
     protected string $title = 'Git status (porcelain)';
     protected string $description = 'Return git working tree status (porcelain v2 by default).';
 
@@ -46,7 +46,7 @@ class GitStatusTool extends Tool implements SummarizesTool
         ]);
     }
 
-    public static function summaryName(): string { return 'git.status'; }
+    public static function summaryName(): string { return 'git_status'; }
     public static function summaryTitle(): string { return 'Git status (porcelain)'; }
     public static function summaryDescription(): string { return 'Working tree status; uses git CLI.'; }
     public static function schemaSummary(): array

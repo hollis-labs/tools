@@ -11,14 +11,14 @@ use HollisLabs\ToolCrate\Support\ToolRegistry;
 
 class HelpToolDetail extends Tool
 {
-    protected string $name = 'help.tool';
+    protected string $name = 'help_tool';
     protected string $title = 'Describe a tool';
     protected string $description = 'Return concise details for a named tool (schema summary + hint).';
 
     public function schema(JsonSchema $s): array
     {
         return [
-            'name' => $s->string()->required()->description('Tool name, e.g., json.query'),
+            'name' => $s->string()->required()->description('Tool name, e.g., json_query'),
         ];
     }
 

@@ -8,7 +8,7 @@ use Symfony\Component\Finder\Finder;
 class DevSearchCommand extends Command
 {
     protected $signature = 'tool:search {pattern} {--paths=*} {--text=} {--fixed} {--ignore} {--max=500}';
-    protected $description = 'Search text/files similarly to the MCP text.search tool.';
+    protected $description = 'Search text/files similarly to the MCP text_search tool.';
 
     public function handle(): int
     {

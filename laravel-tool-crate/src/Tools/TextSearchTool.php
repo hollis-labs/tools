@@ -11,7 +11,7 @@ use HollisLabs\ToolCrate\Tools\Contracts\SummarizesTool;
 
 class TextSearchTool extends Tool implements SummarizesTool
 {
-    protected string $name = 'text.search';
+    protected string $name = 'text_search';
     protected string $title = 'Search text (grep-like)';
     protected string $description = 'Search files or text via regex/literal; optional context.';
 
@@ -96,7 +96,7 @@ class TextSearchTool extends Tool implements SummarizesTool
         return Response::json(['matches' => $matches]);
     }
 
-    public static function summaryName(): string { return 'text.search'; }
+    public static function summaryName(): string { return 'text_search'; }
     public static function summaryTitle(): string { return 'Search text (grep-like)'; }
     public static function summaryDescription(): string { return 'Regex/literal search with context.'; }
     public static function schemaSummary(): array

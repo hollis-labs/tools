@@ -2,25 +2,25 @@
 
 return [
     'enabled_tools' => [
-        'json.query'     => true,
-        'text.search'    => true,
-        'file.read'      => true,
-        'text.replace'   => true,
-        'help.index'     => true,
-        'help.tool'      => true,
-        'git.status'     => true,
-        'git.diff'       => true,
-        'git.apply_patch'=> true,
-        'table.query'    => true,
+        'json_query'      => true,
+        'text_search'     => true,
+        'file_read'       => true,
+        'text_replace'    => true,
+        'help_index'      => true,
+        'help_tool'       => true,
+        'git_status'      => true,
+        'git_diff'        => true,
+        'git_apply_patch' => true,
+        'table_query'     => true,
     ],
 
-    'priority_tools' => ['json.query', 'text.search', 'file.read', 'git.status', 'git.diff'],
+    'priority_tools' => ['json_query', 'text_search', 'file_read', 'git_status', 'git_diff'],
 
     'categories' => [
-        'JSON & Data' => ['json.query', 'table.query'],
-        'Text Ops'    => ['text.search', 'text.replace'],
-        'Files'       => ['file.read'],
-        'Git'         => ['git.status', 'git.diff', 'git.apply_patch'],
-        'Help'        => ['help.index', 'help.tool'],
+        'JSON & Data' => ['json_query', 'table_query'],
+        'Text Ops'    => ['text_search', 'text_replace'],
+        'Files'       => ['file_read'],
+        'Git'         => ['git_status', 'git_diff', 'git_apply_patch'],
+        'Help'        => ['help_index', 'help_tool'],
     ],
 ];
