@@ -14,7 +14,7 @@ use HollisLabs\ToolCrate\Tools\HelpToolDetail;
 class ToolCrateServer extends Server
 {
     protected string $name = 'ToolCrate';
-    protected string $version = '0.2.0';
+    protected string $version = '0.2.1';
     protected string $instructions = 'Local dev toolbox. Use help.index to discover JSON, search, and file helpers.';
 
     protected array $tools = [

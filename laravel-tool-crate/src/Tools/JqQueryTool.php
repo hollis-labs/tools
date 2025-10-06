@@ -13,7 +13,7 @@ class JqQueryTool extends Tool implements SummarizesTool
 {
     protected string $name = 'json.query';
     protected string $title = 'Query JSON with jq';
-    protected string $description = 'Query JSON using jq; prefer this over ad-hoc parsing.';
+    protected string $description = 'Query/transform JSON via jq.';
 
     public function schema(JsonSchema $s): array
     {
