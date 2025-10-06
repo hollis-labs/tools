@@ -140,9 +140,9 @@ class TableQueryTool extends Tool implements SummarizesTool
         $stmt->execute($vals);
     }
 
-    public static function name(): string { return 'table.query'; }
-    public static function title(): string { return 'Query CSV/TSV with SQL'; }
-    public static function shortDescription(): string { return 'Load CSV/TSV to SQLite and SELECT.'; }
+    public static function summaryName(): string { return 'table.query'; }
+    public static function summaryTitle(): string { return 'Query CSV/TSV with SQL'; }
+    public static function summaryDescription(): string { return 'Load CSV/TSV to SQLite and SELECT.'; }
     public static function schemaSummary(): array
     {
         return [

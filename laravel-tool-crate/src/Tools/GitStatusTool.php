@@ -46,9 +46,9 @@ class GitStatusTool extends Tool implements SummarizesTool
         ]);
     }
 
-    public static function name(): string { return 'git.status'; }
-    public static function title(): string { return 'Git status (porcelain)'; }
-    public static function shortDescription(): string { return 'Working tree status; uses git CLI.'; }
+    public static function summaryName(): string { return 'git.status'; }
+    public static function summaryTitle(): string { return 'Git status (porcelain)'; }
+    public static function summaryDescription(): string { return 'Working tree status; uses git CLI.'; }
     public static function schemaSummary(): array
     {
         return [

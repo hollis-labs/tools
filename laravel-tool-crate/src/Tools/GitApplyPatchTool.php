@@ -51,9 +51,9 @@ class GitApplyPatchTool extends Tool implements SummarizesTool
         ]);
     }
 
-    public static function name(): string { return 'git.apply_patch'; }
-    public static function title(): string { return 'Git apply patch'; }
-    public static function shortDescription(): string { return 'Apply patch (defaults to check-only).'; }
+    public static function summaryName(): string { return 'git.apply_patch'; }
+    public static function summaryTitle(): string { return 'Git apply patch'; }
+    public static function summaryDescription(): string { return 'Apply patch (defaults to check-only).'; }
     public static function schemaSummary(): array
     {
         return [
