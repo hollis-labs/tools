@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure script is present
+        run: |
+          test -f git-sandbox || { echo "::error file=git-sandbox::git-sandbox missing at repo root"; exit 1; }
+          chmod +x git-sandbox
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Shellcheck
+        run: shellcheck -S style git-sandbox
+
+      - name: Smoke test (help/version)
+        run: |
+          ./git-sandbox -v || true
+          ./git-sandbox -h || true
+
