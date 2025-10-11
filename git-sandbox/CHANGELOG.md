@@ -4,6 +4,7 @@ All notable changes to **git-sandbox** will be documented in this file.
 
 ## [1.3.1] - 2025-10-11
 ### Added
+- Published to **Homebrew** via `hollis-labs/tap` (`brew tap hollis-labs/tap && brew install git-sandbox`).
 - `-i/--interactive` restored and honored across subshell and `--tmux` modes.
 - `-v/--version` flag.
 - `--show-commits` (only used during interactive pause).
