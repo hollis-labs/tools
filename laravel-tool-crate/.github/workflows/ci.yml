@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.2', '8.3']
+        laravel: ['10.*', '11.*', '12.*']
+        exclude:
+          - php: '8.2'
+            laravel: '12.*'
+
+    name: PHP ${{ matrix.php }} - Laravel ${{ matrix.laravel }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo_sqlite
+          coverage: none
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Get Composer Cache Directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Install dependencies
+        run: |
+          composer require "laravel/framework:${{ matrix.laravel }}" --no-interaction --no-update
+          composer update --prefer-dist --no-interaction --no-progress
+
+      - name: Check composer.json validity
+        run: composer validate --strict
+
+      - name: Check code style (if pint installed)
+        run: |
+          if composer show laravel/pint &>/dev/null; then
+            ./vendor/bin/pint --test
+          else
+            echo "Pint not installed, skipping"
+          fi
+        continue-on-error: true
+
+  static-analysis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.3
+          extensions: pdo_sqlite
+          coverage: none
+
+      - name: Install dependencies
+        run: composer update --prefer-dist --no-interaction --no-progress
+
+      - name: Run PHPStan (if installed)
+        run: |
+          if composer show phpstan/phpstan &>/dev/null; then
+            ./vendor/bin/phpstan analyse
+          else
+            echo "PHPStan not installed, skipping"
+          fi
+        continue-on-error: true
+

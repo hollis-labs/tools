@@ -16,7 +16,6 @@ class ToolCrateServiceProvider extends PackageServiceProvider
         $package
             ->name('laravel-tool-crate')
             ->hasConfigFile('tool-crate')
-            ->hasRoute('ai')
             ->hasCommands([DevJqCommand::class, DevSearchCommand::class]);
     }
 

@@ -13,7 +13,11 @@ use HollisLabs\ToolCrate\Tools\HelpToolDetail;
 use HollisLabs\ToolCrate\Tools\GitStatusTool;
 use HollisLabs\ToolCrate\Tools\GitDiffTool;
 use HollisLabs\ToolCrate\Tools\GitApplyPatchTool;
+use HollisLabs\ToolCrate\Tools\GitSandboxTool;
 use HollisLabs\ToolCrate\Tools\TableQueryTool;
+use HollisLabs\ToolCrate\Tools\DbQueryTool;
+use HollisLabs\ToolCrate\Tools\DbInspectTool;
+use HollisLabs\ToolCrate\Tools\DbSchemaDumpTool;
 
 class ToolCrateServer extends Server
 {
@@ -26,6 +30,14 @@ class ToolCrateServer extends Server
         TextSearchTool::class,
         FileReadTool::class,
         TextReplaceTool::class,
+        GitStatusTool::class,
+        GitDiffTool::class,
+        GitApplyPatchTool::class,
+        GitSandboxTool::class,
+        TableQueryTool::class,
+        DbQueryTool::class,
+        DbInspectTool::class,
+        DbSchemaDumpTool::class,
         HelpIndexTool::class,
         HelpToolDetail::class,
     ];
@@ -57,7 +69,11 @@ class ToolCrateServer extends Server
             GitStatusTool::class    => 'git_status',
             GitDiffTool::class      => 'git_diff',
             GitApplyPatchTool::class=> 'git_apply_patch',
+            GitSandboxTool::class   => 'git_sandbox',
             TableQueryTool::class   => 'table_query',
+            DbQueryTool::class      => 'db_query',
+            DbInspectTool::class    => 'db_inspect',
+            DbSchemaDumpTool::class => 'db_schema_dump',
         ];
 
         return $map[$toolClass] ?? '';
