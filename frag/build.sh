@@ -17,7 +17,7 @@ swiftc \
   -framework AppKit \
   -framework Foundation \
   -framework Carbon \
-  "$SCRIPT_DIR/Sources/main.swift" \
+  "$SCRIPT_DIR/main.swift" \
   -o "$BINARY_OUT"
 
 echo "    Compiled: $BINARY_OUT"
