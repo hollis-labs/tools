@@ -829,12 +829,39 @@ class FragRootView: NSView {
 
 
 
+// MARK: - Text editing shortcuts
+
+func handleClipboardKeyEquivalent(_ event: NSEvent, in text: NSText) -> Bool {
+    let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+    guard flags == .command,
+          let key = event.charactersIgnoringModifiers?.lowercased()
+    else { return false }
+
+    switch key {
+    case "c":
+        text.copy(nil)
+        return true
+    case "v":
+        text.paste(nil)
+        return true
+    default:
+        return false
+    }
+}
+
 // MARK: - FragTextView (intercepts Esc and Cmd+Enter before NSTextView swallows them)
 
 class FragTextView: NSTextView {
     var onSubmit: (() -> Void)?
     var onEscape: (() -> Void)?
     var onTab:    (() -> Void)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if handleClipboardKeyEquivalent(event, in: self) {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
@@ -854,6 +881,14 @@ class FragTextView: NSTextView {
 
 class TagsTextField: NSTextField {
     var onTab: (() -> Void)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let editor = currentEditor(),
+           handleClipboardKeyEquivalent(event, in: editor) {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 
     override func becomeFirstResponder() -> Bool {
         let r = super.becomeFirstResponder()
