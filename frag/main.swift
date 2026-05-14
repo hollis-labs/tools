@@ -622,6 +622,7 @@ class FragWindowController: NSObject, NSWindowDelegate {
         tagsGlow.addSubview(tf)
         tagsField = tf
         tf.delegate = self
+        tf.onSubmit = { [weak self] in self?.submit() }
         tf.onTab = { [weak self] in self?.focusText() }
 
         // ── Status / feedback label ────────────────────────────────
@@ -766,6 +767,16 @@ extension FragWindowController: NSTextViewDelegate, NSTextFieldDelegate {
     func controlTextDidChange(_ notification: Notification) {
         flashTagsField()
     }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        guard control === tagsField,
+              commandSelector == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)),
+              NSApp.currentEvent?.modifierFlags.contains(.command) == true
+        else { return false }
+
+        submit()
+        return true
+    }
 }
 
 // MARK: - Keystroke flash
@@ -880,9 +891,14 @@ class FragTextView: NSTextView {
 // MARK: - Tags text field (tinted, Tab cycles back to textarea)
 
 class TagsTextField: NSTextField {
+    var onSubmit: (() -> Void)?
     var onTab: (() -> Void)?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.keyCode == 36, event.modifierFlags.contains(.command) { // Cmd+Enter
+            onSubmit?()
+            return true
+        }
         if let editor = currentEditor(),
            handleClipboardKeyEquivalent(event, in: editor) {
             return true
@@ -899,6 +915,10 @@ class TagsTextField: NSTextField {
     }
 
     override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36, event.modifierFlags.contains(.command) { // Cmd+Enter
+            onSubmit?()
+            return
+        }
         if event.keyCode == 48 { // Tab
             onTab?()
             return
