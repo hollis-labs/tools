@@ -1,0 +1,89 @@
+import { Readability } from "@mozilla/readability";
+import TurndownService from "turndown";
+import type { CapturedPage } from "./types";
+
+const turndown = new TurndownService({
+  headingStyle: "atx",
+  codeBlockStyle: "fenced",
+  bulletListMarker: "-",
+});
+
+export interface ExtractPageOptions {
+  /** Page URL at capture time (document.location isn't reliable off a clone). */
+  url: string;
+  /** window.getSelection().toString() at capture time. */
+  selectionText: string;
+}
+
+/**
+ * Picks the page's own meta description.
+ *
+ * Precedence: `meta[name="description"]` before `meta[property="og:description"]`.
+ * A plain `querySelector('meta[name="description"], meta[property="og:description"]')`
+ * would instead return whichever tag happens to appear first in the DOM --
+ * many real pages put Open Graph tags before the standard description tag,
+ * which would flip the intended precedence. Checking each selector
+ * separately keeps the precedence deterministic regardless of tag order.
+ */
+export function pickDescription(doc: Document): string {
+  const standard = doc
+    .querySelector('meta[name="description"]')
+    ?.getAttribute("content")
+    ?.trim();
+  if (standard) return standard;
+
+  const openGraph = doc
+    .querySelector('meta[property="og:description"]')
+    ?.getAttribute("content")
+    ?.trim();
+  if (openGraph) return openGraph;
+
+  return "";
+}
+
+interface ExtractedArticle {
+  title: string;
+  contentHtml: string;
+}
+
+/**
+ * Runs Readability against a cloned copy of `doc` (Readability mutates the
+ * document it's given, and we don't want to disturb the live page the
+ * content script is running against). Returns null if Readability can't
+ * find an article-shaped region.
+ */
+function extractArticle(doc: Document): ExtractedArticle | null {
+  const clone = doc.cloneNode(true) as Document;
+  const reader = new Readability(clone);
+  const article = reader.parse();
+  if (!article || !article.content || !article.content.trim()) {
+    return null;
+  }
+  return { title: article.title ?? "", contentHtml: article.content };
+}
+
+/**
+ * Full capture pipeline: Readability extraction -> Turndown markdown
+ * conversion, plus meta description, selection, title, and url. Falls back
+ * to converting the raw <body> when Readability can't find an article (e.g.
+ * non-article pages), so a clip is still produced rather than failing
+ * outright -- `usedFallback` flags that case for the caller.
+ */
+export function extractPage(doc: Document, opts: ExtractPageOptions): CapturedPage {
+  const article = extractArticle(doc);
+
+  const contentHtml = article?.contentHtml ?? doc.body?.innerHTML ?? "";
+  const contentMarkdown = turndown.turndown(contentHtml).trim();
+
+  const readabilityTitle = article?.title?.trim();
+  const title = readabilityTitle || doc.title?.trim() || opts.url;
+
+  return {
+    title,
+    url: opts.url,
+    contentMarkdown,
+    description: pickDescription(doc),
+    selection: opts.selectionText.trim(),
+    usedFallback: article === null,
+  };
+}

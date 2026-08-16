@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>FE Clipper Settings</title>
+    <link rel="stylesheet" href="/src/options/style.css" />
+  </head>
+  <body>
+    <main class="options">
+      <h1>FE Clipper settings</h1>
+      <p class="hint">
+        Fragments Engine intake endpoint the extension POSTs clipped pages to. Changing this
+        origin will prompt for permission to reach it.
+      </p>
+
+      <form id="options-form" class="options-form">
+        <label class="field">
+          <span>FE intake endpoint</span>
+          <input
+            id="endpoint-input"
+            name="endpoint"
+            type="url"
+            placeholder="http://127.0.0.1:8091/v1/intake"
+            autocomplete="off"
+            required
+          />
+        </label>
+        <button id="save-button" type="submit">Save</button>
+      </form>
+
+      <div id="status" class="status" role="status"></div>
+    </main>
+    <script type="module" src="/src/options/main.ts"></script>
+  </body>
+</html>
