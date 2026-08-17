@@ -11,7 +11,12 @@
         <h1>FE Clipper</h1>
       </header>
 
-      <div id="status" class="status" role="status"></div>
+      <div class="status-row">
+        <div id="status" class="status" role="status"></div>
+        <button id="copy-error-button" type="button" class="copy-error-button" hidden>
+          Copy error
+        </button>
+      </div>
 
       <form id="clip-form" class="clip-form" hidden>
         <label class="field">
@@ -22,6 +27,16 @@
         <label class="field">
           <span>Tags (comma-separated)</span>
           <input id="tags-input" name="tags" type="text" autocomplete="off" />
+        </label>
+
+        <label class="field">
+          <span>Note (optional)</span>
+          <textarea
+            id="note-input"
+            name="note"
+            rows="2"
+            placeholder="Context for yourself or the ingest system"
+          ></textarea>
         </label>
 
         <div class="field field--readonly">

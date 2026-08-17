@@ -4,17 +4,41 @@ import { getEndpoint } from "@/lib/storage";
 import { DEFAULT_TAGS, type CapturedPage, type ExtensionMessage } from "@/lib/types";
 
 const statusEl = document.getElementById("status") as HTMLDivElement;
+const copyErrorButton = document.getElementById("copy-error-button") as HTMLButtonElement;
 const formEl = document.getElementById("clip-form") as HTMLFormElement;
 const titleInput = document.getElementById("title-input") as HTMLInputElement;
 const tagsInput = document.getElementById("tags-input") as HTMLInputElement;
+const noteInput = document.getElementById("note-input") as HTMLTextAreaElement;
 const selectionPreview = document.getElementById("selection-preview") as HTMLParagraphElement;
 const sendButton = document.getElementById("send-button") as HTMLButtonElement;
 
 let captured: CapturedPage | null = null;
 
+// Give the user a moment to read the success message before the popup
+// closes itself; errors never auto-close (setStatus below only shows the
+// copy-error button on "error", and nothing schedules a close for it).
+const SUCCESS_AUTO_CLOSE_MS = 1200;
+const COPY_BUTTON_RESET_MS = 1500;
+
 function setStatus(message: string, kind: "loading" | "error" | "success" | "idle" = "idle") {
   statusEl.textContent = message;
   statusEl.dataset.kind = kind;
+  copyErrorButton.hidden = kind !== "error";
+}
+
+async function copyErrorToClipboard() {
+  const text = statusEl.textContent ?? "";
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    copyErrorButton.textContent = "Copied!";
+  } catch {
+    copyErrorButton.textContent = "Copy failed";
+  } finally {
+    setTimeout(() => {
+      copyErrorButton.textContent = "Copy error";
+    }, COPY_BUTTON_RESET_MS);
+  }
 }
 
 async function captureActiveTab(): Promise<CapturedPage> {
@@ -92,6 +116,7 @@ async function handleSubmit(event: SubmitEvent) {
     const payload = buildPayload(captured, {
       title: titleInput.value,
       tags: parseTagsInput(tagsInput.value),
+      note: noteInput.value,
     });
 
     const response = (await chrome.runtime.sendMessage({
@@ -107,6 +132,7 @@ async function handleSubmit(event: SubmitEvent) {
 
     if (response.ok) {
       setStatus("Sent. Check the Fragments Engine inbox.", "success");
+      setTimeout(() => window.close(), SUCCESS_AUTO_CLOSE_MS);
     } else {
       setStatus(response.error, "error");
     }
@@ -120,6 +146,10 @@ async function handleSubmit(event: SubmitEvent) {
 
 formEl.addEventListener("submit", (event) => {
   void handleSubmit(event);
+});
+
+copyErrorButton.addEventListener("click", () => {
+  void copyErrorToClipboard();
 });
 
 void runCapture();

@@ -34,6 +34,11 @@ export interface ClipPayload {
 export interface EditableFields {
   title: string;
   tags: string[];
+  /** Freeform context the user typed in the popup before sending. Prepended
+   * to the wire payload's content as a labeled blockquote (see
+   * lib/payload.ts's prependNote) rather than sent as its own field, so it
+   * reaches FE's ingest system without requiring a new /v1/intake field. */
+  note: string;
 }
 
 export const DEFAULT_TAGS = ["link"] as const;

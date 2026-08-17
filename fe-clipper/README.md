@@ -22,9 +22,9 @@ already landed in the `fragments-engine` repo (commit `d03fd5d`).
    - the page's own meta description (`meta[name="description"]`, falling back to
      `meta[property="og:description"]`);
    - the page title and URL.
-3. The popup shows the captured title (editable) and a tags field pre-filled with `link`
-   (editable), so you can course-correct before anything is sent — consistent with how manual
-   intake works elsewhere in FE.
+3. The popup shows the captured title (editable), a tags field pre-filled with `link`
+   (editable), and an optional **Note** field, so you can course-correct — and add context —
+   before anything is sent, consistent with how manual intake works elsewhere in FE.
 4. On **Send**, the popup asks the background service worker to `POST` the payload to the
    configured FE endpoint (default `http://127.0.0.1:8091/v1/intake`):
 
@@ -39,9 +39,17 @@ already landed in the `fragments-engine` repo (commit `d03fd5d`).
    }
    ```
 
-5. The popup shows a clear success or failure confirmation. If FE is unreachable (dev server
-   not running, wrong port, etc.), the fetch failure is surfaced in the popup — it never fails
-   silently.
+   There's no dedicated `note` field on `/v1/intake` (CW-20260816-0071's contract is
+   content/title/source_url/description/selection/tags only), so a non-empty note is prepended
+   to `content` as a labeled Markdown blockquote (`> **Note:** ...`, see `lib/payload.ts`'s
+   `prependNote`) rather than sent as its own field — it lands in the fragment's actual
+   searchable body, and shows up in FE's auto-derived summary too when no meta description is
+   present, so it's visible at a glance in the inbox.
+5. The popup shows a clear success or failure confirmation. On success, the popup auto-closes
+   about 1.2s after showing the confirmation. On failure — FE unreachable (dev server not
+   running, wrong port, etc.), or FE rejecting the request — the popup stays open, shows the
+   error, and a **Copy error** button appears next to it so you can paste the exact message
+   somewhere (e.g. when asking for help). It never fails silently.
 
 ## Project layout
 
