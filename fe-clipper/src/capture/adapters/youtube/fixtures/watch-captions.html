@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Browser shell title - YouTube</title>
+    <meta property="og:title" content="Open Graph video title">
+    <meta name="description" content="Open Graph description fallback">
+    <meta property="og:image" content="https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg">
+    <meta property="og:image:width" content="1280">
+    <meta property="og:image:height" content="720">
+    <meta property="og:image:type" content="image/jpeg">
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "VideoObject",
+        "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "name": "JSON-LD video title",
+        "description": "JSON-LD description",
+        "thumbnailUrl": "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg",
+        "uploadDate": "2009-10-25",
+        "duration": "PT3M33S",
+        "author": {"@type": "Person", "name": "JSON-LD Channel", "identifier": "UC-jsonld"}
+      }
+    </script>
+    <script>
+      var ytInitialPlayerResponse = {
+        "videoDetails": {
+          "videoId": "dQw4w9WgXcQ",
+          "title": "Player video title",
+          "shortDescription": "Official description.\n0:00 Opening\n0:42 Second chapter",
+          "author": "Example Channel",
+          "channelId": "UC38IQsAvIsxxjztdMZQtwHA",
+          "keywords": ["official", "music video"],
+          "lengthSeconds": "213",
+          "thumbnail": {
+            "thumbnails": [
+              {"url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg", "width": 480, "height": 360},
+              {"url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg", "width": 1280, "height": 720},
+              {"url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg", "width": 320, "height": 180}
+            ]
+          }
+        },
+        "microformat": {
+          "playerMicroformatRenderer": {
+            "publishDate": "2009-10-25",
+            "ownerChannelName": "Example Channel",
+            "externalChannelId": "UC38IQsAvIsxxjztdMZQtwHA"
+          }
+        },
+        "captions": {
+          "playerCaptionsTracklistRenderer": {
+            "captionTracks": [
+              {
+                "baseUrl": "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en&fmt=vtt&expire=1893456000&signature=fixture-signature",
+                "name": {"simpleText": "English"},
+                "languageCode": "en",
+                "isTranslatable": true
+              },
+              {
+                "baseUrl": "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=es&fmt=vtt",
+                "name": {"runs": [{"text": "Spanish"}]},
+                "languageCode": "es",
+                "isTranslatable": false
+              },
+              {
+                "baseUrl": "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=fr&access_token=DO_NOT_SERIALIZE",
+                "name": {"simpleText": "Unsafe fixture track"},
+                "languageCode": "fr",
+                "isTranslatable": false
+              },
+              {
+                "baseUrl": "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=de#client_secret=FRAGMENT_TRACK_SECRET",
+                "name": {"simpleText": "Unsafe fragment fixture track"},
+                "languageCode": "de",
+                "isTranslatable": false
+              }
+            ]
+          }
+        },
+        "playerOverlays": {
+          "playerOverlayRenderer": {
+            "decoratedPlayerBarRenderer": {
+              "decoratedPlayerBarRenderer": {
+                "playerBar": {
+                  "multiMarkersPlayerBarRenderer": {
+                    "markersMap": [
+                      {
+                        "key": "DESCRIPTION_CHAPTERS",
+                        "value": {
+                          "chapters": [
+                            {"chapterRenderer": {"title": {"simpleText": "Opening"}, "timeRangeStartMillis": 0}},
+                            {"chapterRenderer": {"title": {"simpleText": "Second chapter"}, "timeRangeStartMillis": 42000}}
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "accessToken": "SUPER_SECRET_ACCESS_TOKEN",
+        "cookie": "SID=SECRET_COOKIE",
+        "visitorData": "SECRET_VISITOR_DATA",
+        "authorization": "Bearer SECRET_BEARER"
+      };
+    </script>
+    <script>
+      window["ytInitialData"] = {
+        "engagementPanels": [
+          {
+            "transcriptRenderer": {
+              "content": {
+                "transcriptSearchPanelRenderer": {
+                  "body": {
+                    "transcriptSegmentListRenderer": {
+                      "initialSegments": [
+                        {"transcriptSegmentRenderer": {"startMs": "0", "endMs": "4000", "snippet": {"runs": [{"text": "Serialized first line"}]}}},
+                        {"transcriptSegmentRenderer": {"startMs": "42000", "endMs": "45000", "snippet": {"runs": [{"text": "Serialized second line"}]}}}
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "session": {"token": "SECRET_PAGE_STATE_TOKEN"}
+      };
+    </script>
+  </head>
+  <body>
+    <article>
+      <h1>Readable video page</h1>
+      <p>This rendered page contains useful readable context about the video, its publication, and the creator. The generic Readability and Turndown path must retain this prose even though the provider adapter also discovers playback metadata.</p>
+      <p>This second paragraph makes the fixture article-shaped and provides more stable source text for deterministic extraction without requiring any live YouTube request.</p>
+    </article>
+    <section data-youtube-transcript-language="en">
+      <ytd-transcript-segment-renderer data-start-ms="0" data-duration-ms="4000">
+        <span class="segment-timestamp">0:00</span>
+        <yt-formatted-string class="segment-text">Rendered first line</yt-formatted-string>
+      </ytd-transcript-segment-renderer>
+      <ytd-transcript-segment-renderer data-start-ms="42000" data-duration-ms="3000">
+        <span class="segment-timestamp">0:42</span>
+        <yt-formatted-string class="segment-text">Rendered second line</yt-formatted-string>
+      </ytd-transcript-segment-renderer>
+    </section>
+  </body>
+</html>
