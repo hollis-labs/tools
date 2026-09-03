@@ -42,7 +42,6 @@ describe("extractPage: normal article extraction", () => {
     const result = extractPage(doc, { url: "https://example.com/article", selectionText: "" });
 
     expect(result.usedFallback).toBe(false);
-    expect(result.url).toBe("https://example.com/article");
     // Headings survive as Markdown ATX headings.
     expect(result.contentMarkdown).toMatch(/^#+\s+Article Heading/m);
     // Lists survive as Markdown bullets.

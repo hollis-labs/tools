@@ -35,11 +35,11 @@ export function prependNote(content: string, note: string): string {
  */
 export function buildPayload(captured: CapturedPage, edits: EditableFields): ClipPayload {
   return {
-    content: prependNote(captured.contentMarkdown, edits.note),
-    title: edits.title.trim() || captured.title,
-    source_url: captured.url,
-    description: captured.description,
-    selection: captured.selection,
+    content: prependNote(captured.document.contentMarkdown, edits.note),
+    title: edits.title.trim() || captured.document.title,
+    source_url: captured.identity.submittedUrl,
+    description: captured.document.description,
+    selection: captured.document.selection,
     tags: edits.tags,
   };
 }

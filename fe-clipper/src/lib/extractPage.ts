@@ -1,6 +1,6 @@
 import { Readability } from "@mozilla/readability";
 import TurndownService from "turndown";
-import type { CapturedPage } from "./types";
+import type { AdapterDocumentObservation } from "@/capture/types";
 
 const turndown = new TurndownService({
   headingStyle: "atx",
@@ -69,7 +69,7 @@ function extractArticle(doc: Document): ExtractedArticle | null {
  * non-article pages), so a clip is still produced rather than failing
  * outright -- `usedFallback` flags that case for the caller.
  */
-export function extractPage(doc: Document, opts: ExtractPageOptions): CapturedPage {
+export function extractPage(doc: Document, opts: ExtractPageOptions): AdapterDocumentObservation {
   const article = extractArticle(doc);
 
   const contentHtml = article?.contentHtml ?? doc.body?.innerHTML ?? "";
@@ -77,13 +77,14 @@ export function extractPage(doc: Document, opts: ExtractPageOptions): CapturedPa
 
   const readabilityTitle = article?.title?.trim();
   const title = readabilityTitle || doc.title?.trim() || opts.url;
+  const language = doc.documentElement?.lang.trim();
 
   return {
     title,
-    url: opts.url,
     contentMarkdown,
     description: pickDescription(doc),
     selection: opts.selectionText.trim(),
     usedFallback: article === null,
+    ...(language ? { language } : {}),
   };
 }

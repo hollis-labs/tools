@@ -2,23 +2,10 @@
 // can be imported from content-script, background, popup, and unit tests
 // without pulling in any runtime code.
 
-/** Raw data captured from the page by the content script. */
-export interface CapturedPage {
-  /** Page title (document.title, or Readability's title if better). */
-  title: string;
-  /** Page URL (location.href) at capture time. */
-  url: string;
-  /** Full-page readable content, already converted HTML -> Markdown. */
-  contentMarkdown: string;
-  /** Page's own meta description, if present. Empty string if none. */
-  description: string;
-  /** Current text selection at capture time. Empty string if none. */
-  selection: string;
-  /** True when Readability failed to find an article and we fell back. */
-  usedFallback: boolean;
-  /** Set when extraction itself threw; content/description may be empty. */
-  error?: string;
-}
+import type { PageCaptureResult } from "@/capture/types";
+
+/** Serializable adapter result captured by the content script. */
+export type CapturedPage = PageCaptureResult;
 
 /** Exact wire shape POSTed to FE's /v1/intake endpoint. */
 export interface ClipPayload {

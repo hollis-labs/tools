@@ -79,16 +79,22 @@ async function runCapture() {
     return;
   }
 
-  titleInput.value = captured.title;
+  titleInput.value = captured.document.title;
   tagsInput.value = DEFAULT_TAGS.join(", ");
-  selectionPreview.textContent = captured.selection ? captured.selection : "None";
+  selectionPreview.textContent = captured.document.selection
+    ? captured.document.selection
+    : "None";
 
-  if (captured.error) {
-    setStatus(`Extraction had a problem (${captured.error}); review before sending.`, "error");
-  } else if (captured.usedFallback) {
+  const extractionError = captured.warnings.find((warning) => warning.severity === "error");
+  if (extractionError) {
+    setStatus(
+      `Extraction had a problem (${extractionError.message}); review before sending.`,
+      "error",
+    );
+  } else if (captured.document.usedFallback) {
     setStatus("No article region found; used the raw page as a fallback.", "loading");
   } else {
-    setStatus(`Captured from ${captured.url}`, "idle");
+    setStatus(`Captured from ${captured.identity.submittedUrl}`, "idle");
   }
 
   formEl.hidden = false;

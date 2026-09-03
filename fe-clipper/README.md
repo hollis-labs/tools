@@ -59,6 +59,7 @@ popup.html / options.html  Extension pages (built by Vite)
 src/
   background/index.ts      Service worker: owns the one outbound fetch() to FE
   content/index.ts          Injected content script: runs the extraction pipeline in-page
+  capture/                  PageCaptureAdapter types, deterministic registry, generic fallback
   popup/                    Popup UI (capture preview + edit + send)
   options/                  Options page (configurable FE endpoint)
   lib/
@@ -121,12 +122,10 @@ grant. Saving is rejected if that permission prompt is denied.
   background worker, content script, popup, options page, icons — see full command output in
   the task record).
 - `npm run lint` and `npm run typecheck` pass with zero errors/warnings.
-- `npm test` — 16 unit tests (vitest + jsdom) covering the Readability → Turndown → payload
-  pipeline: normal article extraction (headings/lists/links/code blocks preserved as Markdown),
-  meta-description detection and precedence (`meta[name="description"]` over
-  `meta[property="og:description"]`, and the no-description case), text-selection capture kept
-  distinct from the main content, a Readability-finds-nothing fallback path, and the payload
-  builder producing the exact six-field `/v1/intake` wire shape.
+- `npm test` — 30 unit tests (vitest + jsdom) covering deterministic adapter selection and
+  generic fallback, the shared adapter result, the Readability → Turndown → payload pipeline,
+  meta-description precedence, distinct text-selection capture, extraction fallback/error
+  results, and the exact six-field `/v1/intake` compatibility wire shape.
 - The wire contract itself was verified with a **scripted `curl` POST** against a real, locally
   running `fragments-engine` dev server (`serve-api`), using a payload shaped exactly like what
   `src/background/index.ts` sends. The response was `HTTP 201` with `outcome: "inserted"`, and

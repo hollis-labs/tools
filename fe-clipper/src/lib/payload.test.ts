@@ -3,12 +3,32 @@ import { buildPayload, parseTagsInput, prependNote } from "./payload";
 import type { CapturedPage } from "./types";
 
 const captured: CapturedPage = {
-  title: "Captured Title",
-  url: "https://example.com/post",
-  contentMarkdown: "# Heading\n\nBody text.",
-  description: "A meta description.",
-  selection: "Highlighted bit.",
-  usedFallback: false,
+  adapter: {
+    id: "generic",
+    version: "1.0.0",
+    matchConfidence: 0,
+    usedGenericFallback: true,
+  },
+  identity: {
+    submittedUrl: "https://example.com/post",
+    canonicalUrl: "https://example.com/post",
+    provider: "web",
+    segmentKey: "root",
+  },
+  document: {
+    title: "Captured Title",
+    contentMarkdown: "# Heading\n\nBody text.",
+    description: "A meta description.",
+    selection: "Highlighted bit.",
+    usedFallback: false,
+  },
+  media: [],
+  extensions: [],
+  capabilities: {
+    declared: ["canonical_identity", "title", "description", "body", "selection"],
+    observed: ["canonical_identity", "title", "description", "body", "selection"],
+  },
+  warnings: [],
 };
 
 describe("buildPayload", () => {
@@ -47,8 +67,8 @@ describe("buildPayload", () => {
 
   it("keeps content and selection as separate fields, never merged", () => {
     const payload = buildPayload(captured, { title: "T", tags: ["link"], note: "" });
-    expect(payload.content).not.toContain(captured.selection);
-    expect(payload.selection).toBe(captured.selection);
+    expect(payload.content).not.toContain(captured.document.selection);
+    expect(payload.selection).toBe(captured.document.selection);
   });
 
   it("defaults tags to whatever the caller passes through untouched", () => {
@@ -69,7 +89,7 @@ describe("buildPayload", () => {
 
   it("leaves content untouched when note is blank/whitespace-only", () => {
     const payload = buildPayload(captured, { title: "T", tags: ["link"], note: "   " });
-    expect(payload.content).toBe(captured.contentMarkdown);
+    expect(payload.content).toBe(captured.document.contentMarkdown);
   });
 });
 

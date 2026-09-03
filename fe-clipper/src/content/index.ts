@@ -11,7 +11,12 @@
 // its own) since it's injected as a classic content-script file, not loaded
 // as an ES module.
 
-import { extractPage } from "@/lib/extractPage";
+import {
+  createFailedPageCapture,
+  pageCaptureAdapterRegistry,
+  toPageCaptureLocation,
+} from "@/capture/registry";
+import type { PageCaptureContext } from "@/capture/types";
 import type { CapturedPage } from "@/lib/types";
 
 declare global {
@@ -20,21 +25,21 @@ declare global {
   }
 }
 
-function capture(): CapturedPage {
-  const selectionText = window.getSelection()?.toString() ?? "";
-  return extractPage(document, { url: window.location.href, selectionText });
+function captureContext(): PageCaptureContext {
+  return {
+    document,
+    location: toPageCaptureLocation(window.location.href),
+    selectionText: window.getSelection()?.toString() ?? "",
+  };
 }
 
+const context = captureContext();
+
 try {
-  window.__FE_CLIPPER_CAPTURE__ = capture();
+  window.__FE_CLIPPER_CAPTURE__ = pageCaptureAdapterRegistry.capture(context);
 } catch (err) {
-  window.__FE_CLIPPER_CAPTURE__ = {
-    title: document.title || window.location.href,
-    url: window.location.href,
-    contentMarkdown: "",
-    description: "",
-    selection: window.getSelection()?.toString().trim() ?? "",
-    usedFallback: true,
-    error: err instanceof Error ? err.message : String(err),
-  };
+  window.__FE_CLIPPER_CAPTURE__ = createFailedPageCapture(
+    context,
+    err instanceof Error ? err.message : String(err),
+  );
 }
