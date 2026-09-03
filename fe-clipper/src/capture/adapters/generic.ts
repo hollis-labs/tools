@@ -9,6 +9,7 @@ import type {
   PageCaptureContext,
 } from "../types";
 import { ADAPTER_MATCH_CONFIDENCE } from "../types";
+import { sanitizeCapturePageUrl } from "../urlSafety";
 import { extractPage } from "@/lib/extractPage";
 import { extractGenericMedia } from "./genericMedia";
 
@@ -30,25 +31,19 @@ function normalizedDocumentUrl(rawUrl: string, baseUrl: string): string | undefi
     const resolved = new URL(rawUrl, baseUrl);
     if (resolved.protocol !== "http:" && resolved.protocol !== "https:") return undefined;
     if (resolved.username || resolved.password) return undefined;
-    resolved.hash = "";
-    for (const key of [...resolved.searchParams.keys()]) {
-      if (TRACKING_QUERY_PARAMETER.test(key)) resolved.searchParams.delete(key);
+    const sanitized = new URL(sanitizeCapturePageUrl(resolved.href));
+    sanitized.hash = "";
+    for (const key of [...sanitized.searchParams.keys()]) {
+      if (TRACKING_QUERY_PARAMETER.test(key)) sanitized.searchParams.delete(key);
     }
-    return resolved.href;
+    return sanitized.href;
   } catch {
     return undefined;
   }
 }
 
 function submittedUrl(context: PageCaptureContext): string {
-  try {
-    const submitted = new URL(context.location.href);
-    submitted.username = "";
-    submitted.password = "";
-    return submitted.href;
-  } catch {
-    return context.location.href;
-  }
+  return sanitizeCapturePageUrl(context.location.href);
 }
 
 function canonicalUrl(context: PageCaptureContext): {

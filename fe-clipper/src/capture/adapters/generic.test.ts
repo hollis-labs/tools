@@ -255,6 +255,24 @@ describe("generic page capture adapter", () => {
     expect(JSON.stringify(result)).not.toContain("secret");
   });
 
+  it("removes credential-shaped query and fragment values from generic identity", () => {
+    const result = capture(
+      `<html><head><title>Safe identity</title><link rel="canonical" href="/story?chapter=2&oauth_token=canonical-secret#section=two&csrf_token=fragment-secret"></head><body></body></html>`,
+      "https://user:password@example.com/story?chapter=2&access_token=submitted-secret#section=one&sessionid=session-secret",
+    );
+
+    expect(result.identity).toMatchObject({
+      submittedUrl: "https://example.com/story?chapter=2#section=one",
+      canonicalUrl: "https://example.com/story?chapter=2",
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("password");
+    expect(serialized).not.toContain("submitted-secret");
+    expect(serialized).not.toContain("canonical-secret");
+    expect(serialized).not.toContain("fragment-secret");
+    expect(serialized).not.toContain("session-secret");
+  });
+
   it("keeps the raw-body fallback visible as a structured warning", () => {
     const result = capture(
       "<html><head><title>Empty Page</title></head><body></body></html>",

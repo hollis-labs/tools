@@ -2,6 +2,7 @@ import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
 import {
   createFailedPageCapture,
+  pageCaptureAdapterRegistry,
   PageCaptureAdapterRegistry,
   toPageCaptureLocation,
 } from "./registry";
@@ -12,8 +13,10 @@ import {
   type PageCaptureContext,
 } from "./types";
 
-function makeContext(html = "<html><head><title>Page</title></head><body></body></html>") {
-  const url = "https://example.com/post";
+function makeContext(
+  html = "<html><head><title>Page</title></head><body></body></html>",
+  url = "https://example.com/post",
+) {
   return {
     document: new JSDOM(html, { url }).window.document,
     location: toPageCaptureLocation(url),
@@ -105,6 +108,16 @@ function makeAdapter(
 }
 
 describe("PageCaptureAdapterRegistry selection", () => {
+  it.each([
+    ["instagram", "https://www.instagram.com/p/POST123/"],
+    ["pinterest", "https://www.pinterest.com/pin/104427285104852001/"],
+    ["youtube", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
+  ])("registers the built-in %s adapter", (expectedAdapter, url) => {
+    expect(pageCaptureAdapterRegistry.select(makeContext(undefined, url)).adapter.id).toBe(
+      expectedAdapter,
+    );
+  });
+
   it("uses the generic adapter when no provider adapter matches", () => {
     const registry = new PageCaptureAdapterRegistry([
       makeAdapter("provider", ADAPTER_MATCH_CONFIDENCE.none),
@@ -245,5 +258,21 @@ describe("PageCaptureAdapterRegistry result", () => {
         message: "Readability stopped unexpectedly.",
       },
     ]);
+  });
+
+  it("does not leak URL credentials from an unrecoverable capture", () => {
+    const context = makeContext(
+      "<html><head><title>Problem page</title></head><body></body></html>",
+      "https://user:password@example.com/post?chapter=2&access_token=query-secret#section=one&session_token=fragment-secret",
+    );
+
+    const result = createFailedPageCapture(context, "Extraction failed.");
+
+    expect(result.identity.submittedUrl).toBe(
+      "https://example.com/post?chapter=2#section=one",
+    );
+    expect(JSON.stringify(result)).not.toContain("password");
+    expect(JSON.stringify(result)).not.toContain("query-secret");
+    expect(JSON.stringify(result)).not.toContain("fragment-secret");
   });
 });

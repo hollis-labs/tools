@@ -1,4 +1,7 @@
 import { genericPageCaptureAdapter } from "./adapters/generic";
+import { instagramPageCaptureAdapter } from "./adapters/instagram";
+import { pinterestPageCaptureAdapter } from "./adapters/pinterest";
+import { youtubePageCaptureAdapter } from "./adapters/youtube";
 import {
   ADAPTER_MATCH_CONFIDENCE,
   type AdapterCapability,
@@ -10,6 +13,7 @@ import {
   type PageCaptureLocation,
   type PageCaptureResult,
 } from "./types";
+import { sanitizeCapturePageUrl } from "./urlSafety";
 
 const MATCH_CONFIDENCES = new Set<number>(Object.values(ADAPTER_MATCH_CONFIDENCE));
 
@@ -208,7 +212,8 @@ export function createFailedPageCapture(
   context: PageCaptureContext,
   message: string,
 ): PageCaptureResult {
-  const title = context.document.title.trim() || context.location.href;
+  const pageUrl = sanitizeCapturePageUrl(context.location.href);
+  const title = context.document.title.trim() || pageUrl;
   const selection = context.selectionText.trim();
 
   return {
@@ -219,8 +224,8 @@ export function createFailedPageCapture(
       usedGenericFallback: true,
     },
     identity: {
-      submittedUrl: context.location.href,
-      canonicalUrl: context.location.href,
+      submittedUrl: pageUrl,
+      canonicalUrl: pageUrl,
       provider: "web",
       segmentKey: "root",
     },
@@ -252,4 +257,8 @@ export function createFailedPageCapture(
   };
 }
 
-export const pageCaptureAdapterRegistry = new PageCaptureAdapterRegistry();
+export const pageCaptureAdapterRegistry = new PageCaptureAdapterRegistry([
+  instagramPageCaptureAdapter,
+  pinterestPageCaptureAdapter,
+  youtubePageCaptureAdapter,
+]);
