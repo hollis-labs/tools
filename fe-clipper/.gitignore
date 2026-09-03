@@ -2,3 +2,9 @@ node_modules/
 dist/
 *.log
 .DS_Store
+
+# FE's browser-capture contract is intentionally vendored and pinned. These
+# exceptions override any developer-level /vendor ignore rule.
+!/vendor/
+!/vendor/fragments-engine-browser-contract-v1/
+!/vendor/fragments-engine-browser-contract-v1/**
