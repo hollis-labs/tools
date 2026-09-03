@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>JSON-LD fallback post</title>
+    <link rel="canonical" href="https://www.instagram.com/p/FALLBACK2/">
+    <meta property="og:description" content="Fallback description #Resilient">
+  </head>
+  <body>
+    <main><article><p>This synthetic page has intentionally malformed provider state but retains a safe JSON-LD observation and readable prose. Extraction should return the useful fallback media together with a structured parsing warning.</p></article></main>
+    <script type="application/json" id="__data">{"graphql":{"shortcode_media": BROKEN }}</script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SocialMediaPosting",
+        "url": "https://www.instagram.com/p/FALLBACK2/",
+        "articleBody": "Fallback description #Resilient",
+        "datePublished": "2026-09-01T12:00:00Z",
+        "author": {"@type": "Person", "name": "Fallback Author", "alternateName": "@fallback_author"},
+        "image": {
+          "@type": "ImageObject",
+          "identifier": "fallback-image",
+          "contentUrl": "https://cdn.example.test/fallback-original.jpg",
+          "thumbnailUrl": "https://cdn.example.test/fallback-thumb.jpg",
+          "width": 1000,
+          "height": 750,
+          "caption": "A fallback image"
+        }
+      }
+    </script>
+  </body>
+</html>
