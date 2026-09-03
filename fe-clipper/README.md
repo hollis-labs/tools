@@ -21,7 +21,11 @@ already landed in the `fragments-engine` repo (commit `d03fd5d`).
      main content, never merged into it;
    - the page's own meta description (`meta[name="description"]`, falling back to
      `meta[property="og:description"]`);
-   - the page title and URL.
+   - the page title, language, submitted URL, and normalized canonical URL;
+   - a metadata- or article-derived hero plus meaningful inline images in source order. The
+     generic adapter selects only observed HTTP(S) sources (including the largest declared
+     `srcset` candidate) and deterministically filters page chrome, avatars/icons/logos,
+     hidden/decorative images, tracking pixels, and duplicate URLs.
 3. The popup shows the captured title (editable), a tags field pre-filled with `link`
    (editable), and an optional **Note** field, so you can course-correct — and add context —
    before anything is sent, consistent with how manual intake works elsewhere in FE.
@@ -157,12 +161,12 @@ grant. Saving is rejected if that permission prompt is denied.
   background worker, content script, popup, options page, icons — see full command output in
   the task record).
 - `npm run lint` and `npm run typecheck` pass with zero errors/warnings.
-- `npm test` — 39 unit tests (vitest + jsdom) covering deterministic adapter selection and
+- `npm test` — 44 unit tests (vitest + jsdom) covering deterministic adapter selection and
   generic fallback, the shared adapter result, the Readability → Turndown → payload pipeline,
-  meta-description precedence, distinct text-selection capture, extraction fallback/error
-  results, the exact six-field `/v1/intake` compatibility wire shape, every portable FE contract
-  fixture, strict request/response and media/outcome validation, and capability-preflight failure
-  states.
+  meta-description precedence, distinct text-selection capture, generic hero/inline media,
+  `srcset` selection, media filtering/deduplication, extraction fallback/error results, the exact
+  six-field `/v1/intake` compatibility wire shape, every portable FE contract fixture, strict
+  request/response and media/outcome validation, and capability-preflight failure states.
 - The wire contract itself was verified with a **scripted `curl` POST** against a real, locally
   running `fragments-engine` dev server (`serve-api`), using a payload shaped exactly like what
   `src/background/index.ts` sends. The response was `HTTP 201` with `outcome: "inserted"`, and

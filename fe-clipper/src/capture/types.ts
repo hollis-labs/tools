@@ -96,6 +96,8 @@ export interface AdapterMediaCandidate {
   position: number;
   altText?: string;
   caption?: string;
+  /** Short semantic context for the attachment, such as its nearest heading. */
+  sourceContext?: string;
   variants: readonly AdapterMediaVariantCandidate[];
 }
 

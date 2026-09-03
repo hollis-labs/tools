@@ -10,6 +10,7 @@ import type {
 } from "../types";
 import { ADAPTER_MATCH_CONFIDENCE } from "../types";
 import { extractPage } from "@/lib/extractPage";
+import { extractGenericMedia } from "./genericMedia";
 
 const GENERIC_CAPABILITIES = [
   "canonical_identity",
@@ -17,25 +18,61 @@ const GENERIC_CAPABILITIES = [
   "description",
   "body",
   "selection",
+  "gallery_manifest",
+  "original_media",
 ] as const satisfies readonly AdapterCapability[];
 
-function canonicalUrl(context: PageCaptureContext): string {
-  const submittedUrl = context.location.href;
+const TRACKING_QUERY_PARAMETER =
+  /^(?:utm_.+|fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|_ga)$/i;
+
+function normalizedDocumentUrl(rawUrl: string, baseUrl: string): string | undefined {
+  try {
+    const resolved = new URL(rawUrl, baseUrl);
+    if (resolved.protocol !== "http:" && resolved.protocol !== "https:") return undefined;
+    if (resolved.username || resolved.password) return undefined;
+    resolved.hash = "";
+    for (const key of [...resolved.searchParams.keys()]) {
+      if (TRACKING_QUERY_PARAMETER.test(key)) resolved.searchParams.delete(key);
+    }
+    return resolved.href;
+  } catch {
+    return undefined;
+  }
+}
+
+function submittedUrl(context: PageCaptureContext): string {
+  try {
+    const submitted = new URL(context.location.href);
+    submitted.username = "";
+    submitted.password = "";
+    return submitted.href;
+  } catch {
+    return context.location.href;
+  }
+}
+
+function canonicalUrl(context: PageCaptureContext): {
+  url: string;
+  ignoredObservedCanonical: boolean;
+} {
+  const submitted = submittedUrl(context);
   const observedCanonical = context.document
     .querySelector('link[rel~="canonical"]')
     ?.getAttribute("href")
     ?.trim();
 
-  if (!observedCanonical) return submittedUrl;
-
-  try {
-    const resolved = new URL(observedCanonical, submittedUrl);
-    return resolved.protocol === "http:" || resolved.protocol === "https:"
-      ? resolved.href
-      : submittedUrl;
-  } catch {
-    return submittedUrl;
+  if (!observedCanonical) {
+    return {
+      url: normalizedDocumentUrl(submitted, submitted) ?? submitted,
+      ignoredObservedCanonical: false,
+    };
   }
+
+  const normalizedCanonical = normalizedDocumentUrl(observedCanonical, submitted);
+  return {
+    url: normalizedCanonical ?? normalizedDocumentUrl(submitted, submitted) ?? submitted,
+    ignoredObservedCanonical: normalizedCanonical === undefined,
+  };
 }
 
 function observedDocumentCapabilities(
@@ -52,7 +89,7 @@ function observedDocumentCapabilities(
 /** The always-available ordinary web-page extraction path. */
 export const genericPageCaptureAdapter: PageCaptureAdapter = {
   id: "generic",
-  version: "1.0.0",
+  version: "1.1.0",
 
   matches() {
     // The registry invokes this adapter as a fallback, not as a competitor.
@@ -60,20 +97,33 @@ export const genericPageCaptureAdapter: PageCaptureAdapter = {
   },
 
   identify(context): AdapterStageResult<AdapterCanonicalIdentityObservation> {
+    const submitted = submittedUrl(context);
+    const canonical = canonicalUrl(context);
     return {
       observation: {
-        submittedUrl: context.location.href,
-        canonicalUrl: canonicalUrl(context),
+        submittedUrl: submitted,
+        canonicalUrl: canonical.url,
         provider: "web",
         segmentKey: "root",
       },
       observedCapabilities: ["canonical_identity"],
+      warnings: canonical.ignoredObservedCanonical
+        ? [
+            {
+              code: "generic.canonical_url_ignored",
+              severity: "info",
+              stage: "identity",
+              message:
+                "The page's canonical link was not a safe HTTP(S) URL; the submitted URL was used instead.",
+            },
+          ]
+        : [],
     };
   },
 
   extractDocument(context): AdapterStageResult<AdapterDocumentObservation> {
     const document = extractPage(context.document, {
-      url: context.location.href,
+      url: submittedUrl(context),
       selectionText: context.selectionText,
     });
 
@@ -93,8 +143,8 @@ export const genericPageCaptureAdapter: PageCaptureAdapter = {
     };
   },
 
-  extractMedia(): AdapterStageResult<readonly AdapterMediaCandidate[]> {
-    return { observation: [] };
+  extractMedia(context): AdapterStageResult<readonly AdapterMediaCandidate[]> {
+    return extractGenericMedia(context);
   },
 
   extractProviderMetadata(): AdapterStageResult<readonly AdapterProviderMetadataExtension[]> {
