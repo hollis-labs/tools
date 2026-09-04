@@ -1,6 +1,6 @@
-import { buildPayload, parseTagsInput } from "@/lib/payload";
+import { parseTagsInput } from "@/lib/payload";
 import { requestHostPermission } from "@/lib/permissions";
-import { getEndpoint } from "@/lib/storage";
+import { getCaptureConfiguration } from "@/lib/storage";
 import { DEFAULT_TAGS, type CapturedPage, type ExtensionMessage } from "@/lib/types";
 
 const statusEl = document.getElementById("status") as HTMLDivElement;
@@ -13,6 +13,9 @@ const selectionPreview = document.getElementById("selection-preview") as HTMLPar
 const sendButton = document.getElementById("send-button") as HTMLButtonElement;
 
 let captured: CapturedPage | null = null;
+let activeJobId: string | undefined;
+type StartCaptureMessage = Extract<ExtensionMessage, { type: "START_CAPTURE_JOB" }>;
+let activeStartRequest: StartCaptureMessage | undefined;
 
 // Give the user a moment to read the success message before the popup
 // closes itself; errors never auto-close (setStatus below only shows the
@@ -108,38 +111,53 @@ async function handleSubmit(event: SubmitEvent) {
   setStatus("Sending to Fragments Engine...", "loading");
 
   try {
-    const endpoint = await getEndpoint();
-
-    const granted = await requestHostPermission(endpoint);
-    if (!granted) {
-      setStatus(
-        `Permission to reach ${endpoint} was denied. Grant it from the options page.`,
-        "error",
-      );
-      return;
+    let request: ExtensionMessage;
+    if (activeStartRequest) {
+      request = activeStartRequest;
+    } else {
+      const configuration = await getCaptureConfiguration();
+      const granted = await requestHostPermission(configuration.endpoint);
+      if (!granted) {
+        setStatus(
+          `Permission to reach ${configuration.endpoint} was denied. Grant it from the options page.`,
+          "error",
+        );
+        return;
+      }
+      activeJobId = crypto.randomUUID();
+      activeStartRequest = {
+        type: "START_CAPTURE_JOB",
+        captureId: activeJobId,
+        captured,
+        edits: {
+          title: titleInput.value,
+          tags: parseTagsInput(tagsInput.value),
+          note: noteInput.value,
+        },
+        configuration,
+      };
+      request = activeStartRequest;
     }
 
-    const payload = buildPayload(captured, {
-      title: titleInput.value,
-      tags: parseTagsInput(tagsInput.value),
-      note: noteInput.value,
-    });
+    const response = (await chrome.runtime.sendMessage(request)) as ExtensionMessage;
 
-    const response = (await chrome.runtime.sendMessage({
-      type: "SEND_CLIP",
-      payload,
-      endpoint,
-    } satisfies ExtensionMessage)) as ExtensionMessage;
-
-    if (response.type !== "SEND_CLIP_RESULT") {
+    if (response.type !== "CAPTURE_JOB_RESULT") {
       setStatus("Unexpected response from the extension background worker.", "error");
       return;
     }
 
     if (response.ok) {
-      setStatus("Sent. Check the Fragments Engine inbox.", "success");
+      activeJobId = undefined;
+      activeStartRequest = undefined;
+      const transfer = response.phase === "pending_transfer"
+        ? " Media transfer will continue in the background."
+        : "";
+      const warning = response.warning ? ` ${response.warning}` : "";
+      setStatus(`Captured in Fragments Engine.${transfer}${warning}`, "success");
       setTimeout(() => window.close(), SUCCESS_AUTO_CLOSE_MS);
     } else {
+      activeJobId = response.captureId ?? activeJobId;
+      if (activeJobId) sendButton.textContent = "Retry capture";
       setStatus(response.error, "error");
     }
   } catch (err) {

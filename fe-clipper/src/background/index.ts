@@ -1,55 +1,77 @@
-// Background service worker: the only piece of the extension that ever
-// makes the outbound network request. Popup sends a SEND_CLIP message with
-// the fully-built payload and the configured endpoint; this worker POSTs it
-// and reports success/failure back so the popup can show a clear
-// confirmation (FE unreachable must fail visibly, never silently).
+// The MV3 worker owns durable capture execution. The popup contributes one
+// deliberate action and may disappear as soon as FE accepts its manifest.
 
-import type { ClipPayload, ExtensionMessage } from "@/lib/types";
+import { CaptureApi } from "./captureApi";
+import { CaptureJobCoordinator } from "./captureJobs";
+import { CaptureJobStore, type CaptureJobRecord } from "@/lib/jobStorage";
+import type { ExtensionMessage } from "@/lib/types";
+
+const coordinator = new CaptureJobCoordinator(new CaptureJobStore(), new CaptureApi(), {
+  clientVersion: chrome.runtime.getManifest().version,
+});
+
+function jobResult(job: CaptureJobRecord): ExtensionMessage {
+  const acceptedState = job.acceptance ?? job.status;
+  if (acceptedState) {
+    return {
+      type: "CAPTURE_JOB_RESULT",
+      ok: true,
+      accepted: true,
+      captureId: job.captureId,
+      phase: job.phase,
+      fragmentId: acceptedState.fragment_id,
+      ...(job.error ? { warning: job.error.message } : {}),
+    };
+  }
+  return {
+    type: "CAPTURE_JOB_RESULT",
+    ok: false,
+    accepted: false,
+    captureId: job.captureId,
+    phase: job.phase,
+    error: job.error?.message ?? "The capture job stopped before Fragments Engine accepted it.",
+  };
+}
+
+async function handleMessage(message: ExtensionMessage): Promise<ExtensionMessage> {
+  try {
+    if (message.type === "START_CAPTURE_JOB") {
+      return jobResult(await coordinator.start(message));
+    }
+    if (message.type === "RETRY_CAPTURE_JOB") {
+      return jobResult(await coordinator.retry(message.captureId));
+    }
+    return {
+      type: "CAPTURE_JOB_RESULT",
+      ok: false,
+      accepted: false,
+      error: "Unsupported background capture message.",
+    };
+  } catch (error) {
+    return {
+      type: "CAPTURE_JOB_RESULT",
+      ok: false,
+      accepted: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
 
 chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
-  if (message.type !== "SEND_CLIP") {
+  if (message.type !== "START_CAPTURE_JOB" && message.type !== "RETRY_CAPTURE_JOB") {
     return undefined;
   }
-
-  void sendClip(message.endpoint, message.payload).then(sendResponse);
-  // Returning true keeps the message channel open for the async
-  // sendResponse call above (required by the extension messaging API).
+  void handleMessage(message).then(sendResponse);
   return true;
 });
 
-async function sendClip(endpoint: string, payload: ClipPayload): Promise<ExtensionMessage> {
-  let response: Response;
-  try {
-    response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  } catch (err) {
-    // Network-level failure: FE unreachable (service not running, wrong
-    // port, CORS/permission issue, etc). This is exactly the "fail
-    // visibly" case the popup needs to surface.
-    const message = err instanceof Error ? err.message : String(err);
-    return { type: "SEND_CLIP_RESULT", ok: false, error: `Could not reach ${endpoint}: ${message}` };
-  }
-
-  const text = await response.text();
-  let body: unknown = text;
-  try {
-    body = text ? JSON.parse(text) : null;
-  } catch {
-    // FE always replies JSON on success; a non-JSON body just gets passed
-    // through as text (e.g. a plain-text error page).
-  }
-
-  if (!response.ok) {
-    const detail = typeof body === "string" ? body : JSON.stringify(body);
-    return {
-      type: "SEND_CLIP_RESULT",
-      ok: false,
-      error: `FE rejected the clip (HTTP ${response.status}): ${detail}`,
-    };
-  }
-
-  return { type: "SEND_CLIP_RESULT", ok: true, status: response.status, body };
+function resumeDurableJobs(): void {
+  void coordinator.resumeAll().catch((error) => {
+    console.error("Could not resume durable FE capture jobs:", error);
+  });
 }
+
+// Module evaluation is worker startup; browser startup is registered
+// explicitly as well because Chrome may keep an already-running worker alive.
+resumeDurableJobs();
+chrome.runtime.onStartup.addListener(resumeDurableJobs);

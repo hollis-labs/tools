@@ -1,14 +1,10 @@
 # fe-clipper
 
 Chrome (Manifest V3) web clipper for [Fragments Engine](../fragments-engine). Captures the
-active tab's readable content client-side and POSTs it to FE's `/v1/intake` endpoint, so
+active tab's readable content client-side and submits FE's manifest-first `/v1/captures` contract, so
 content that would otherwise trip server-side bot-blocking (paywalled/gated articles, sites
 that reject headless fetchers, etc.) can still land in FE's inbox — the browser already
 rendered the page, so the extension just reads it.
-
-Part of epic `EP-20260816-0005`, task `CW-20260816-0073`. Depends on FE's sibling task
-`CW-20260816-0071`, which added `source_url` / `description` / `selection` to `/v1/intake` and
-already landed in the `fragments-engine` repo (commit `d03fd5d`).
 
 ## How it works
 
@@ -29,27 +25,18 @@ already landed in the `fragments-engine` repo (commit `d03fd5d`).
 3. The popup shows the captured title (editable), a tags field pre-filled with `link`
    (editable), and an optional **Note** field, so you can course-correct — and add context —
    before anything is sent, consistent with how manual intake works elsewhere in FE.
-4. On **Send**, the popup asks the background service worker to `POST` the payload to the
-   configured FE endpoint (default `http://127.0.0.1:8091/v1/intake`):
-
-   ```json
-   {
-     "content": "<markdown>",
-     "title": "<page title>",
-     "source_url": "<page url>",
-     "description": "<meta description, if present>",
-     "selection": "<highlighted text, if any>",
-     "tags": ["link"]
-   }
-   ```
-
-   There's no dedicated `note` field on `/v1/intake` (CW-20260816-0071's contract is
-   content/title/source_url/description/selection/tags only), so a non-empty note is prepended
-   to `content` as a labeled Markdown blockquote (`> **Note:** ...`, see `lib/payload.ts`'s
-   `prependNote`) rather than sent as its own field — it lands in the fragment's actual
-   searchable body, and shows up in FE's auto-derived summary too when no meta description is
-   present, so it's visible at a glance in the inbox.
-5. The popup shows a clear success or failure confirmation. On success, the popup auto-closes
+4. On **Send**, the popup snapshots the configured endpoint and principal and preallocates one
+   capture ID before messaging the background service worker. The worker builds and validates the
+   pinned FE envelope and persists the complete job to `chrome.storage.local` before making a
+   network request. Highlighted text and the capture note are separate append-only annotations;
+   neither changes the extracted source body.
+5. The worker capability-checks FE, submits the manifest, and persists FE's stable fragment,
+   revision, attempt, and asset-instruction IDs. The accepted manifest is immediate popup success;
+   requested media uploads remain a durable `pending_transfer` job for the background transfer
+   phase. Retries and worker/browser restart reconciliation reuse the original capture ID and query
+   FE before any uncertain resend. Completed jobs have bounded local retention; quota recovery can
+   discard only corrupt or oldest terminal records, never an active transfer or retry job.
+6. The popup shows a clear success or failure confirmation. On success, the popup auto-closes
    about 1.2s after showing the confirmation. On failure — FE unreachable (dev server not
    running, wrong port, etc.), or FE rejecting the request — the popup stays open, shows the
    error, and a **Copy error** button appears next to it so you can paste the exact message
@@ -61,7 +48,7 @@ already landed in the `fragments-engine` repo (commit `d03fd5d`).
 manifest.json              MV3 manifest (source; copied into dist/ at build time)
 popup.html / options.html  Extension pages (built by Vite)
 src/
-  background/index.ts      Service worker: owns the one outbound fetch() to FE
+  background/              Service worker, strict FE client, durable capture coordinator
   content/index.ts          Injected content script: runs the extraction pipeline in-page
   capture/                  PageCaptureAdapter types, deterministic registry, generic fallback
   contracts/                Pinned FE runtime validators and capture capability preflight
@@ -70,8 +57,9 @@ src/
   options/                  Options page (configurable FE endpoint)
   lib/
     extractPage.ts          Readability -> Turndown pipeline, meta-description precedence
-    payload.ts               Maps captured data + edits -> exact /v1/intake wire shape
-    storage.ts                Reads/writes the configured endpoint (chrome.storage.local)
+    payload.ts               Retained legacy `/v1/intake` compatibility mapper/tests
+    jobStorage.ts            Durable per-capture MV3 job records
+    storage.ts               Reads/writes endpoint and local-principal settings
     permissions.ts            Requests/checks host permission for the configured origin
     types.ts                  Shared types
     *.test.ts                 Unit tests (vitest + jsdom)
@@ -131,10 +119,9 @@ npm run contracts:check
 
 `preflightCaptureManifest` derives `/v1/capabilities` from the configured FE origin, omits browser
 credentials, validates the response, and requires both accepted `fe.capture.v1` support and runtime
-`capture_manifest` readiness. It returns UI-ready incompatibility, network, server, and invalid-body
-messages. The existing `/v1/intake` submission deliberately remains unchanged until the durable
-manifest job is introduced: `/v1/intake` is not treated as the v1 capture API, and a contract-only FE
-server correctly reports manifest capture as unavailable.
+`capture_manifest` readiness. The durable coordinator additionally checks advertised media,
+variant, custody, transfer, manifest-size, and completion capabilities before using them. It returns
+UI-ready incompatibility, network, server, and invalid-body messages.
 
 ## Loading the unpacked extension in Chrome (manual step — not done by this build)
 
@@ -148,8 +135,9 @@ server correctly reports manifest capture as unavailable.
 ## Configuring the FE endpoint
 
 Right-click the toolbar icon → **Options** (or `chrome://extensions` → FE Clipper → Details →
-Extension options). The endpoint defaults to `http://127.0.0.1:8091/v1/intake`. Changing it to a
-different origin triggers a Chrome permission prompt for that origin — the extension only ever
+Extension options). The endpoint defaults to `http://127.0.0.1:8091/v1/captures`, and the local
+principal defaults to `local-user`. Changing the endpoint to a different origin triggers a Chrome
+permission prompt for that origin — the extension only ever
 holds host permission for wherever it's actually configured to POST, not a standing wildcard
 grant. Saving is rejected if that permission prompt is denied.
 
@@ -161,15 +149,16 @@ grant. Saving is rejected if that permission prompt is denied.
   background worker, content script, popup, options page, icons — see full command output in
   the task record).
 - `npm run lint` and `npm run typecheck` pass with zero errors/warnings.
-- `npm test` — 44 unit tests (vitest + jsdom) covering deterministic adapter selection and
+- `npm test` — 119 unit tests (vitest + jsdom) covering deterministic adapter selection and
   generic fallback, the shared adapter result, the Readability → Turndown → payload pipeline,
   meta-description precedence, distinct text-selection capture, generic hero/inline media,
   `srcset` selection, media filtering/deduplication, extraction fallback/error results, the exact
-  six-field `/v1/intake` compatibility wire shape, every portable FE contract fixture, strict
-  request/response and media/outcome validation, and capability-preflight failure states.
-- The wire contract itself was verified with a **scripted `curl` POST** against a real, locally
-  running `fragments-engine` dev server (`serve-api`), using a payload shaped exactly like what
-  `src/background/index.ts` sends. The response was `HTTP 201` with `outcome: "inserted"`, and
+  six-field legacy `/v1/intake` compatibility wire shape, every portable FE contract fixture,
+  strict request/response and media/outcome validation, capability preflight, envelope mapping,
+  durable storage, retry/reconciliation, completion, corruption isolation, and credential exclusion.
+- The retained legacy `/v1/intake` wire contract was previously verified with a **scripted `curl`
+  POST** against a real, locally running `fragments-engine` dev server (`serve-api`). The response
+  was `HTTP 201` with `outcome: "inserted"`, and
   fetching the resulting fragment back (`GET /v1/fragments/get`) confirmed: `source_type` =
   `"article"`, `Content` byte-identical to the posted Markdown (headings/lists/links/fenced code
   intact), `Title` correct, a `tag` entity `link` present, and `MetadataJSON` containing
@@ -186,3 +175,5 @@ grant. Saving is rejected if that permission prompt is denied.
   (mocked DOM/fetch) and a scripted HTTP call that bypasses the extension UI entirely — not
   through loading and clicking through the extension itself. That interactive pass is a
   separate, required step before this is considered fully done end-to-end.
+- Manifest-first capture has not yet been exercised against a live FE process from an installed
+  extension. Cross-project conformance and real-page smoke coverage remain in task `0056`.

@@ -9,19 +9,31 @@
     <main class="options">
       <h1>FE Clipper settings</h1>
       <p class="hint">
-        Fragments Engine intake endpoint the extension POSTs clipped pages to. Changing this
-        origin will prompt for permission to reach it.
+        Fragments Engine capture endpoint and local principal used by new capture jobs. Changing
+        the endpoint origin will prompt for permission to reach it.
       </p>
 
       <form id="options-form" class="options-form">
         <label class="field">
-          <span>FE intake endpoint</span>
+          <span>FE capture endpoint</span>
           <input
             id="endpoint-input"
             name="endpoint"
             type="url"
-            placeholder="http://127.0.0.1:8091/v1/intake"
+            placeholder="http://127.0.0.1:8091/v1/captures"
             autocomplete="off"
+            required
+          />
+        </label>
+        <label class="field">
+          <span>FE principal ID</span>
+          <input
+            id="principal-input"
+            name="principal"
+            type="text"
+            placeholder="local-user"
+            autocomplete="off"
+            maxlength="255"
             required
           />
         </label>

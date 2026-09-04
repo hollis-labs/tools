@@ -21,14 +21,14 @@ const SENSITIVE_LOCATION_KEYS = new Set([
   "visitordata",
 ]);
 
-function isSensitiveLocationKey(value: string): boolean {
+export function isSensitiveCaptureFieldName(value: string): boolean {
   return SENSITIVE_LOCATION_KEYS.has(value.toLowerCase().replace(/[^a-z0-9]/g, ""));
 }
 
 function removeSensitiveParameters(parameters: URLSearchParams): boolean {
   let removed = false;
   for (const key of [...parameters.keys()]) {
-    if (!isSensitiveLocationKey(key)) continue;
+    if (!isSensitiveCaptureFieldName(key)) continue;
     parameters.delete(key);
     removed = true;
   }
@@ -50,7 +50,7 @@ function sanitizeFragment(url: URL): void {
   }
 
   if (!fragment.includes("=")) {
-    if (isSensitiveLocationKey(fragment)) url.hash = "";
+    if (isSensitiveCaptureFieldName(fragment)) url.hash = "";
     return;
   }
 

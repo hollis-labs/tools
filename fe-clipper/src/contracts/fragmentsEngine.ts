@@ -22,7 +22,13 @@ import type { components } from "@/generated/fragments-engine-api";
 type FESchemas = components["schemas"];
 
 export type FECapabilityDiscovery = FESchemas["capabilities.schema"];
-export type FECaptureEnvelope = FESchemas["capture-envelope.schema"];
+// OpenAPI models JSON Schema's root anyOf constraints as extra union members.
+// Keep the generated transport source authoritative while selecting the actual
+// envelope member by its contract discriminator for application code.
+export type FECaptureEnvelope = Extract<
+  FESchemas["capture-envelope.schema"],
+  { schema_version: "fe.capture.v1" }
+>;
 export type FECaptureManifestResponse = FESchemas["capture-response.schema"];
 export type FECaptureStatus = FESchemas["capture-status.schema"];
 export type FECaptureCompletionRequest = FESchemas["capture-completion.schema"];
