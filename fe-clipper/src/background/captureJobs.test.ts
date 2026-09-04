@@ -217,8 +217,10 @@ class FakeApi implements CaptureApiClient {
   complete: (
     captureId: string,
     completion: FECaptureCompletionRequest,
-  ) => Promise<FECaptureStatus> = async (captureId) =>
-    captureStatus(accepted(captureId, false), "partial");
+  ) => Promise<FECaptureStatus> = async (captureId, completion) => ({
+    ...captureStatus(this.lastAcceptance ?? accepted(captureId, false), "partial"),
+    assets: completion.assets,
+  });
 
   async preflight(): Promise<Awaited<ReturnType<CaptureApiClient["preflight"]>>> {
     this.events.push("api:preflight");
@@ -417,21 +419,38 @@ describe("durable manifest capture coordinator", () => {
     ]);
   });
 
-  it("recovers accepted IDs then replays only to restore transfer instructions", async () => {
-    const store = new MemoryJobs();
-    const seedApi = new FakeApi();
-    const seedCoordinator = coordinator(store, seedApi, "recover");
-    const seeded = await seedCoordinator.start(input(true, "recover-action"));
-    await vi.waitFor(() => expect(store.jobs.get(seeded.captureId)?.terminal).toBe(true));
-    const uncertain = structuredClone(seeded);
-    delete uncertain.acceptance;
-    delete uncertain.status;
-    uncertain.phase = "submitting_manifest";
-    uncertain.terminal = false;
-    await store.saveJob(uncertain);
+  it("GET-recovers a manifest accepted just before its local acceptance write was lost", async () => {
+    class LoseAcceptanceOnce extends MemoryJobs {
+      dropAcceptanceWrites = true;
+      lostAcceptanceWrites = 0;
 
+      override async saveJob(job: CaptureJobRecord): Promise<void> {
+        if (job.acceptance && this.dropAcceptanceWrites) {
+          this.lostAcceptanceWrites += 1;
+          throw new CaptureJobStorageQuotaError();
+        }
+        await super.saveJob(job);
+      }
+    }
+
+    const store = new LoseAcceptanceOnce();
+    const seedApi = new FakeApi();
+    const serverAcceptance = accepted("recover-action");
+    seedApi.submit = async () => serverAcceptance;
+    await expect(
+      coordinator(store, seedApi, "recover").start(input(true, "recover-action")),
+    ).rejects.toThrow(/storage is full/);
+    expect(store.lostAcceptanceWrites).toBeGreaterThan(0);
+    expect(store.jobs.get("recover-action")).toMatchObject({
+      captureId: "recover-action",
+      phase: "submitting_manifest",
+      manifestAttempts: 1,
+      terminal: false,
+    });
+    expect(store.jobs.get("recover-action")?.acceptance).toBeUndefined();
+
+    store.dropAcceptanceWrites = false;
     const replayApi = new FakeApi();
-    const serverAcceptance = accepted(seeded.captureId);
     replayApi.lookup = async () => captureStatus(serverAcceptance);
     replayApi.submit = async () => ({ ...serverAcceptance, idempotent_replay: true });
     const recovered = await coordinator(store, replayApi, "unused").resumeAll();
@@ -439,10 +458,10 @@ describe("durable manifest capture coordinator", () => {
     expect(recovered[0]?.acceptance?.fragment_id).toBe(serverAcceptance.fragment_id);
     expect(replayApi.events).toEqual([
       "api:preflight",
-      `api:get:${seeded.captureId}`,
-      `api:submit:${seeded.captureId}`,
+      "api:get:recover-action",
+      "api:submit:recover-action",
       "api:upload",
-      `api:complete:${seeded.captureId}`,
+      "api:complete:recover-action",
     ]);
   });
 

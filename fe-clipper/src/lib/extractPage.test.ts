@@ -65,6 +65,46 @@ describe("extractPage: normal article extraction", () => {
     expect(result.usedFallback).toBe(true);
     expect(result.contentMarkdown).toBe("");
   });
+
+  it("removes inherited page credentials from resolved Markdown links and images", () => {
+    const doc = makeDoc(
+      `<html><head><title>Credentialed base</title></head><body><article>
+        <h1>Useful article</h1>
+        <p>${LONG_PARAGRAPH_A}</p>
+        <p><a href="/reference?view=reader&access_token=QUERY_SECRET">Reference</a></p>
+        <img src="/media/hero.jpg" alt="Useful hero">
+      </article></body></html>`,
+      "https://browser-user:browser-password@example.com/article",
+    );
+
+    const result = extractPage(doc, {
+      url: "https://example.com/article",
+      selectionText: "",
+    });
+
+    expect(result.contentMarkdown).toContain("[Reference](https://example.com/reference?view=reader)");
+    expect(result.contentMarkdown).toContain("![Useful hero](https://example.com/media/hero.jpg)");
+    expect(result.contentMarkdown).not.toMatch(/browser-user|browser-password|QUERY_SECRET/);
+    expect(result.contentMarkdown).toContain("Useful article");
+  });
+
+  it("removes credential parameters from relative media in the raw-body fallback", () => {
+    const doc = makeDoc(
+      `<html><head><title>Short note</title></head><body>
+        <img src="/download?view=reader&token=QUERY_SECRET#session=HASH_SECRET" alt="Download">
+      </body></html>`,
+      "https://example.com/note",
+    );
+
+    const result = extractPage(doc, {
+      url: "https://example.com/note",
+      selectionText: "",
+    });
+
+    expect(result.usedFallback).toBe(true);
+    expect(result.contentMarkdown).toBe("![Download](/download?view=reader)");
+    expect(result.contentMarkdown).not.toMatch(/QUERY_SECRET|HASH_SECRET/);
+  });
 });
 
 describe("extractPage: selection capture", () => {

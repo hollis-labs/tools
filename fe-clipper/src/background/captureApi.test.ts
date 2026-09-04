@@ -10,6 +10,8 @@ import type {
   FECaptureStatus,
 } from "@/contracts/fragmentsEngine";
 import {
+  assertCaptureManifestSemantics,
+  assertCaptureStatusSemantics,
   CaptureApi,
   CaptureApiError,
   deriveAssetUploadUrl,
@@ -138,6 +140,119 @@ describe("capture API client", () => {
     const mismatched = api(async () => jsonResponse(wrong, 201));
     await expect(mismatched.submitManifest("https://fe.test", envelope())).rejects.toThrow(
       /expected 01KCAPTURE/,
+    );
+  });
+
+  it("rejects schema-valid responses whose cross-object identities are inconsistent", async () => {
+    const cases: Array<[string, (value: FECaptureManifestResponse) => void]> = [
+      ["Reader fragment", (value) => { value.reader_item.fragment_id = "other-fragment"; }],
+      ["Reader principal", (value) => {
+        value.reader_item.reading_state.principal_id = "other-principal";
+      }],
+      ["Reader source", (value) => { value.reader_item.source.source_item_key = "youtube:other"; }],
+      ["asset-instruction", (value) => {
+        value.asset_instructions[0]!.client_variant_id = "video:other";
+      }],
+      ["asset variant", (value) => {
+        const instruction = value.asset_instructions[0]!;
+        if (instruction.action !== "reference_only") throw new Error("fixture changed");
+        instruction.asset_variant_id = "variant-other";
+      }],
+      ["attachment", (value) => {
+        value.reader_item.media[0]!.attachment.fragment_revision_id = "other-revision";
+      }],
+    ];
+
+    for (const [label, mutate] of cases) {
+      const response = structuredClone(acceptance());
+      mutate(response);
+      const client = api(async () => jsonResponse(response, 201));
+      await expect(client.submitManifest("https://fe.test", envelope()), label).rejects.toMatchObject({
+        kind: "invalid_response",
+        retryable: false,
+      });
+    }
+  });
+
+  it("accepts a stable-fragment Reader projection that retains an earlier submitted URL alias", async () => {
+    const recapture = envelope();
+    recapture.source.submitted_url = "https://youtu.be/3RmtNXqnreI?si=alternate";
+    const client = api(async () => jsonResponse(acceptance(), 201));
+
+    await expect(client.submitManifest("https://fe.test", recapture)).resolves.toMatchObject({
+      fragment_id: "fragment-1",
+      reader_item: {
+        source: { submitted_url: "https://www.youtube.com/watch?v=3RmtNXqnreI" },
+      },
+    });
+  });
+
+  it("accepts repeated gallery positions that share FE asset variants", () => {
+    const capture = envelope();
+    const repeatedMedia = structuredClone(capture.media[0]!);
+    repeatedMedia.client_media_id = "youtube:3RmtNXqnreI:repeat";
+    repeatedMedia.position = 1;
+    repeatedMedia.variants[0]!.client_variant_id = "video:reference:repeat";
+    repeatedMedia.variants[1]!.client_variant_id = "poster:maxresdefault:repeat";
+    capture.media.push(repeatedMedia);
+
+    const response = acceptance();
+    response.asset_instructions.push(
+      {
+        client_variant_id: "video:reference:repeat",
+        asset_variant_id: "variant-video",
+        action: "reference_only",
+      },
+      {
+        client_variant_id: "poster:maxresdefault:repeat",
+        asset_variant_id: "variant-poster",
+        action: "request_upload",
+        upload_href: `/v1/captures/${capture.capture_id}/assets/poster%3Amaxresdefault%3Arepeat/content`,
+      },
+    );
+    const repeatedReaderMedia = structuredClone(response.reader_item.media[0]!);
+    repeatedReaderMedia.attachment.attachment_id = "attachment-repeat";
+    repeatedReaderMedia.attachment.position = 1;
+    response.reader_item.media.push(repeatedReaderMedia);
+
+    expect(() => assertCaptureManifestSemantics(capture, response)).not.toThrow();
+
+    const duplicateAttachment = structuredClone(response);
+    duplicateAttachment.reader_item.media[1]!.attachment.attachment_id =
+      duplicateAttachment.reader_item.media[0]!.attachment.attachment_id;
+    expect(() => assertCaptureManifestSemantics(capture, duplicateAttachment)).toThrow(
+      /repeated attachment_id/,
+    );
+  });
+
+  it("still requires Reader attachment identity when every media instruction is rejected", () => {
+    const capture = envelope();
+    const response = acceptance();
+    response.asset_instructions = capture.media[0]!.variants.map((variant) => ({
+      client_variant_id: variant.client_variant_id,
+      action: "rejected" as const,
+      reason: "Deterministic rejection.",
+    }));
+    expect(() => assertCaptureManifestSemantics(capture, response)).not.toThrow();
+
+    const wrongProvider = structuredClone(response);
+    wrongProvider.reader_item.media[0]!.provider_media_id = "other-video";
+    expect(() => assertCaptureManifestSemantics(capture, wrongProvider)).toThrow(
+      /provider_media_id/,
+    );
+
+    const missingAttachment = structuredClone(response);
+    missingAttachment.reader_item.media = [];
+    expect(() => assertCaptureManifestSemantics(capture, missingAttachment)).toThrow(
+      /omitted envelope media position/,
+    );
+  });
+
+  it("rejects schema-valid status outcomes that do not cover the exact envelope variants", () => {
+    const response = status();
+    response.assets[0]!.client_variant_id = "video:other";
+    expect(() => assertCaptureStatusSemantics(envelope(), response)).toThrow(
+      /did not exactly match the capture envelope/,
     );
   });
 

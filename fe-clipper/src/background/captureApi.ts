@@ -206,6 +206,209 @@ function requireMatchingCaptureId(captureId: string, actual: string, boundary: s
   }
 }
 
+function semanticResponseError(boundary: string, detail: string): CaptureApiError {
+  return new CaptureApiError(
+    `${boundary} failed semantic identity validation: ${detail}`,
+    "invalid_response",
+    false,
+  );
+}
+
+function requireEqualSemanticValue(
+  boundary: string,
+  label: string,
+  expected: unknown,
+  actual: unknown,
+): void {
+  if (expected !== actual) {
+    throw semanticResponseError(
+      boundary,
+      `${label} was ${String(actual)}, expected ${String(expected)}.`,
+    );
+  }
+}
+
+function requireExactUniqueIdentifiers(
+  boundary: string,
+  label: string,
+  expected: readonly string[],
+  actual: readonly string[],
+): void {
+  const expectedSet = new Set(expected);
+  const actualSet = new Set(actual);
+  if (
+    expectedSet.size !== expected.length ||
+    actualSet.size !== actual.length ||
+    expectedSet.size !== actualSet.size ||
+    [...expectedSet].some((identifier) => !actualSet.has(identifier))
+  ) {
+    throw semanticResponseError(
+      boundary,
+      `${label} did not exactly match the capture envelope.`,
+    );
+  }
+}
+
+/**
+ * JSON Schema establishes shape. This establishes the cross-object identity
+ * relationships that the capture protocol depends on for safe persistence and
+ * transfer planning.
+ */
+export function assertCaptureManifestSemantics(
+  envelope: FECaptureEnvelope,
+  response: FECaptureManifestResponse,
+): void {
+  const boundary = "Capture manifest response";
+  const reader = response.reader_item;
+  requireEqualSemanticValue(boundary, "Reader fragment_id", response.fragment_id, reader.fragment_id);
+  requireEqualSemanticValue(
+    boundary,
+    "Reader fragment_revision_id",
+    response.fragment_revision_id,
+    reader.fragment_revision_id,
+  );
+  requireEqualSemanticValue(
+    boundary,
+    "Reader reading-state fragment_id",
+    response.fragment_id,
+    reader.reading_state.fragment_id,
+  );
+  requireEqualSemanticValue(
+    boundary,
+    "Reader reading-state principal_id",
+    envelope.principal_id,
+    reader.reading_state.principal_id,
+  );
+
+  for (const field of [
+    "source_registration_id",
+    "provider",
+    "provider_item_id",
+    "source_item_key",
+    "segment_key",
+  ] as const) {
+    const expected = envelope.source[field];
+    if (expected !== undefined) {
+      requireEqualSemanticValue(boundary, `Reader source.${field}`, expected, reader.source[field]);
+    }
+  }
+
+  const envelopeVariants = envelope.media.flatMap((media) => media.variants);
+  if (envelope.media.some((media, index) => media.position !== index)) {
+    throw semanticResponseError(
+      boundary,
+      "capture-envelope media positions were not unique and contiguous.",
+    );
+  }
+  requireExactUniqueIdentifiers(
+    boundary,
+    "asset-instruction client_variant_id values",
+    envelopeVariants.map((variant) => variant.client_variant_id),
+    response.asset_instructions.map((instruction) => instruction.client_variant_id),
+  );
+
+  const instructionByClientVariant = new Map(
+    response.asset_instructions.map((instruction) => [instruction.client_variant_id, instruction]),
+  );
+  const readerMediaByPosition = new Map<number, (typeof reader.media)[number]>();
+  const readerAttachmentIds = new Set<string>();
+  for (const readerMedia of reader.media) {
+    if (readerMediaByPosition.has(readerMedia.attachment.position)) {
+      throw semanticResponseError(
+        boundary,
+        `Reader repeated attachment position ${readerMedia.attachment.position}.`,
+      );
+    }
+    if (readerAttachmentIds.has(readerMedia.attachment.attachment_id)) {
+      throw semanticResponseError(
+        boundary,
+        `Reader repeated attachment_id ${readerMedia.attachment.attachment_id}.`,
+      );
+    }
+    readerMediaByPosition.set(readerMedia.attachment.position, readerMedia);
+    readerAttachmentIds.add(readerMedia.attachment.attachment_id);
+  }
+
+  for (const [index, media] of envelope.media.entries()) {
+    const readerMedia = readerMediaByPosition.get(media.position);
+    if (!readerMedia) {
+      throw semanticResponseError(boundary, `Reader omitted envelope media position ${media.position}.`);
+    }
+    requireEqualSemanticValue(
+      boundary,
+      `Reader media bound to envelope position ${index}.kind`,
+      media.kind,
+      readerMedia.kind,
+    );
+    requireEqualSemanticValue(
+      boundary,
+      `Reader media bound to envelope position ${index}.attachment.role`,
+      media.role,
+      readerMedia.attachment.role,
+    );
+    requireEqualSemanticValue(
+      boundary,
+      `Reader media bound to envelope position ${index}.attachment.fragment_revision_id`,
+      response.fragment_revision_id,
+      readerMedia.attachment.fragment_revision_id,
+    );
+    requireEqualSemanticValue(
+      boundary,
+      `Reader media bound to envelope position ${index}.attachment.media_asset_id`,
+      readerMedia.media_asset_id,
+      readerMedia.attachment.media_asset_id,
+    );
+    if (media.provider_media_id !== undefined) {
+      requireEqualSemanticValue(
+        boundary,
+        `Reader media bound to envelope position ${index}.provider_media_id`,
+        media.provider_media_id,
+        readerMedia.provider_media_id,
+      );
+    }
+
+    for (const variant of media.variants) {
+      const instruction = instructionByClientVariant.get(variant.client_variant_id);
+      if (!instruction) {
+        throw semanticResponseError(
+          boundary,
+          `Reader media[${index}] had no instruction for ${variant.client_variant_id}.`,
+        );
+      }
+      if (instruction.action === "rejected") continue;
+      const readerVariant = readerMedia.variants.find(
+        (candidate) => candidate.asset_variant_id === instruction.asset_variant_id,
+      );
+      if (!readerVariant) {
+        throw semanticResponseError(
+          boundary,
+          `instruction ${variant.client_variant_id} referenced asset variant ${instruction.asset_variant_id}, which was absent from Reader media position ${media.position}.`,
+        );
+      }
+      requireEqualSemanticValue(
+        boundary,
+        `Reader variant ${instruction.asset_variant_id}.kind`,
+        variant.kind,
+        readerVariant.kind,
+      );
+    }
+  }
+}
+
+export function assertCaptureStatusSemantics(
+  envelope: FECaptureEnvelope,
+  status: FECaptureStatus,
+): void {
+  requireExactUniqueIdentifiers(
+    "Capture status response",
+    "asset outcome client_variant_id values",
+    envelope.media.flatMap((media) =>
+      media.variants.map((variant) => variant.client_variant_id),
+    ),
+    status.assets.map((asset) => asset.client_variant_id),
+  );
+}
+
 export class CaptureApi implements CaptureApiClient {
   constructor(
     private readonly fetchImplementation: FetchLike = fetch,
@@ -287,6 +490,7 @@ export class CaptureApi implements CaptureApiClient {
       );
     }
     requireMatchingCaptureId(envelope.capture_id, body.capture_id, "Capture manifest response");
+    assertCaptureManifestSemantics(envelope, body);
     if ((response.status === 200) !== body.idempotent_replay) {
       throw new CaptureApiError(
         `Fragments Engine manifest HTTP status and idempotent_replay flag disagree for ${envelope.capture_id}.`,

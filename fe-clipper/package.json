@@ -14,6 +14,8 @@
     "lint": "eslint .",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:conformance": "vitest run src/conformance/providerCaptureConformance.test.ts",
+    "test:conformance:live": "vitest run src/conformance/liveFeConformance.test.ts",
     "icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {

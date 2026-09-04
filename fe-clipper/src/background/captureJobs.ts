@@ -15,6 +15,7 @@ import type {
 } from "@/lib/jobStorage";
 import type { CaptureConfigurationSnapshot, CapturedPage, EditableFields } from "@/lib/types";
 import {
+  assertCaptureStatusSemantics,
   CaptureApiError,
   deriveCaptureManifestUrl,
   type CaptureApiClient,
@@ -412,6 +413,7 @@ export class CaptureJobCoordinator {
       job = await this.update(job, { phase: "reconciling" });
       try {
         const status = await this.api.getStatus(job.endpoint, job.captureId);
+        assertCaptureStatusSemantics(job.envelope, status);
         if (job.acceptance && !stableIdsMatch(job.acceptance, status)) {
           throw new CaptureApiError(
             "Fragments Engine status changed stable IDs for an accepted capture. The local acceptance was preserved.",
@@ -621,6 +623,7 @@ export class CaptureJobCoordinator {
     job = await this.update(job, { phase: "completing", error: undefined });
     try {
       const status = await this.api.completeCapture(job.endpoint, job.captureId, completion);
+      assertCaptureStatusSemantics(job.envelope, status);
       if (!stableIdsMatch(acceptance, status)) {
         throw new CaptureApiError(
           "Capture completion response changed stable accepted IDs. The original acceptance was preserved.",

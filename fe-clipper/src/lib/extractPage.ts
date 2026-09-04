@@ -1,6 +1,7 @@
 import { Readability } from "@mozilla/readability";
 import TurndownService from "turndown";
 import type { AdapterDocumentObservation } from "@/capture/types";
+import { sanitizeCapturePageUrl } from "@/capture/urlSafety";
 
 const turndown = new TurndownService({
   headingStyle: "atx",
@@ -46,6 +47,37 @@ interface ExtractedArticle {
   contentHtml: string;
 }
 
+function sanitizeDocumentUrl(raw: string, baseUrl: string): string {
+  try {
+    const resolved = new URL(raw, baseUrl);
+    if (resolved.protocol !== "http:" && resolved.protocol !== "https:") return raw;
+    const sanitized = new URL(sanitizeCapturePageUrl(resolved.href));
+    if (sanitized.href === resolved.href) return raw;
+    if (/^https?:\/\//i.test(raw) || raw.startsWith("//")) return sanitized.href;
+    if (raw.startsWith("#")) return sanitized.hash;
+    if (raw.startsWith("?")) return `${sanitized.search}${sanitized.hash}`;
+    const path = raw.split(/[?#]/, 1)[0] ?? "";
+    return `${path}${sanitized.search}${sanitized.hash}`;
+  } catch {
+    return raw;
+  }
+}
+
+function sanitizeResolvedContentUrls(doc: Document, contentHtml: string, baseUrl: string): string {
+  const container = doc.createElement("div");
+  container.innerHTML = contentHtml;
+  for (const element of container.querySelectorAll<HTMLElement>("[href], [src]")) {
+    for (const attribute of ["href", "src"] as const) {
+      const raw = element.getAttribute(attribute);
+      if (!raw) continue;
+      const sanitized = sanitizeDocumentUrl(raw, baseUrl);
+      if (!sanitized) element.removeAttribute(attribute);
+      else if (sanitized !== raw) element.setAttribute(attribute, sanitized);
+    }
+  }
+  return container.innerHTML;
+}
+
 /**
  * Runs Readability against a cloned copy of `doc` (Readability mutates the
  * document it's given, and we don't want to disturb the live page the
@@ -72,7 +104,11 @@ function extractArticle(doc: Document): ExtractedArticle | null {
 export function extractPage(doc: Document, opts: ExtractPageOptions): AdapterDocumentObservation {
   const article = extractArticle(doc);
 
-  const contentHtml = article?.contentHtml ?? doc.body?.innerHTML ?? "";
+  const contentHtml = sanitizeResolvedContentUrls(
+    doc,
+    article?.contentHtml ?? doc.body?.innerHTML ?? "",
+    opts.url,
+  );
   const contentMarkdown = turndown.turndown(contentHtml).trim();
 
   const readabilityTitle = article?.title?.trim();
