@@ -5,6 +5,10 @@
 
 export const PINTEREST_PAGE_STATE_SELECTORS = [
   'script#__PWS_DATA__[type="application/json"]',
+  // Current Pinterest close-up pages emit the selected pin as an anonymous
+  // PinResource response instead of placing it in __PWS_DATA__. Exact pin-ID
+  // matching in the parser keeps unrelated anonymous resources out.
+  'script[type="application/json"]:not([id])',
   'script[data-test-id="pinterest-page-state"][type="application/json"]',
   'script[data-pinterest-state][type="application/json"]',
 ] as const;
@@ -18,6 +22,9 @@ export const PINTEREST_PRIMARY_IMAGE_SELECTORS = [
   'img[data-test-id="pin-closeup-image"]',
   '[data-test-id="pin-closeup-image"] > img',
   '[data-test-id="pin-closeup-image"] > picture > img',
+  '[data-test-id="closeup-image-main"] img',
+  '[data-test-id="closeup-image"] img',
+  'img[elementtiming^="closeup-image-"]',
 ] as const;
 
 export const PINTEREST_EXCLUDED_MEDIA_ANCESTOR_SELECTOR = [

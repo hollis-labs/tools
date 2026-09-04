@@ -32,6 +32,42 @@ function instagramExtension(result: PageCaptureResult) {
 }
 
 describe("Instagram page capture adapter", () => {
+  it("supports current username-prefixed permalinks and Relay media records", () => {
+    const result = capture(
+      "current-state-image.html",
+      "https://www.instagram.com/nasa/p/CURRENT123/",
+    );
+
+    expect(result.adapter).toMatchObject({ id: "instagram", usedGenericFallback: false });
+    expect(result.identity).toMatchObject({
+      canonicalUrl: "https://www.instagram.com/p/CURRENT123/",
+      providerItemId: "CURRENT123",
+    });
+    expect(result.media[0]).toMatchObject({
+      providerMediaId: "3976681299041141597_528817151",
+      kind: "image",
+      altText: "Earth after an orbital sunset",
+    });
+    expect(result.media[0]?.variants).toEqual([
+      expect.objectContaining({
+        kind: "original",
+        sourceUrl: "https://cdn.example.test/current-image-original.jpg",
+        width: 2048,
+        height: 1364,
+      }),
+      expect.objectContaining({
+        kind: "thumbnail",
+        sourceUrl: "https://cdn.example.test/current-image-small.jpg",
+      }),
+    ]);
+    expect(instagramExtension(result)?.data).toMatchObject({
+      shortcode: "CURRENT123",
+      author: { username: "nasa", display_name: "NASA" },
+      hashtags: ["NASA", "Clouds"],
+      media_count: 1,
+    });
+  });
+
   it("extracts stable image-post identity, provider context, and observed image variants", () => {
     const result = capture(
       "image-post.html",
@@ -444,6 +480,7 @@ describe("Instagram page capture adapter", () => {
       .sort();
     expect(htmlFixtures).toEqual([
       "credential-exclusion.html",
+      "current-state-image.html",
       "dom-only.html",
       "image-post.html",
       "malformed-state.html",

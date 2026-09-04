@@ -10,6 +10,7 @@ import changedPageStateHtml from "./fixtures/changed-page-state.html?raw";
 import completeHtml from "./fixtures/complete.html?raw";
 import jsonLdHtml from "./fixtures/json-ld.html?raw";
 import partialHtml from "./fixtures/partial.html?raw";
+import pinResourceHtml from "./fixtures/pin-resource.html?raw";
 import recommendationHeavyHtml from "./fixtures/recommendation-heavy.html?raw";
 import sparseHtml from "./fixtures/sparse.html?raw";
 import {
@@ -249,6 +250,37 @@ describe("Pinterest complete capture", () => {
 });
 
 describe("Pinterest fixture resilience", () => {
+  it("captures the current anonymous PinResource and close-up image shape", () => {
+    const result = capture(
+      pinResourceHtml,
+      "https://www.pinterest.com/pin/104427285104852001/",
+    );
+
+    expect(result.media[0]?.variants).toEqual([
+      expect.objectContaining({
+        kind: "original",
+        sourceUrl: "https://i.pinimg.com/originals/85/ad/aa/85adaaac27716eb19fa698081874b513.jpg",
+        width: 1511,
+        height: 1511,
+      }),
+      expect.objectContaining({
+        kind: "thumbnail",
+        sourceUrl: "https://i.pinimg.com/236x/85/ad/aa/85adaaac27716eb19fa698081874b513.jpg",
+        width: 236,
+        height: 236,
+      }),
+    ]);
+    expect(result.extensions[0]?.data).toMatchObject({
+      description: "Christmas Decor | Antique Farmhouse",
+      creator: { displayName: "Julie Kline", username: "jkline78" },
+      board: { name: "Christmas" },
+    });
+    expect(JSON.stringify(result)).not.toContain("recommendation.jpg");
+    expect(result.warnings.map((item) => item.code)).not.toContain(
+      "pinterest.page_state_unrecognized",
+    );
+  });
+
   it("normalizes target-scoped JSON-LD without requiring serialized page state", () => {
     const result = capture(
       jsonLdHtml,

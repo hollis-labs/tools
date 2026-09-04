@@ -176,11 +176,18 @@ function parseInstagramPath(url: string): { shortcode?: string; routeKind?: Inst
   try {
     const parsed = new URL(url);
     if (!INSTAGRAM_HOSTS.has(parsed.hostname.toLowerCase())) return {};
-    const match = parsed.pathname.match(/^\/(p|reel|reels)\/([A-Za-z0-9_-]+)(?:\/|$)/i);
-    if (!match) return {};
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    const routeIndex = ["p", "reel", "reels"].includes(segments[0]?.toLowerCase() ?? "")
+      ? 0
+      : ["p", "reel", "reels"].includes(segments[1]?.toLowerCase() ?? "")
+        ? 1
+        : -1;
+    const route = routeIndex >= 0 ? segments[routeIndex]?.toLowerCase() : undefined;
+    const shortcode = routeIndex >= 0 ? segments[routeIndex + 1] : undefined;
+    if (!route || !shortcode || !/^[A-Za-z0-9_-]+$/.test(shortcode)) return {};
     return {
-      shortcode: match[2],
-      routeKind: match[1]?.toLowerCase() === "p" ? "post" : "reel",
+      shortcode,
+      routeKind: route === "p" ? "post" : "reel",
     };
   } catch {
     return {};
@@ -256,8 +263,14 @@ function hashtagsFromText(text: string | undefined): string[] {
 
 function dimensions(record: UnknownRecord): { width?: number; height?: number } {
   const nested = isRecord(record.dimensions) ? record.dimensions : undefined;
-  const width = positiveInteger(record.width) ?? positiveInteger(nested?.width);
-  const height = positiveInteger(record.height) ?? positiveInteger(nested?.height);
+  const width =
+    positiveInteger(record.width) ??
+    positiveInteger(record.original_width) ??
+    positiveInteger(nested?.width);
+  const height =
+    positiveInteger(record.height) ??
+    positiveInteger(record.original_height) ??
+    positiveInteger(nested?.height);
   return {
     ...(width ? { width } : {}),
     ...(height ? { height } : {}),
@@ -546,6 +559,10 @@ function looksLikeStateRoot(record: UnknownRecord): boolean {
     shortcode &&
       (Array.isArray(record.carousel_media) ||
         isRecord(record.edge_sidecar_to_children) ||
+        isRecord(record.image_versions2) ||
+        Array.isArray(record.video_versions) ||
+        record.media_type === 1 ||
+        record.media_type === 2 ||
         "display_url" in record ||
         "video_url" in record),
   );
@@ -593,7 +610,9 @@ function serializedStateScripts(document: Document): HTMLScriptElement[] {
         text.includes('"shortcode_media"') ||
         text.includes('"xdt_shortcode_media"') ||
         text.includes('"edge_sidecar_to_children"') ||
-        text.includes('"carousel_media"')
+        text.includes('"carousel_media"') ||
+        text.includes('"image_versions2"') ||
+        text.includes('"video_versions"')
       );
     },
   );
