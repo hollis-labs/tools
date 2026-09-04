@@ -165,7 +165,7 @@ grant. Saving is rejected if that permission prompt is denied.
   background worker, content script, popup, options page, icons — see full command output in
   the task record).
 - `npm run lint` and `npm run typecheck` pass with zero errors/warnings.
-- `npm run test:run` — 229 tests across 25 files (plus one opt-in live test skipped) covering
+- `npm run test:run` — 231 tests across 25 files (plus one opt-in live test skipped) covering
   deterministic adapter selection and
   generic fallback, the shared adapter result, the Readability → Turndown → payload pipeline,
   meta-description precedence, distinct text-selection capture, generic hero/inline media,

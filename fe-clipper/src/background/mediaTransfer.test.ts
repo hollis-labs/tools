@@ -75,6 +75,20 @@ describe("browser media acquisition", () => {
     expect(JSON.stringify(fetchImplementation.mock.calls[0])).not.toMatch(/authorization|cookie|bearer/i);
   });
 
+  it("rejects an empty successful response before hashing or upload", async () => {
+    const fetchImplementation = vi.fn(async () => new Response(null, { status: 200 }));
+
+    await expect(acquirer(fetchImplementation).acquire(
+      { ...variant("https://media.test/captions"), kind: "subtitles" },
+      ["https://media.test"],
+      1_000,
+    )).rejects.toMatchObject({
+      kind: "source",
+      retryable: true,
+      message: "The media source returned an empty response body.",
+    });
+  });
+
   it("invokes browser fetch without binding the media acquirer as its receiver", async () => {
     const observedReceivers: unknown[] = [];
     const fetchImplementation: SourceFetchLike = function (this: unknown) {

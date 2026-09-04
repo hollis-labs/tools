@@ -694,6 +694,56 @@ describe("durable manifest capture coordinator", () => {
     expect(retryApi.completions).toEqual([]);
   });
 
+  it("keeps an empty source response retryable and resumes the same capture ID", async () => {
+    const store = new MemoryJobs();
+    const api = new FakeApi();
+    const media = new FakeAcquirer();
+    let acquisition = 0;
+    media.acquireImplementation = async () => {
+      acquisition += 1;
+      if (acquisition === 1) {
+        throw new MediaTransferError(
+          "The media source returned an empty response body.",
+          "source",
+          true,
+        );
+      }
+      return media.result;
+    };
+    const jobs = coordinator(store, api, "empty-retry", media);
+    const visible = await jobs.start(input(true, "empty-response-action"));
+
+    await vi.waitFor(() => expect(store.jobs.get(visible.captureId)?.error?.code).toBe("media_source"));
+    const failed = store.jobs.get(visible.captureId)!;
+    expect(failed).toMatchObject({
+      captureId: "empty-response-action",
+      phase: "pending_transfer",
+      terminal: false,
+      error: { retryable: true },
+    });
+    expect(failed.transfers?.[0]).toMatchObject({
+      state: "failed",
+      retryable: true,
+      outcome: { outcome: "failed", retryable: true },
+    });
+    expect(api.events).not.toContain("api:upload");
+    expect(api.completions).toEqual([]);
+
+    const recovered = await jobs.retry(failed.captureId, ["https://cdn.example.test"]);
+
+    expect(recovered).toMatchObject({ captureId: failed.captureId, terminal: true });
+    expect(api.events.filter((event) => event === `api:submit:${failed.captureId}`)).toHaveLength(1);
+    const firstStatus = api.events.indexOf(`api:get:${failed.captureId}`);
+    const upload = api.events.indexOf("api:upload");
+    expect(firstStatus).toBeGreaterThanOrEqual(0);
+    expect(firstStatus).toBeLessThan(upload);
+    expect(api.events.filter((event) => event === "api:upload")).toHaveLength(1);
+    expect(api.completions[0]?.assets[0]).toMatchObject({
+      outcome: "uploaded",
+      byte_size: 3,
+    });
+  });
+
   it("rejects expected digest mismatch without uploading", async () => {
     const store = new MemoryJobs();
     const api = new FakeApi();

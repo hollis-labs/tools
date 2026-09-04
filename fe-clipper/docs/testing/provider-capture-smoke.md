@@ -158,7 +158,7 @@ proxy capture (`faf06015-b13e-4a03-a0f0-ee06173c00cb`) observed no Cookie,
 Authorization, or Proxy-Authorization on FE requests. The asset PUT carried only
 content type, content length, and an RFC 9530 digest.
 
-The live FE positive path is independent of FE issue `CW-20260904-0018`, which
-tracks a server-side finding where a rejected duplicate annotation can advance
-capture count before returning HTTP 409. Do not use that invalid path as positive
-recapture evidence.
+FE follow-up `CW-20260904-0018` investigated an apparent rejected-annotation
+atomicity problem from the first live probe. FE artifact 545 and commit `cf72d8e`
+disproved the suspected defect, and the issue is closed. The successful deliberate
+recapture rows above remain the positive count/context evidence.

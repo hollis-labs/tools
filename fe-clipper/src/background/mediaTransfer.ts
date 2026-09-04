@@ -311,6 +311,13 @@ export class BrowserMediaAcquirer implements MediaAcquirer {
           true,
         );
       }
+      if (bytes.byteLength === 0) {
+        throw new MediaTransferError(
+          "The media source returned an empty response body.",
+          "source",
+          true,
+        );
+      }
       const digestBytes = new Uint8Array(
         await crypto.subtle.digest("SHA-256", bytes.buffer as ArrayBuffer),
       );
