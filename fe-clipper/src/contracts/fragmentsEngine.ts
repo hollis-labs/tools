@@ -1,22 +1,6 @@
-import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
-import addFormats from "ajv-formats";
+import type { ErrorObject, ValidateFunction } from "ajv";
 
-import capabilitiesSchema from "../../vendor/fragments-engine-browser-contract-v1/schema/capabilities.schema.json";
-import captureCompletionSchema from "../../vendor/fragments-engine-browser-contract-v1/schema/capture-completion.schema.json";
-import captureEnvelopeSchema from "../../vendor/fragments-engine-browser-contract-v1/schema/capture-envelope.schema.json";
-import captureResponseSchema from "../../vendor/fragments-engine-browser-contract-v1/schema/capture-response.schema.json";
-import captureStatusSchema from "../../vendor/fragments-engine-browser-contract-v1/schema/capture-status.schema.json";
-import commonSchema from "../../vendor/fragments-engine-browser-contract-v1/schema/common.schema.json";
-import contractManifest from "../../vendor/fragments-engine-browser-contract-v1/contract-manifest.json";
-import conversationRefSchema from "../../vendor/fragments-engine-browser-contract-v1/schema/conversation-ref.schema.json";
-import errorSchema from "../../vendor/fragments-engine-browser-contract-v1/schema/error.schema.json";
-import mediaSchema from "../../vendor/fragments-engine-browser-contract-v1/schema/media.schema.json";
-import playbackSchema from "../../vendor/fragments-engine-browser-contract-v1/schema/playback.schema.json";
-import readerCommandSchema from "../../vendor/fragments-engine-browser-contract-v1/schema/reader-command.schema.json";
-import readerContextSchema from "../../vendor/fragments-engine-browser-contract-v1/schema/reader-context.schema.json";
-import readerItemSchema from "../../vendor/fragments-engine-browser-contract-v1/schema/reader-item.schema.json";
-import readerListSchema from "../../vendor/fragments-engine-browser-contract-v1/schema/reader-list.schema.json";
-import readingStateSchema from "../../vendor/fragments-engine-browser-contract-v1/schema/reading-state.schema.json";
+import { validatorsBySchemaReference } from "@/generated/fe-contract-validators.js";
 import type { components } from "@/generated/fragments-engine-api";
 
 type FESchemas = components["schemas"];
@@ -38,77 +22,28 @@ export type FECaptureAssetVariant = FESchemas["CaptureAssetVariant"];
 export type FEAssetInstruction = FESchemas["AssetInstruction"];
 export type FEAssetOutcome = FESchemas["AssetOutcome"];
 
-interface SchemaDocument {
-  $id: string;
-  [key: string]: unknown;
-}
-
-const schemaDocuments = [
-  capabilitiesSchema,
-  captureCompletionSchema,
-  captureEnvelopeSchema,
-  captureResponseSchema,
-  captureStatusSchema,
-  commonSchema,
-  conversationRefSchema,
-  errorSchema,
-  mediaSchema,
-  playbackSchema,
-  readerCommandSchema,
-  readerContextSchema,
-  readerItemSchema,
-  readerListSchema,
-  readingStateSchema,
-] as unknown as readonly SchemaDocument[];
-
-const schemasByRelativePath = new Map(
-  schemaDocuments.map((schema) => [
-    `schema/${schema.$id.slice(schema.$id.lastIndexOf("/") + 1)}`,
-    schema,
-  ]),
-);
-
-const ajv = new Ajv2020({
-  allErrors: true,
-  strict: true,
-  validateFormats: true,
-});
-addFormats(ajv);
-
-for (const schema of schemaDocuments) {
-  ajv.addSchema(schema, schema.$id);
-}
-
-// Fail during module initialization if a manifest root is missing or cannot be
-// compiled. This keeps a partially vendored or breaking FE contract from being
-// accepted silently.
-for (const [name, relativePath] of Object.entries(contractManifest.schemas)) {
-  const schema = schemasByRelativePath.get(relativePath);
-  if (!schema) {
-    throw new Error(`Pinned FE contract root ${name} points to missing ${relativePath}.`);
-  }
-  if (!ajv.getSchema(schema.$id)) {
-    throw new Error(`Pinned FE contract root ${name} (${schema.$id}) could not be compiled.`);
-  }
-}
-
 function requireValidator<T>(schemaReference: string): ValidateFunction<T> {
-  const validator = ajv.getSchema<T>(schemaReference);
+  const validator = validatorsBySchemaReference[schemaReference] as ValidateFunction<T> | undefined;
   if (!validator) {
     throw new Error(`Pinned FE contract validator is unavailable for ${schemaReference}.`);
   }
   return validator;
 }
 
-const mediaSchemaId = mediaSchema.$id;
+const schemaBase = "https://schemas.hollis-labs.dev/fragments-engine/browser-capture-reader/v1/";
+const mediaSchemaId = `${schemaBase}media.schema.json`;
 
 export const feContractValidators = {
-  capabilities: requireValidator<FECapabilityDiscovery>(capabilitiesSchema.$id),
-  captureEnvelope: requireValidator<FECaptureEnvelope>(captureEnvelopeSchema.$id),
-  captureManifestResponse: requireValidator<FECaptureManifestResponse>(captureResponseSchema.$id),
-  captureStatus: requireValidator<FECaptureStatus>(captureStatusSchema.$id),
-  captureCompletion: requireValidator<FECaptureCompletionRequest>(captureCompletionSchema.$id),
-  apiProblem: requireValidator<FEAPIProblem>(errorSchema.$id),
+  capabilities: requireValidator<FECapabilityDiscovery>(`${schemaBase}capabilities.schema.json`),
+  captureEnvelope: requireValidator<FECaptureEnvelope>(`${schemaBase}capture-envelope.schema.json`),
+  captureManifestResponse: requireValidator<FECaptureManifestResponse>(
+    `${schemaBase}capture-response.schema.json`,
+  ),
+  captureStatus: requireValidator<FECaptureStatus>(`${schemaBase}capture-status.schema.json`),
+  captureCompletion: requireValidator<FECaptureCompletionRequest>(
+    `${schemaBase}capture-completion.schema.json`,
+  ),
+  apiProblem: requireValidator<FEAPIProblem>(`${schemaBase}error.schema.json`),
   captureMediaItem: requireValidator<FECaptureMediaItem>(`${mediaSchemaId}#/$defs/CaptureMediaItem`),
   captureAssetVariant: requireValidator<FECaptureAssetVariant>(
     `${mediaSchemaId}#/$defs/CaptureAssetVariant`,
