@@ -2,7 +2,7 @@
   "name": "fe-clipper",
   "private": true,
   "version": "0.1.0",
-  "description": "Chrome MV3 web clipper for Fragments Engine — captures readable page content (Readability + Turndown) and POSTs it to FE's /v1/intake endpoint.",
+  "description": "Provider-aware Chrome MV3 web clipper for Fragments Engine's durable /v1/captures workflow.",
   "type": "module",
   "scripts": {
     "dev": "vite build --watch",

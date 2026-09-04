@@ -134,7 +134,29 @@ exists.
 |---|---|---|
 | Deterministic fixtures | PASS | 13 scenarios; production adapter/envelope path plus pinned manifest/status/completion validators |
 | Direct compatible FE | PASS | Implementer runs `clipper-0056-agent-a` and `clipper-0056-agent-b`; FE `4e87a8d` (includes required integration `8075d14`), pinned browser contract `118b771`; manifest acceptance, replay, partial completion, changed/unchanged recapture, Reader detail |
-| Installed extension on real pages | BLOCKED / not run | Browser-control discovery returned no available browser sessions in both implementer and orchestrator environments |
+| Installed extension on real pages | PASS | Eight required rows passed at extension `c2d2770` against disposable FE `4e87a8d`; current live provider shapes, Reader projection, optional-media outcomes, recapture, same-ID retry across worker restart, and request headers were inspected |
+
+### Installed-extension evidence (UTC 2026-09-04)
+
+| Row | Safe page identity | Capture / attempt | Fragment / revision | Result |
+|---|---|---|---|---|
+| Generic without media | `https://example.com/` | `2c85ee61-33d9-4bd4-93e7-075ec5d88e75` / `79d7d333...` | `1cfaab5c...` / `b323dab1...` | Complete; useful body and annotations, empty media |
+| Generic deliberate recapture | `https://example.com/` | `9febe0db-125c-4bbd-9aca-533604ea6cec` / `1e6a4663...` | same / same | Complete; new attempt, capture count 2, tags unioned and annotations appended |
+| Generic with media | Wikipedia `Cat` | `3c44e3af-5c92-40de-b51c-da954d98d145` / `828fb0e1...` | `e2f3d6d...` / `a929c193...` | Complete; 33 ordered media available; accepted job resumed after worker reload |
+| YouTube captions | video `aircAruvnKk` | `aa0bdd18-996c-409e-90f6-cf930d373ba3` / `da4d8c34...` | `95e851a5...` / `4a311452...` | Complete; transcript/subtitle candidates and posters, original video reference-only |
+| YouTube no captions | video `I_6ZcOo6pnk` | `4c96289b-a626-4cd3-8767-1e5743acba17` / `9cfb80e7...` | `948e5569...` / `038e2cfa...` | Complete; explicit captions-unavailable warning, useful playback/posters |
+| Pinterest image | pin `104427285104852001` | `6959655f-f708-4ae2-b30d-393122f553bf` / `d7dc04e6...` | `a0dcb18b...` / `947ab178...` | Complete; target original + genuine thumbnail, no recommendation contamination |
+| Instagram image | shortcode `DcwApJ2SUNd` | `2e42aec4-2371-4f13-a814-5701776fccb8` / `dfba31da...` | `4fbe188c...` / `38e44bb9...` | Complete; original + thumbnail, no provider warnings |
+| Instagram reel | shortcode `DcuQVFLvJMX` | `4d0ed087-c9d1-4dbf-85e8-24bef161bce2` / `4821bf28...` | `26bc253d...` / `d4b976f5...` | Complete; video reference-only and poster available |
+| Instagram mixed carousel | shortcode `Dc1amuWmnUY` | `ad6dc7a9-163c-40ba-958a-af7faa737d69` / `0a5320ce...` | `887ab3b6...` / `c4e10c55...` | Complete; all ten items remained ordered, including the video item |
+
+The same-ID permission/restart probe used capture
+`ac207267-c955-40ab-b50c-3d641a999c6d`: FE retained exactly one attempt while
+the popup surfaced the withheld local media origin; extension reload plus exact-origin
+re-grant and Retry completed that job without changing its IDs. A separate transparent
+proxy capture (`faf06015-b13e-4a03-a0f0-ee06173c00cb`) observed no Cookie,
+Authorization, or Proxy-Authorization on FE requests. The asset PUT carried only
+content type, content length, and an RFC 9530 digest.
 
 The live FE positive path is independent of FE issue `CW-20260904-0018`, which
 tracks a server-side finding where a rejected duplicate annotation can advance

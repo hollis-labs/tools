@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "FE Clipper",
   "version": "0.1.0",
-  "description": "Clip readable page content (Readability + Turndown) to the Fragments Engine inbox.",
+  "description": "Capture readable page content and provider media to the Fragments Engine inbox.",
   "action": {
     "default_popup": "popup.html",
     "default_title": "Clip to Fragments Engine",

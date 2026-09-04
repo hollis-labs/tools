@@ -1,6 +1,6 @@
 # fe-clipper
 
-Chrome (Manifest V3) web clipper for [Fragments Engine](../fragments-engine). Captures the
+Chrome (Manifest V3) web clipper for Fragments Engine. Captures the
 active tab's readable content client-side and submits FE's manifest-first `/v1/captures` contract, so
 content that would otherwise trip server-side bot-blocking (paywalled/gated articles, sites
 that reject headless fetchers, etc.) can still land in FE's inbox — the browser already
@@ -36,11 +36,25 @@ rendered the page, so the extension just reads it.
    phase. Retries and worker/browser restart reconciliation reuse the original capture ID and query
    FE before any uncertain resend. Completed jobs have bounded local retention; quota recovery can
    discard only corrupt or oldest terminal records, never an active transfer or retry job.
-6. The popup shows a clear success or failure confirmation. On success, the popup auto-closes
-   about 1.2s after showing the confirmation. On failure — FE unreachable (dev server not
-   running, wrong port, etc.), or FE rejecting the request — the popup stays open, shows the
-   error, and a **Copy error** button appears next to it so you can paste the exact message
-   somewhere (e.g. when asking for help). It never fails silently.
+6. The popup distinguishes manifest acceptance from optional media work. It shows pending,
+   transferring, partial, failed, retrying, and complete states from the durable job. Retry first
+   rechecks only the currently required FE/media origins and resumes the same capture ID. A later
+   deliberate clip creates a new attempt under FE's existing stable fragment.
+
+## Supported capture sources
+
+- **Pinterest:** target Pin identity, readable context, and the primary original/thumbnail image;
+  recommendation images are excluded.
+- **Instagram:** image posts, reels/video, and ordered mixed carousels. Video streams remain
+  reference-only while posters and supported images may be transferred.
+- **YouTube:** video identity, readable context, posters, and available subtitle/transcript
+  candidates. The extension never automatically downloads YouTube video bytes.
+- **Other pages:** the generic Readability/Turndown path plus meaningful hero/inline images,
+  selection, note, and tags.
+
+Optional media failure never erases an FE-accepted text capture. Missing or withheld source-host
+permission produces an explicit retryable/reference outcome; granting that exact origin and
+clicking Retry resumes the durable job rather than creating a second capture.
 
 ## Project layout
 
@@ -97,6 +111,7 @@ npm test            # vitest (watch mode)
 npm run test:run    # vitest run (single pass)
 npm run contracts:generate # regenerate TypeScript API types from the pinned OpenAPI file
 npm run contracts:check    # fail when generated output is stale
+npm run test:conformance   # deterministic provider/FE scenario matrix
 ```
 
 ## Pinned Fragments Engine capture contract
@@ -142,7 +157,7 @@ permission prompt for that origin — the extension only ever
 holds host permission for wherever it's actually configured to POST, not a standing wildcard
 grant. Saving is rejected if that permission prompt is denied.
 
-## What has and hasn't been verified
+## Verification status
 
 **Verified as part of this build:**
 
@@ -150,13 +165,15 @@ grant. Saving is rejected if that permission prompt is denied.
   background worker, content script, popup, options page, icons — see full command output in
   the task record).
 - `npm run lint` and `npm run typecheck` pass with zero errors/warnings.
-- `npm test` — 119 unit tests (vitest + jsdom) covering deterministic adapter selection and
+- `npm run test:run` — 229 tests across 25 files (plus one opt-in live test skipped) covering
+  deterministic adapter selection and
   generic fallback, the shared adapter result, the Readability → Turndown → payload pipeline,
   meta-description precedence, distinct text-selection capture, generic hero/inline media,
   `srcset` selection, media filtering/deduplication, extraction fallback/error results, the exact
   six-field legacy `/v1/intake` compatibility wire shape, every portable FE contract fixture,
   strict request/response and media/outcome validation, capability preflight, envelope mapping,
-  durable storage, retry/reconciliation, completion, corruption isolation, and credential exclusion.
+  durable storage, retry/reconciliation, completion, corruption isolation, provider conformance,
+  current live provider page shapes, and credential exclusion.
 - The retained legacy `/v1/intake` wire contract was previously verified with a **scripted `curl`
   POST** against a real, locally running `fragments-engine` dev server (`serve-api`). The response
   was `HTTP 201` with `outcome: "inserted"`, and
@@ -166,15 +183,9 @@ grant. Saving is rejected if that permission prompt is denied.
   `selection` (distinct from `Content`, never merged into it), `url`/`domain` derived from
   `source_url`, and `capture_method: "web_clipper"`.
 
-**NOT verified — still needs a human or a browser-automation-capable session:**
-
-- Interactive browser verification has **not** been done. Nobody has loaded this unpacked
-  extension into an actual Chrome window, clicked the toolbar icon on a real page, confirmed the
-  popup renders and shows the captured title/tags/selection correctly, clicked Send and watched
-  a real end-to-end round trip land in FE's inbox through the actual UI, or confirmed the
-  failure-state UX when FE is unreachable. Everything above was validated via unit tests
-  (mocked DOM/fetch) and a scripted HTTP call that bypasses the extension UI entirely — not
-  through loading and clicking through the extension itself. That interactive pass is a
-  separate, required step before this is considered fully done end-to-end.
-- Manifest-first capture has not yet been exercised against a live FE process from an installed
-  extension. Cross-project conformance and real-page smoke coverage remain in task `0056`.
+The complete installed-extension matrix passed on 2026-09-04 against disposable FE commit
+`4e87a8d`: Pinterest image; Instagram image, reel, and mixed carousel; YouTube with and without
+captions; and generic pages with and without media. The run also proved deliberate recapture,
+same-ID permission recovery across extension-worker restart, Reader projection/order, and
+credential-free manifest/status/upload/completion requests. Safe IDs and reproducible procedure
+are recorded in [the provider capture smoke matrix](docs/testing/provider-capture-smoke.md).
