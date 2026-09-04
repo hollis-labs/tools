@@ -21,11 +21,12 @@ describe("accepted popup lifecycle", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("auto-closes only clean fresh acceptance and keeps pending, partial, and warning states open", () => {
+  it("auto-closes clean fresh acceptance while keeping partial and warning states open", () => {
     expect(shouldAutoCloseFreshCapture({ phase: "accepted" })).toBe(true);
+    expect(shouldAutoCloseFreshCapture({ phase: "pending_transfer" })).toBe(true);
     expect(shouldAutoCloseFreshCapture({ phase: "complete" })).toBe(true);
     expect(shouldAutoCloseFreshCapture({ phase: "accepted", warning: "needs attention" })).toBe(false);
-    expect(shouldAutoCloseFreshCapture({ phase: "pending_transfer" })).toBe(false);
+    expect(shouldAutoCloseFreshCapture({ phase: "pending_transfer", warning: "needs attention" })).toBe(false);
     expect(shouldAutoCloseFreshCapture({ phase: "partial" })).toBe(false);
   });
 

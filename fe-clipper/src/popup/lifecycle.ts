@@ -6,7 +6,8 @@ export interface AcceptedResultForClose {
 }
 
 export function shouldAutoCloseFreshCapture(result: AcceptedResultForClose): boolean {
-  return !result.warning && (result.phase === "accepted" || result.phase === "complete");
+  return !result.warning &&
+    (result.phase === "accepted" || result.phase === "pending_transfer" || result.phase === "complete");
 }
 
 export function acceptedCaptureNotice(
