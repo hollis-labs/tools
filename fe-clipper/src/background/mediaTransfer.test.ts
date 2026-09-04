@@ -3,7 +3,20 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
 import type { FECaptureAssetVariant } from "@/contracts/fragmentsEngine";
-import { BrowserMediaAcquirer, MediaTransferError } from "./mediaTransfer";
+import {
+  BrowserMediaAcquirer,
+  MediaTransferError,
+  type SourceFetchLike,
+  type SourcePermissionCheck,
+} from "./mediaTransfer";
+
+function acquirer(
+  fetchImplementation: SourceFetchLike,
+  timeoutMs = 30_000,
+  hasCurrentPermission: SourcePermissionCheck = async () => true,
+) {
+  return new BrowserMediaAcquirer(fetchImplementation, timeoutMs, hasCurrentPermission);
+}
 
 function variant(sourceUrl = "https://media.test/item.png"): FECaptureAssetVariant {
   return {
@@ -30,7 +43,7 @@ describe("browser media acquisition", () => {
     const fetchImplementation = vi.fn(
       async () => new Response(new Uint8Array(bytes).buffer, { status: 200 }),
     );
-    const acquired = await new BrowserMediaAcquirer(fetchImplementation).acquire(
+    const acquired = await acquirer(fetchImplementation).acquire(
       variant(),
       ["https://media.test"],
       1_000,
@@ -70,7 +83,7 @@ describe("browser media acquisition", () => {
         headers: { Location: "https://redirect.test/final.png" },
       }))
       .mockResolvedValueOnce(new Response(new Uint8Array(png()).buffer, { status: 200 }));
-    await expect(new BrowserMediaAcquirer(fetchImplementation).acquire(
+    await expect(acquirer(fetchImplementation).acquire(
       variant(),
       ["https://media.test", "https://redirect.test"],
       1_000,
@@ -81,7 +94,7 @@ describe("browser media acquisition", () => {
       status: 302,
       headers: { Location: "https://evil.test/steal" },
     }));
-    await expect(new BrowserMediaAcquirer(attackFetch).acquire(
+    await expect(acquirer(attackFetch).acquire(
       variant(),
       ["https://media.test"],
       1_000,
@@ -104,7 +117,7 @@ describe("browser media acquisition", () => {
       headers: { "Content-Length": "1001" },
     }));
 
-    await expect(new BrowserMediaAcquirer(fetchImplementation).acquire(
+    await expect(acquirer(fetchImplementation).acquire(
       variant(),
       ["https://media.test"],
       1_000,
@@ -128,7 +141,7 @@ describe("browser media acquisition", () => {
       const headers = contentLength === null ? undefined : { "Content-Length": contentLength };
       const fetchImplementation = vi.fn(async () => new Response(body, { status: 200, headers }));
 
-      await expect(new BrowserMediaAcquirer(fetchImplementation).acquire(
+      await expect(acquirer(fetchImplementation).acquire(
         variant(),
         ["https://media.test"],
         5,
@@ -139,7 +152,7 @@ describe("browser media acquisition", () => {
 
   it("records unsupported detected MIME but uploads it as octet-stream", async () => {
     const pdf = new TextEncoder().encode("%PDF-1.7\nbody");
-    const acquired = await new BrowserMediaAcquirer(async () => new Response(pdf)).acquire(
+    const acquired = await acquirer(async () => new Response(pdf)).acquire(
       { ...variant("https://media.test/doc.pdf"), kind: "original" },
       ["https://media.test"],
       1_000,
@@ -155,7 +168,7 @@ describe("browser media acquisition", () => {
         controller.error(new Error("socket reset"));
       },
     });
-    await expect(new BrowserMediaAcquirer(async () => new Response(brokenBody)).acquire(
+    await expect(acquirer(async () => new Response(brokenBody)).acquire(
       variant(),
       ["https://media.test"],
       1_000,
@@ -165,7 +178,7 @@ describe("browser media acquisition", () => {
       new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
       }));
-    await expect(new BrowserMediaAcquirer(hangingFetch, 5).acquire(
+    await expect(acquirer(hangingFetch, 5).acquire(
       variant(),
       ["https://media.test"],
       1_000,
@@ -174,18 +187,52 @@ describe("browser media acquisition", () => {
 
   it("does not fetch unpermitted, credential-bearing, or non-browser variants", async () => {
     const fetchImplementation = vi.fn();
-    const acquirer = new BrowserMediaAcquirer(fetchImplementation);
-    await expect(acquirer.acquire(variant(), [], 1_000)).rejects.toBeInstanceOf(MediaTransferError);
-    await expect(acquirer.acquire(
+    const browser = acquirer(fetchImplementation);
+    await expect(browser.acquire(variant(), [], 1_000)).rejects.toBeInstanceOf(MediaTransferError);
+    await expect(browser.acquire(
       variant("https://user:secret@media.test/item"),
       ["https://media.test"],
       1_000,
     )).rejects.toMatchObject({ kind: "source" });
-    await expect(acquirer.acquire(
+    await expect(browser.acquire(
       { ...variant(), transfer_preference: "reference_only" },
       ["https://media.test"],
       1_000,
     )).rejects.toMatchObject({ kind: "source" });
     expect(fetchImplementation).not.toHaveBeenCalled();
+  });
+
+  it("does not fetch when a persisted permission snapshot has been revoked", async () => {
+    const fetchImplementation = vi.fn();
+    const permission = vi.fn(async () => false);
+
+    await expect(acquirer(fetchImplementation, 30_000, permission).acquire(
+      variant(),
+      ["https://media.test"],
+      1_000,
+    )).rejects.toMatchObject({ kind: "permission", retryable: true });
+
+    expect(permission).toHaveBeenCalledWith("https://media.test");
+    expect(fetchImplementation).not.toHaveBeenCalled();
+  });
+
+  it("rechecks an allowlisted redirect origin before following it", async () => {
+    const fetchImplementation = vi.fn(async () => new Response(null, {
+      status: 302,
+      headers: { Location: "https://redirect.test/final.png" },
+    }));
+    const permission = vi.fn(async (origin: string) => origin === "https://media.test");
+
+    await expect(acquirer(fetchImplementation, 30_000, permission).acquire(
+      variant(),
+      ["https://media.test", "https://redirect.test"],
+      1_000,
+    )).rejects.toMatchObject({ kind: "permission", retryable: true });
+
+    expect(permission.mock.calls.map(([origin]) => origin)).toEqual([
+      "https://media.test",
+      "https://redirect.test",
+    ]);
+    expect(fetchImplementation).toHaveBeenCalledOnce();
   });
 });

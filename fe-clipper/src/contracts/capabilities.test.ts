@@ -61,6 +61,7 @@ describe("capture manifest capability preflight", () => {
       headers: { Accept: "application/json" },
       credentials: "omit",
       cache: "no-store",
+      redirect: "error",
     });
   });
 

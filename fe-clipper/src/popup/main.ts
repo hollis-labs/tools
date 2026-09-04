@@ -1,7 +1,16 @@
 import { parseTagsInput } from "@/lib/payload";
-import { requestCapturePermissions } from "@/lib/permissions";
+import { requestCapturePermissions, requestRetryPermissions } from "@/lib/permissions";
 import { getCaptureConfiguration } from "@/lib/storage";
-import { DEFAULT_TAGS, type CapturedPage, type ExtensionMessage } from "@/lib/types";
+import {
+  DEFAULT_TAGS,
+  type CapturedPage,
+  type CaptureJobSummary,
+  type ExtensionMessage,
+} from "@/lib/types";
+import { CaptureJobListRenderer } from "./jobListView";
+import { acceptedCaptureNotice, scheduleAcceptedPopupClose } from "./lifecycle";
+import { CaptureActionState, CaptureMutationGuard } from "./captureActionState";
+import { dispatchExistingCaptureRetry } from "./startRetry";
 
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const copyErrorButton = document.getElementById("copy-error-button") as HTMLButtonElement;
@@ -11,17 +20,19 @@ const tagsInput = document.getElementById("tags-input") as HTMLInputElement;
 const noteInput = document.getElementById("note-input") as HTMLTextAreaElement;
 const selectionPreview = document.getElementById("selection-preview") as HTMLParagraphElement;
 const sendButton = document.getElementById("send-button") as HTMLButtonElement;
+const captureJobsEl = document.getElementById("capture-jobs") as HTMLElement;
+const captureJobListEl = document.getElementById("capture-job-list") as HTMLDivElement;
+const jobListRenderer = new CaptureJobListRenderer(captureJobsEl, captureJobListEl);
 
 let captured: CapturedPage | null = null;
-let activeJobId: string | undefined;
+let jobs: CaptureJobSummary[] = [];
+let refreshInFlight: Promise<void> | undefined;
 type StartCaptureMessage = Extract<ExtensionMessage, { type: "START_CAPTURE_JOB" }>;
-let activeStartRequest: StartCaptureMessage | undefined;
+const captureAction = new CaptureActionState();
+const mutationGuard = new CaptureMutationGuard();
 
-// Give the user a moment to read the success message before the popup
-// closes itself; errors never auto-close (setStatus below only shows the
-// copy-error button on "error", and nothing schedules a close for it).
-const SUCCESS_AUTO_CLOSE_MS = 1200;
 const COPY_BUTTON_RESET_MS = 1500;
+const JOB_REFRESH_MS = 1500;
 
 function setStatus(message: string, kind: "loading" | "error" | "success" | "idle" = "idle") {
   statusEl.textContent = message;
@@ -29,46 +40,83 @@ function setStatus(message: string, kind: "loading" | "error" | "success" | "idl
   copyErrorButton.hidden = kind !== "error";
 }
 
-async function copyErrorToClipboard() {
-  const text = statusEl.textContent ?? "";
+async function copyText(text: string, button: HTMLButtonElement) {
   if (!text) return;
   try {
     await navigator.clipboard.writeText(text);
-    copyErrorButton.textContent = "Copied!";
+    button.textContent = "Copied!";
   } catch {
-    copyErrorButton.textContent = "Copy failed";
+    button.textContent = "Copy failed";
   } finally {
     setTimeout(() => {
-      copyErrorButton.textContent = "Copy error";
+      button.textContent = "Copy error";
     }, COPY_BUTTON_RESET_MS);
+  }
+}
+
+function renderJobs() {
+  jobListRenderer.render(jobs, mutationGuard.busy);
+}
+
+function beginMutation(): boolean {
+  if (!mutationGuard.begin()) return false;
+  sendButton.disabled = true;
+  renderJobs();
+  return true;
+}
+
+function endMutation(): void {
+  mutationGuard.end();
+  sendButton.disabled = false;
+  renderJobs();
+}
+
+async function refreshJobs(reportFailure = false, afterCurrent = false): Promise<void> {
+  if (refreshInFlight) {
+    await refreshInFlight;
+    // A mutation needs a query begun after any older polling query completed,
+    // otherwise that stale response could outlive the popup-wide busy guard.
+    if (afterCurrent) await refreshJobs(reportFailure);
+    return;
+  }
+  const operation = (async () => {
+    try {
+      const response = (await chrome.runtime.sendMessage({ type: "QUERY_CAPTURE_JOBS" })) as ExtensionMessage;
+      if (response.type !== "CAPTURE_JOBS_RESULT" || !response.ok) {
+        if (reportFailure) {
+          setStatus(
+            response.type === "CAPTURE_JOBS_RESULT" ? response.error : "Could not read capture jobs.",
+            "error",
+          );
+        }
+        return;
+      }
+      jobs = response.jobs;
+      if (captureAction.sync(jobs)) sendButton.textContent = "Capture this page again";
+      renderJobs();
+    } catch (error) {
+      if (reportFailure) {
+        setStatus(`Could not read capture jobs: ${error instanceof Error ? error.message : String(error)}`, "error");
+      }
+    }
+  })();
+  refreshInFlight = operation;
+  try {
+    await operation;
+  } finally {
+    if (refreshInFlight === operation) refreshInFlight = undefined;
   }
 }
 
 async function captureActiveTab(): Promise<CapturedPage> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) {
-    throw new Error("No active tab to capture.");
-  }
-
-  // Step 1: inject the bundled content script (Readability + Turndown +
-  // extraction logic). It stashes its result on `window` rather than
-  // returning it directly -- `files`-based injections don't reliably
-  // surface a return value the way `func` injections do.
-  await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    files: ["content-script.js"],
-  });
-
-  // Step 2: read the stashed result back with a small, fully self-contained
-  // `func` injection (allowed to return a value directly).
+  if (!tab?.id) throw new Error("No active tab to capture.");
+  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content-script.js"] });
   const [{ result } = { result: undefined }] = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     func: () => window.__FE_CLIPPER_CAPTURE__,
   });
-
-  if (!result) {
-    throw new Error("Capture failed: the content script returned nothing.");
-  }
+  if (!result) throw new Error("Capture failed: the content script returned nothing.");
   return result;
 }
 
@@ -76,44 +124,43 @@ async function runCapture() {
   setStatus("Capturing page content...", "loading");
   try {
     captured = await captureActiveTab();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    setStatus(`Couldn't capture this page: ${message}`, "error");
+  } catch (error) {
+    setStatus(
+      `Couldn't capture this page: ${error instanceof Error ? error.message : String(error)}`,
+      "error",
+    );
     return;
   }
 
   titleInput.value = captured.document.title;
   tagsInput.value = DEFAULT_TAGS.join(", ");
-  selectionPreview.textContent = captured.document.selection
-    ? captured.document.selection
-    : "None";
-
+  selectionPreview.textContent = captured.document.selection || "None";
   const extractionError = captured.warnings.find((warning) => warning.severity === "error");
   if (extractionError) {
-    setStatus(
-      `Extraction had a problem (${extractionError.message}); review before sending.`,
-      "error",
-    );
+    setStatus(`Extraction had a problem (${extractionError.message}); review before sending.`, "error");
   } else if (captured.document.usedFallback) {
     setStatus("No article region found; used the raw page as a fallback.", "loading");
   } else {
     setStatus(`Captured from ${captured.identity.submittedUrl}`, "idle");
   }
-
   formEl.hidden = false;
 }
 
 async function handleSubmit(event: SubmitEvent) {
   event.preventDefault();
-  if (!captured) return;
-
-  sendButton.disabled = true;
-  setStatus("Sending to Fragments Engine...", "loading");
+  if (!captured || !beginMutation()) return;
+  setStatus("Sending manifest to Fragments Engine...", "loading");
 
   try {
-    let request: ExtensionMessage;
-    if (activeStartRequest) {
-      request = activeStartRequest;
+    let request: StartCaptureMessage;
+    let rawResponse: unknown;
+    if (captureAction.activeStartRequest) {
+      request = captureAction.activeStartRequest;
+      rawResponse = await dispatchExistingCaptureRetry(
+        request,
+        (prepared) => chrome.runtime.sendMessage(prepared),
+        (prepared) => captureAction.begin(prepared),
+      );
     } else {
       const configuration = await getCaptureConfiguration();
       const permissions = await requestCapturePermissions(configuration.endpoint, captured);
@@ -124,10 +171,10 @@ async function handleSubmit(event: SubmitEvent) {
         );
         return;
       }
-      activeJobId = crypto.randomUUID();
-      activeStartRequest = {
+      const captureId = crypto.randomUUID();
+      request = {
         type: "START_CAPTURE_JOB",
-        captureId: activeJobId,
+        captureId,
         captured,
         edits: {
           title: titleInput.value,
@@ -137,44 +184,115 @@ async function handleSubmit(event: SubmitEvent) {
         configuration,
         permittedSourceOrigins: permissions.permittedSourceOrigins,
       };
-      request = activeStartRequest;
+      captureAction.begin(request);
+      rawResponse = await chrome.runtime.sendMessage(request);
     }
 
-    const response = (await chrome.runtime.sendMessage(request)) as ExtensionMessage;
-
+    const response = rawResponse as ExtensionMessage;
     if (response.type !== "CAPTURE_JOB_RESULT") {
       setStatus("Unexpected response from the extension background worker.", "error");
       return;
     }
-
+    captureAction.applyResult(response);
     if (response.ok) {
-      activeJobId = undefined;
-      activeStartRequest = undefined;
-      const transfer = response.phase === "pending_transfer"
-        ? " Media transfer will continue in the background."
-        : "";
-      const warning = response.warning ? ` ${response.warning}` : "";
-      setStatus(`Captured in Fragments Engine.${transfer}${warning}`, "success");
-      setTimeout(() => window.close(), SUCCESS_AUTO_CLOSE_MS);
+      sendButton.textContent = "Capture this page again";
+      const notice = acceptedCaptureNotice(response, { fresh: true });
+      setStatus(notice.message, notice.kind);
+      if (notice.autoClose) {
+        scheduleAcceptedPopupClose(() => window.close());
+      }
+      await refreshJobs(false, true);
     } else {
-      activeJobId = response.captureId ?? activeJobId;
-      if (activeJobId) sendButton.textContent = "Retry capture";
+      if (response.terminal) {
+        sendButton.textContent = "Capture this page again";
+      } else {
+        if (captureAction.activeJobId) sendButton.textContent = "Retry same capture";
+      }
       setStatus(response.error, "error");
+      await refreshJobs(false, true);
     }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    setStatus(`Failed to send: ${message}`, "error");
+  } catch (error) {
+    if (captureAction.activeJobId) sendButton.textContent = "Retry same capture";
+    setStatus(`Failed to send: ${error instanceof Error ? error.message : String(error)}`, "error");
+    await refreshJobs(false, true);
   } finally {
-    sendButton.disabled = false;
+    endMutation();
   }
 }
 
-formEl.addEventListener("submit", (event) => {
-  void handleSubmit(event);
+async function retryJob(job: CaptureJobSummary): Promise<void> {
+  if (!beginMutation()) return;
+  setStatus(`Retrying ${job.title || "capture"}...`, "loading");
+  try {
+    const permissions = await requestRetryPermissions(job.feOrigin, job.retryPermissionOrigins);
+    if (!permissions.feGranted) {
+      setStatus(`Permission to reach ${job.feOrigin} was denied; the durable job was preserved.`, "error");
+      return;
+    }
+    const response = (await chrome.runtime.sendMessage({
+      type: "RETRY_CAPTURE_JOB",
+      captureId: job.captureId,
+      permittedSourceOrigins: permissions.permittedSourceOrigins,
+    })) as ExtensionMessage;
+    if (response.type !== "CAPTURE_JOB_RESULT") {
+      throw new Error("Unexpected response from the extension background worker.");
+    }
+    captureAction.applyResult(response);
+    if (response.ok) {
+      const notice = acceptedCaptureNotice(response, {
+        fresh: false,
+        mediaPermissionDenied: permissions.deniedSourceOrigins.length > 0,
+      });
+      setStatus(notice.message, notice.kind);
+    } else {
+      setStatus(response.error, "error");
+    }
+  } catch (error) {
+    setStatus(`Retry failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+  } finally {
+    await refreshJobs(false, true);
+    endMutation();
+  }
+}
+
+async function dismissJob(job: CaptureJobSummary): Promise<void> {
+  if (!beginMutation()) return;
+  try {
+    const response = (await chrome.runtime.sendMessage({
+      type: "DISMISS_CAPTURE_JOB",
+      captureId: job.captureId,
+    })) as ExtensionMessage;
+    if (response.type !== "CAPTURE_JOB_DISMISS_RESULT" || !response.ok) {
+      throw new Error(
+        response.type === "CAPTURE_JOB_DISMISS_RESULT" ? response.error : "Unexpected dismiss response.",
+      );
+    }
+    if (captureAction.clearMatching(job.captureId)) {
+      sendButton.textContent = "Capture this page again";
+    }
+    setStatus("Removed the confirmed terminal capture from this device.", "idle");
+  } catch (error) {
+    setStatus(`Could not dismiss capture: ${error instanceof Error ? error.message : String(error)}`, "error");
+  } finally {
+    await refreshJobs(false, true);
+    endMutation();
+  }
+}
+
+formEl.addEventListener("submit", (event) => void handleSubmit(event));
+copyErrorButton.addEventListener("click", () => void copyText(statusEl.textContent ?? "", copyErrorButton));
+captureJobListEl.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-action]");
+  const job = jobs.find((candidate) => candidate.captureId === button?.dataset.captureId);
+  if (!button || !job) return;
+  const action = button.dataset.action as "retry" | "dismiss" | "copy";
+  if (!mutationGuard.allows(action)) return;
+  if (button.dataset.action === "retry") void retryJob(job);
+  if (button.dataset.action === "dismiss") void dismissJob(job);
+  if (button.dataset.action === "copy" && job.error) void copyText(job.error.message, button);
 });
 
-copyErrorButton.addEventListener("click", () => {
-  void copyErrorToClipboard();
-});
-
+void refreshJobs(true);
 void runCapture();
+const refreshTimer = window.setInterval(() => void refreshJobs(), JOB_REFRESH_MS);
+window.addEventListener("pagehide", () => window.clearInterval(refreshTimer), { once: true });

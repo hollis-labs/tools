@@ -4,6 +4,7 @@ import type { PageCaptureResult } from "@/capture/types";
 import {
   browserPreferredSourceOrigins,
   requestCapturePermissions,
+  requestRetryPermissions,
   type PermissionsApiLike,
 } from "./permissions";
 
@@ -122,5 +123,59 @@ describe("capture host permission flow", () => {
     page.identity.provider = "youtube";
     page.media[0]!.kind = "video";
     expect(browserPreferredSourceOrigins(page)).toEqual([]);
+  });
+
+  it("rechecks revoked retry grants and requests the exact missing set once", async () => {
+    const api = permissionApi(
+      ["https://fe.test/*", "https://still-granted.test/*"],
+      ["https://revoked.test/*"],
+    );
+
+    const result = await requestRetryPermissions(
+      "https://fe.test",
+      ["https://still-granted.test", "https://revoked.test"],
+      api,
+    );
+
+    expect(api.request).toHaveBeenCalledOnce();
+    expect(api.request).toHaveBeenCalledWith({ origins: ["https://revoked.test/*"] });
+    expect(result).toEqual({
+      feGranted: true,
+      feOrigin: "https://fe.test",
+      permittedSourceOrigins: ["https://revoked.test", "https://still-granted.test"],
+      deniedSourceOrigins: [],
+    });
+  });
+
+  it("keeps optional media denial separate from required FE denial on retry", async () => {
+    const api = permissionApi([], ["https://media.test/*"]);
+
+    const result = await requestRetryPermissions(
+      "https://fe.test",
+      ["https://media.test"],
+      api,
+    );
+
+    expect(api.request).toHaveBeenCalledOnce();
+    expect(api.request).toHaveBeenCalledWith({
+      origins: ["https://fe.test/*", "https://media.test/*"],
+    });
+    expect(result).toMatchObject({
+      feGranted: false,
+      permittedSourceOrigins: ["https://media.test"],
+      deniedSourceOrigins: [],
+    });
+  });
+
+  it("rejects unsafe retry origins before any permission prompt", async () => {
+    const api = permissionApi([], []);
+
+    await expect(requestRetryPermissions(
+      "https://fe.test",
+      ["https://media.test/private"],
+      api,
+    )).rejects.toThrow(/invalid/);
+    expect(api.contains).not.toHaveBeenCalled();
+    expect(api.request).not.toHaveBeenCalled();
   });
 });

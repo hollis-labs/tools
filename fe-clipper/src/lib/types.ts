@@ -50,6 +50,49 @@ export type CaptureJobPhase =
   | "partial"
   | "failed";
 
+export type CaptureVariantStatus =
+  | "pending"
+  | "transferring"
+  | "available"
+  | "reference_only"
+  | "failed";
+
+/** Explicitly allowlisted, redacted capture status exposed to extension pages. */
+export interface CaptureJobSummary {
+  captureId: string;
+  provider: string;
+  title: string;
+  phase: CaptureJobPhase;
+  terminal: boolean;
+  accepted: boolean;
+  feOrigin: string;
+  createdAt: string;
+  updatedAt: string;
+  fragmentId?: string;
+  fragmentRevisionId?: string;
+  captureAttemptId?: string;
+  error?: {
+    stage: "preflight" | "reconcile" | "manifest" | "transfer" | "completion";
+    message: string;
+    retryable: boolean;
+    httpStatus?: number;
+    code?: string;
+  };
+  variants: Array<{
+    clientVariantId: string;
+    mediaKind: string;
+    kind: string;
+    state: CaptureVariantStatus;
+    attempts: number;
+    updatedAt: string;
+    retryable?: boolean;
+    reason?: string;
+    sourceOrigin?: string;
+  }>;
+  /** Exact envelope-bound media origins needed by incomplete retry work. */
+  retryPermissionOrigins: string[];
+}
+
 /** Messages exchanged between popup and the background service worker. */
 export type ExtensionMessage =
   | {
@@ -63,15 +106,18 @@ export type ExtensionMessage =
   | {
       type: "RETRY_CAPTURE_JOB";
       captureId: string;
-      /** A later retry UI may add grants obtained from that retry's gesture. */
+      /** Grants obtained from this retry's explicit popup gesture. */
       permittedSourceOrigins?: PermittedSourceOrigins;
     }
+  | { type: "QUERY_CAPTURE_JOBS" }
+  | { type: "DISMISS_CAPTURE_JOB"; captureId: string }
   | {
       type: "CAPTURE_JOB_RESULT";
       ok: true;
       accepted: true;
       captureId: string;
       phase: CaptureJobPhase;
+      terminal: boolean;
       fragmentId: string;
       warning?: string;
     }
@@ -81,8 +127,13 @@ export type ExtensionMessage =
       accepted: false;
       captureId?: string;
       phase?: CaptureJobPhase;
+      terminal?: boolean;
       error: string;
-    };
+    }
+  | { type: "CAPTURE_JOBS_RESULT"; ok: true; jobs: CaptureJobSummary[] }
+  | { type: "CAPTURE_JOBS_RESULT"; ok: false; error: string }
+  | { type: "CAPTURE_JOB_DISMISS_RESULT"; ok: true; captureId: string }
+  | { type: "CAPTURE_JOB_DISMISS_RESULT"; ok: false; captureId: string; error: string };
 
 export interface FEIntakeResult {
   fragment_id: string;

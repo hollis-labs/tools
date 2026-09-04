@@ -138,3 +138,54 @@ export async function requestCapturePermissions(
     deniedSourceOrigins: sourceOrigins.filter((origin) => granted.get(origin) !== true),
   };
 }
+
+/**
+ * Re-checks and requests only the FE origin plus incomplete media origins
+ * supplied by the redacted durable-job view. Must run inside the Retry click.
+ */
+export async function requestRetryPermissions(
+  feOrigin: string,
+  sourceOrigins: readonly string[],
+  permissions: PermissionsApiLike = chrome.permissions,
+): Promise<CapturePermissionResult> {
+  const canonicalFeOrigin = new URL(feOrigin).origin;
+  if (canonicalFeOrigin !== feOrigin) {
+    throw new Error("The retry FE origin is invalid.");
+  }
+  const canonicalSources = [...new Set(sourceOrigins)].sort();
+  for (const origin of canonicalSources) {
+    if (new URL(origin).origin !== origin) {
+      throw new Error("A retry media origin is invalid.");
+    }
+  }
+  const allOrigins = [...new Set([canonicalFeOrigin, ...canonicalSources])];
+  const patterns = new Map(allOrigins.map((origin) => [origin, originPattern(origin)]));
+  const initiallyGranted = new Map(
+    await Promise.all(
+      allOrigins.map(async (origin) => [
+        origin,
+        await permissions.contains({ origins: [patterns.get(origin)!] }),
+      ] as const),
+    ),
+  );
+  const missingPatterns = allOrigins
+    .filter((origin) => !initiallyGranted.get(origin))
+    .map((origin) => patterns.get(origin)!);
+  if (missingPatterns.length > 0) {
+    await permissions.request({ origins: missingPatterns });
+  }
+  const granted = new Map(
+    await Promise.all(
+      allOrigins.map(async (origin) => [
+        origin,
+        await permissions.contains({ origins: [patterns.get(origin)!] }),
+      ] as const),
+    ),
+  );
+  return {
+    feGranted: granted.get(canonicalFeOrigin) === true,
+    feOrigin: canonicalFeOrigin,
+    permittedSourceOrigins: canonicalSources.filter((origin) => granted.get(origin) === true),
+    deniedSourceOrigins: canonicalSources.filter((origin) => granted.get(origin) !== true),
+  };
+}

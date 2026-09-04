@@ -194,7 +194,20 @@ export class CaptureJobCoordinator {
     const active = this.running.get(input.captureId);
     if (active) {
       const persisted = await this.store.getJob(input.captureId);
-      if (persisted?.acceptance) return persisted;
+      if (persisted?.acceptance) {
+        const incomingOrigins = bindPermittedSourceOrigins(
+          persisted.envelope,
+          input.permittedSourceOrigins,
+        );
+        if (incomingOrigins.join("\n") !== persisted.permittedSourceOrigins.join("\n")) {
+          void active
+            .then(() => this.retry(input.captureId, incomingOrigins))
+            .catch((error) => {
+              console.error(`Could not apply updated permissions for ${input.captureId}:`, error);
+            });
+        }
+        return persisted;
+      }
       return active;
     }
     const operation = this.startOrResume(input).finally(() => {
@@ -224,10 +237,10 @@ export class CaptureJobCoordinator {
     const captureId = identifierForAction(input.captureId);
     const existing = await this.store.getJob(captureId);
     if (existing) {
-      const permittedSourceOrigins = bindPermittedSourceOrigins(existing.envelope, [
-        ...existing.permittedSourceOrigins,
-        ...input.permittedSourceOrigins,
-      ]);
+      const permittedSourceOrigins = bindPermittedSourceOrigins(
+        existing.envelope,
+        input.permittedSourceOrigins,
+      );
       if (permittedSourceOrigins.join("\n") !== existing.permittedSourceOrigins.join("\n")) {
         await this.store.saveJob({
           ...existing,
@@ -274,18 +287,18 @@ export class CaptureJobCoordinator {
 
   async retry(
     captureId: string,
-    newlyPermittedSourceOrigins: readonly string[] = [],
+    permittedSourceOriginSnapshot?: readonly string[],
   ): Promise<CaptureJobRecord> {
     const prior = this.running.get(captureId);
     const operation = (async () => {
       if (prior) await prior;
       const existing = await this.store.getJob(captureId);
       if (!existing) throw new Error(`Durable capture job ${captureId} was not found.`);
-      if (newlyPermittedSourceOrigins.length > 0) {
-        const permittedSourceOrigins = bindPermittedSourceOrigins(existing.envelope, [
-          ...existing.permittedSourceOrigins,
-          ...newlyPermittedSourceOrigins,
-        ]);
+      if (permittedSourceOriginSnapshot !== undefined) {
+        const permittedSourceOrigins = bindPermittedSourceOrigins(
+          existing.envelope,
+          permittedSourceOriginSnapshot,
+        );
         await this.store.saveJob({
           ...existing,
           permittedSourceOrigins,
@@ -315,6 +328,17 @@ export class CaptureJobCoordinator {
       }
     }
     return resumed;
+  }
+
+  async list(): Promise<CaptureJobRecord[]> {
+    return this.store.listJobs();
+  }
+
+  async dismiss(captureId: string): Promise<boolean> {
+    const normalized = identifierForAction(captureId);
+    const active = this.running.get(normalized);
+    if (active) await active;
+    return this.store.removeTerminalJob(normalized);
   }
 
   private run(captureId: string, reconcile: boolean): Promise<CaptureJobRecord> {
@@ -352,7 +376,13 @@ export class CaptureJobCoordinator {
     job = await this.update(job, { phase: "preflighting", error: undefined });
     const preflight = await this.api.preflight(job.endpoint);
     if (!preflight.ok) {
-      return this.fail(job, "preflight", preflight.message, preflight.kind === "network" || preflight.kind === "server-error");
+      return this.fail(
+        job,
+        "preflight",
+        preflight.message,
+        preflight.kind === "permission" || preflight.kind === "network" || preflight.kind === "server-error",
+        preflight.kind === "permission" ? "fe_permission" : undefined,
+      );
     }
     const unsupported = unsupportedEnvelopeCapability(job, preflight.capabilities);
     if (unsupported) return this.fail(job, "preflight", unsupported, false);
@@ -653,7 +683,11 @@ export class CaptureJobCoordinator {
     error: unknown,
   ): Promise<CaptureJobRecord> {
     const detail = captureError(error, stage, this.now().toISOString());
-    const terminal = !job.acceptance && error instanceof CaptureApiError && error.kind === "conflict";
+    const terminal =
+      !job.acceptance &&
+      error instanceof CaptureApiError &&
+      error.kind === "conflict" &&
+      !error.retryable;
     return this.update(job, {
       phase: job.acceptance
         ? hasRequestedUploads(job.acceptance)
@@ -670,6 +704,7 @@ export class CaptureJobCoordinator {
     stage: CaptureJobErrorStage,
     message: string,
     retryable: boolean,
+    code?: string,
   ): Promise<CaptureJobRecord> {
     return this.update(job, {
       phase: job.acceptance
@@ -678,7 +713,7 @@ export class CaptureJobCoordinator {
           : "accepted"
         : "failed",
       terminal: false,
-      error: { stage, message, retryable, at: this.now().toISOString() },
+      error: { stage, message, retryable, at: this.now().toISOString(), ...(code ? { code } : {}) },
     });
   }
 

@@ -13,14 +13,17 @@ import {
   type FECaptureStatus,
 } from "@/contracts/fragmentsEngine";
 import {
+  deriveCapabilitiesUrl,
   preflightCaptureManifest,
   type CapturePreflightResult,
 } from "@/contracts/capabilities";
+import { originPattern } from "@/lib/permissions";
 
 export type CaptureApiErrorKind =
   | "network"
   | "not_found"
   | "conflict"
+  | "permission"
   | "server"
   | "invalid_response";
 
@@ -38,6 +41,7 @@ export class CaptureApiError extends Error {
 }
 
 export type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
+export type EndpointPermissionCheck = (originPattern: string) => Promise<boolean>;
 
 export interface CaptureApiClient {
   preflight(endpoint: string): Promise<CapturePreflightResult>;
@@ -203,10 +207,49 @@ function requireMatchingCaptureId(captureId: string, actual: string, boundary: s
 }
 
 export class CaptureApi implements CaptureApiClient {
-  constructor(private readonly fetchImplementation: FetchLike = fetch) {}
+  constructor(
+    private readonly fetchImplementation: FetchLike = fetch,
+    private readonly hasCurrentPermission: EndpointPermissionCheck = (pattern) =>
+      chrome.permissions.contains({ origins: [pattern] }),
+  ) {}
 
-  preflight(endpoint: string): Promise<CapturePreflightResult> {
+  async preflight(endpoint: string): Promise<CapturePreflightResult> {
+    let capabilitiesUrl: string;
+    try {
+      capabilitiesUrl = deriveCapabilitiesUrl(endpoint);
+    } catch {
+      return preflightCaptureManifest(endpoint, this.fetchImplementation);
+    }
+    try {
+      await this.assertCurrentPermission(capabilitiesUrl);
+    } catch (error) {
+      return {
+        ok: false,
+        kind: "permission",
+        capabilitiesUrl,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
     return preflightCaptureManifest(endpoint, this.fetchImplementation);
+  }
+
+  private async assertCurrentPermission(url: string): Promise<void> {
+    const pattern = originPattern(url);
+    let allowed = false;
+    try {
+      allowed = await this.hasCurrentPermission(pattern);
+    } catch {
+      // Permission API uncertainty is never authority for FE network access.
+    }
+    if (!allowed) {
+      throw new CaptureApiError(
+        `Current extension permission to reach Fragments Engine at ${new URL(url).origin} is unavailable. Open the popup and retry the same capture to grant access.`,
+        "permission",
+        true,
+        undefined,
+        "fe_permission",
+      );
+    }
   }
 
   async submitManifest(
@@ -215,11 +258,13 @@ export class CaptureApi implements CaptureApiClient {
   ): Promise<FECaptureManifestResponse> {
     assertFECaptureEnvelope(envelope);
     const url = deriveCaptureManifestUrl(endpoint);
+    await this.assertCurrentPermission(url);
     const response = await fetchResponse(this.fetchImplementation, url, {
       method: "POST",
       headers: { Accept: "application/json", "Content-Type": "application/json" },
       body: JSON.stringify(envelope),
       cache: "no-store",
+      redirect: "error",
     });
     const body = await responseBody(response);
     if (!response.ok) throw responseError(response, body);
@@ -255,10 +300,12 @@ export class CaptureApi implements CaptureApiClient {
 
   async getStatus(endpoint: string, captureId: string): Promise<FECaptureStatus> {
     const url = captureResourceUrl(endpoint, captureId);
+    await this.assertCurrentPermission(url);
     const response = await fetchResponse(this.fetchImplementation, url, {
       method: "GET",
       headers: { Accept: "application/json" },
       cache: "no-store",
+      redirect: "error",
     });
     const body = await responseBody(response);
     if (!response.ok) throw responseError(response, body);
@@ -294,6 +341,7 @@ export class CaptureApi implements CaptureApiClient {
     digest: { algorithm: "sha256"; value: string },
   ): Promise<void> {
     const url = deriveAssetUploadUrl(endpoint, captureId, variant.client_variant_id, uploadHref);
+    await this.assertCurrentPermission(url);
     const body = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
       ? bytes.buffer as ArrayBuffer
       : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -326,11 +374,13 @@ export class CaptureApi implements CaptureApiClient {
   ): Promise<FECaptureStatus> {
     assertFECaptureCompletion(completion);
     const url = captureResourceUrl(endpoint, captureId, "/complete");
+    await this.assertCurrentPermission(url);
     const response = await fetchResponse(this.fetchImplementation, url, {
       method: "POST",
       headers: { Accept: "application/json", "Content-Type": "application/json" },
       body: JSON.stringify(completion),
       cache: "no-store",
+      redirect: "error",
     });
     const body = await responseBody(response);
     if (!response.ok) throw responseError(response, body);

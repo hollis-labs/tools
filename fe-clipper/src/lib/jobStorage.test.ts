@@ -81,6 +81,17 @@ function terminalJob(captureId: string, timestamp: string): CaptureJobRecord {
     terminal: true,
     createdAt: timestamp,
     updatedAt: timestamp,
+    status: {
+      schema_version: "fe.capture.status.v1",
+      capture_id: captureId,
+      fragment_id: `fragment-${captureId}`,
+      fragment_revision_id: `revision-${captureId}`,
+      capture_attempt_id: `attempt-${captureId}`,
+      completion: "complete",
+      assets: [],
+      enrichment_in_progress: false,
+      warnings: [],
+    },
   };
 }
 
@@ -206,6 +217,101 @@ describe("durable capture job storage", () => {
       expect.any(Error),
     );
     consoleError.mockRestore();
+  });
+
+  it("does not turn a successful durable save into failure when cleanup listing fails", async () => {
+    class CleanupReadFailureStorage extends MemoryStorage {
+      override async get(keys?: string | null): Promise<Record<string, unknown>> {
+        if (keys === null) throw new Error("temporary storage listing failure");
+        return super.get(keys);
+      }
+    }
+    const storage = new CleanupReadFailureStorage();
+    const saved = job("accepted-write");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(new CaptureJobStore(storage).saveJob(saved)).resolves.toBeUndefined();
+
+    expect(storage.values[`${JOB_PREFIX}${saved.captureId}`]).toEqual(saved);
+    expect(consoleError).toHaveBeenCalledWith(
+      "Could not prune completed durable capture jobs:",
+      expect.any(Error),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("removes only FE-confirmed or client-confirmed terminal jobs", async () => {
+    const storage = new MemoryStorage();
+    const store = new CaptureJobStore(storage);
+    const active = job("active-job");
+    const unconfirmed = terminalJob("unconfirmed-terminal", "2026-09-03T20:00:00.000Z");
+    delete unconfirmed.status;
+    const feConfirmed = terminalJob("fe-confirmed", "2026-09-03T20:01:00.000Z");
+    feConfirmed.status = {
+      schema_version: "fe.capture.status.v1",
+      capture_id: feConfirmed.captureId,
+      fragment_id: "fragment-1",
+      fragment_revision_id: "revision-1",
+      capture_attempt_id: "attempt-1",
+      completion: "complete",
+      assets: [],
+      enrichment_in_progress: false,
+      warnings: [],
+    };
+    const clientConfirmed = {
+      ...job("client-conflict"),
+      phase: "failed" as const,
+      terminal: true,
+      error: {
+        stage: "manifest" as const,
+        message: "Capture ID conflict.",
+        retryable: false,
+        at: "2026-09-03T20:02:00.000Z",
+        httpStatus: 409,
+        code: "conflict",
+      },
+    };
+    for (const value of [active, unconfirmed, feConfirmed, clientConfirmed]) await store.saveJob(value);
+
+    await expect(store.removeTerminalJob(active.captureId)).rejects.toThrow(/still active|unconfirmed/);
+    await expect(store.removeTerminalJob(unconfirmed.captureId)).rejects.toThrow(/unconfirmed/);
+    await expect(store.removeTerminalJob(feConfirmed.captureId)).resolves.toBe(true);
+    await expect(store.removeTerminalJob(clientConfirmed.captureId)).resolves.toBe(true);
+    expect(await store.getJob(active.captureId)).toEqual(active);
+    expect(await store.getJob(unconfirmed.captureId)).toEqual(unconfirmed);
+    expect(await store.getJob(feConfirmed.captureId)).toBeUndefined();
+    expect(await store.getJob(clientConfirmed.captureId)).toBeUndefined();
+    await expect(store.removeTerminalJob("missing")).resolves.toBe(false);
+  });
+
+  it("never prunes or quota-evicts terminal-looking jobs without confirmation", async () => {
+    const retentionStorage = new MemoryStorage();
+    const unconfirmed = terminalJob("unconfirmed-old", "2026-07-01T00:00:00.000Z");
+    delete unconfirmed.status;
+    retentionStorage.values[`${JOB_PREFIX}${unconfirmed.captureId}`] = unconfirmed;
+    for (let index = 0; index < 21; index += 1) {
+      const confirmed = terminalJob(
+        `confirmed-${index}`,
+        new Date(Date.UTC(2026, 8, 3, 20, 0, index)).toISOString(),
+      );
+      retentionStorage.values[`${JOB_PREFIX}${confirmed.captureId}`] = confirmed;
+    }
+
+    await new CaptureJobStore(
+      retentionStorage,
+      undefined,
+      () => new Date("2026-09-04T00:00:00.000Z"),
+    ).listJobs();
+    expect(retentionStorage.values[`${JOB_PREFIX}${unconfirmed.captureId}`]).toEqual(unconfirmed);
+
+    const quotaStorage = new QuotaStorage();
+    quotaStorage.values[`${JOB_PREFIX}${unconfirmed.captureId}`] = unconfirmed;
+    quotaStorage.blockers.add(`${JOB_PREFIX}${unconfirmed.captureId}`);
+    await expect(new CaptureJobStore(quotaStorage).saveJob(job("incoming"))).rejects.toThrow(
+      CaptureJobStorageQuotaError,
+    );
+    expect(quotaStorage.removed).toEqual([]);
+    expect(quotaStorage.values[`${JOB_PREFIX}${unconfirmed.captureId}`]).toEqual(unconfirmed);
   });
 
   it("recovers a quota write by pruning the oldest terminal job and preserves active jobs", async () => {

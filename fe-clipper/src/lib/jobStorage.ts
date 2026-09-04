@@ -90,6 +90,7 @@ export interface CaptureJobPersistence {
   getJob(captureId: string): Promise<CaptureJobRecord | undefined>;
   listJobs(): Promise<CaptureJobRecord[]>;
   saveJob(job: CaptureJobRecord): Promise<void>;
+  removeTerminalJob(captureId: string): Promise<boolean>;
 }
 
 export interface StorageAreaLike {
@@ -328,7 +329,7 @@ function terminalKeysToPrune(
 ): Set<string> {
   const cutoff = now.getTime() - TERMINAL_RETENTION_MS;
   const terminal = entries
-    .filter(({ job }) => job.terminal)
+    .filter(({ job }) => isConfirmedTerminal(job))
     .sort((left, right) => {
       const byUpdatedAt = right.job.updatedAt.localeCompare(left.job.updatedAt);
       return byUpdatedAt || right.job.captureId.localeCompare(left.job.captureId);
@@ -338,6 +339,21 @@ function terminalKeysToPrune(
       .filter(({ job }, index) => Date.parse(job.updatedAt) < cutoff || index >= MAX_RETAINED_TERMINAL_JOBS)
       .map(({ key }) => key),
   );
+}
+
+function isConfirmedTerminal(job: CaptureJobRecord): boolean {
+  if (!job.terminal) return false;
+  const feConfirmed =
+    job.status !== undefined &&
+    ["complete", "partial", "failed"].includes(job.status.completion);
+  const clientConflict =
+    !job.acceptance &&
+    !job.status &&
+    job.phase === "failed" &&
+    job.error?.stage === "manifest" &&
+    job.error.retryable === false &&
+    job.error.httpStatus === 409;
+  return feConfirmed || clientConflict;
 }
 
 export class CaptureJobStore implements CaptureJobPersistence {
@@ -384,7 +400,25 @@ export class CaptureJobStore implements CaptureJobPersistence {
       if (!quotaExceeded(error)) throw error;
       await this.recoverQuotaAndSave(exactWrite, error);
     }
-    await this.pruneTerminalJobs();
+    try {
+      await this.pruneTerminalJobs();
+    } catch (error) {
+      // The exact write above is the durability boundary. Retention is always
+      // best effort and must never make a successful job update look lost.
+      console.error("Could not prune completed durable capture jobs:", error);
+    }
+  }
+
+  async removeTerminalJob(captureId: string): Promise<boolean> {
+    const job = await this.getJob(captureId);
+    if (!job) return false;
+    if (!isConfirmedTerminal(job)) {
+      throw new Error(
+        `Capture ${captureId} is still active or its terminal state is unconfirmed; it was not removed.`,
+      );
+    }
+    await this.storage.remove(jobKey(captureId));
+    return true;
   }
 
   private async recoverQuotaAndSave(
@@ -398,7 +432,7 @@ export class CaptureJobStore implements CaptureJobPersistence {
       if (!key.startsWith(JOB_STORAGE_PREFIX)) continue;
       try {
         const stored = decodeStoredJob(key, value);
-        if (stored.terminal) terminalEntries.push({ key, job: stored });
+        if (isConfirmedTerminal(stored)) terminalEntries.push({ key, job: stored });
       } catch (error) {
         corruptKeys.push(key);
         this.reportCorruption(key, error instanceof Error ? error : new Error(String(error)));

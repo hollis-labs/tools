@@ -1,4 +1,5 @@
 import type { FECaptureAssetVariant } from "@/contracts/fragmentsEngine";
+import { originPattern } from "@/lib/permissions";
 
 const MAX_REDIRECTS = 5;
 const DEFAULT_TRANSFER_TIMEOUT_MS = 30_000;
@@ -44,6 +45,7 @@ export interface MediaAcquirer {
 }
 
 export type SourceFetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
+export type SourcePermissionCheck = (origin: string) => Promise<boolean>;
 
 function safeSourceUrl(raw: string): URL {
   const url = new URL(raw);
@@ -184,6 +186,8 @@ export class BrowserMediaAcquirer implements MediaAcquirer {
   constructor(
     private readonly fetchImplementation: SourceFetchLike = fetch,
     private readonly timeoutMs = DEFAULT_TRANSFER_TIMEOUT_MS,
+    private readonly hasCurrentPermission: SourcePermissionCheck = (origin) =>
+      chrome.permissions.contains({ origins: [originPattern(origin)] }),
   ) {}
 
   async acquire(
@@ -229,6 +233,19 @@ export class BrowserMediaAcquirer implements MediaAcquirer {
       if (!allowed.has(source.origin)) {
         throw new MediaTransferError(
           `Host permission is not available for media origin ${source.origin}.`,
+          "permission",
+          true,
+        );
+      }
+      let currentlyPermitted = false;
+      try {
+        currentlyPermitted = await this.hasCurrentPermission(source.origin);
+      } catch {
+        // Permission API uncertainty is never authority to fetch.
+      }
+      if (!currentlyPermitted) {
+        throw new MediaTransferError(
+          `Current host permission is not available for media origin ${source.origin}.`,
           "permission",
           true,
         );

@@ -82,6 +82,10 @@ function jsonResponse(body: unknown, statusCode = 200): Response {
   });
 }
 
+function api(fetchImplementation: ConstructorParameters<typeof CaptureApi>[0]): CaptureApi {
+  return new CaptureApi(fetchImplementation, async () => true);
+}
+
 describe("capture API client", () => {
   it("derives only the credential-free canonical manifest route", () => {
     expect(
@@ -101,9 +105,9 @@ describe("capture API client", () => {
       async (_input: string | URL, _init?: RequestInit) =>
         jsonResponse(acceptance(replay), httpStatus),
     );
-    const api = new CaptureApi(fetchImplementation);
+    const client = api(fetchImplementation);
 
-    const result = await api.submitManifest(
+    const result = await client.submitManifest(
       "https://fe.example.test/configured?token=must-not-carry#secret",
       envelope(),
     );
@@ -116,6 +120,7 @@ describe("capture API client", () => {
       method: "POST",
       credentials: "omit",
       cache: "no-store",
+      redirect: "error",
       headers: { Accept: "application/json", "Content-Type": "application/json" },
     });
     expect(JSON.stringify(init)).not.toMatch(/cookie|authorization|must-not-carry|secret/i);
@@ -123,14 +128,14 @@ describe("capture API client", () => {
   });
 
   it("rejects malformed and mismatched success responses", async () => {
-    const malformed = new CaptureApi(async () => jsonResponse({ capture_id: envelope().capture_id }, 201));
+    const malformed = api(async () => jsonResponse({ capture_id: envelope().capture_id }, 201));
     await expect(malformed.submitManifest("https://fe.test", envelope())).rejects.toMatchObject({
       kind: "invalid_response",
     });
 
     const wrong = acceptance();
     wrong.capture_id = "different-capture";
-    const mismatched = new CaptureApi(async () => jsonResponse(wrong, 201));
+    const mismatched = api(async () => jsonResponse(wrong, 201));
     await expect(mismatched.submitManifest("https://fe.test", envelope())).rejects.toThrow(
       /expected 01KCAPTURE/,
     );
@@ -143,20 +148,20 @@ describe("capture API client", () => {
       status: statusCode,
       code,
     });
-    const missing = new CaptureApi(async () => jsonResponse(problem(404, "not_found"), 404));
+    const missing = api(async () => jsonResponse(problem(404, "not_found"), 404));
     await expect(missing.getStatus("https://fe.test", envelope().capture_id)).rejects.toMatchObject({
       kind: "not_found",
       status: 404,
     });
 
-    const conflict = new CaptureApi(async () => jsonResponse(problem(409, "conflict"), 409));
+    const conflict = api(async () => jsonResponse(problem(409, "conflict"), 409));
     const error = await conflict
       .submitManifest("https://fe.test", envelope())
       .catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(CaptureApiError);
     expect(error).toMatchObject({ kind: "conflict", retryable: false, status: 409 });
 
-    const malformed = new CaptureApi(async () => jsonResponse({ error: "gateway" }, 502));
+    const malformed = api(async () => jsonResponse({ error: "gateway" }, 502));
     await expect(malformed.getStatus("https://fe.test", envelope().capture_id)).rejects.toMatchObject({
       kind: "invalid_response",
       retryable: false,
@@ -165,7 +170,7 @@ describe("capture API client", () => {
   });
 
   it("requires exact 200 and valid stable IDs for status and completion", async () => {
-    const noContentStatus = new CaptureApi(async () => jsonResponse(status(), 201));
+    const noContentStatus = api(async () => jsonResponse(status(), 201));
     await expect(noContentStatus.getStatus("https://fe.test", envelope().capture_id)).rejects.toThrow(
       /expected 200/,
     );
@@ -178,12 +183,12 @@ describe("capture API client", () => {
     };
     const wrongStatus = status("complete");
     wrongStatus.capture_id = "wrong";
-    const mismatched = new CaptureApi(async () => jsonResponse(wrongStatus));
+    const mismatched = api(async () => jsonResponse(wrongStatus));
     await expect(
       mismatched.completeCapture("https://fe.test", envelope().capture_id, completion),
     ).rejects.toThrow(/expected 01KCAPTURE/);
 
-    const wrongCompletionStatus = new CaptureApi(async () => jsonResponse(status("complete"), 201));
+    const wrongCompletionStatus = api(async () => jsonResponse(status("complete"), 201));
     await expect(
       wrongCompletionStatus.completeCapture(
         "https://fe.test",
@@ -227,7 +232,7 @@ describe("capture API client", () => {
     const fetchImplementation = vi.fn(
       async (_input: string | URL, _init?: RequestInit) => new Response(null, { status: 204 }),
     );
-    const api = new CaptureApi(fetchImplementation);
+    const client = api(fetchImplementation);
     const capture = envelope();
     const poster = capture.media[0]!.variants.find(
       (candidate) => candidate.client_variant_id === "poster:maxresdefault",
@@ -235,7 +240,7 @@ describe("capture API client", () => {
     const bytes = new Uint8Array([0, 1, 2, 255]);
     const digest = { algorithm: "sha256" as const, value: "00".repeat(32) };
 
-    await api.uploadAsset(
+    await client.uploadAsset(
       "https://fe.test/v1/captures",
       capture.capture_id,
       poster,
@@ -261,7 +266,7 @@ describe("capture API client", () => {
     expect([...new Uint8Array(init?.body as ArrayBuffer)]).toEqual([...bytes]);
     expect(JSON.stringify(init?.headers)).not.toMatch(/authorization|cookie|bearer|secret/i);
 
-    const wrongStatus = new CaptureApi(async () => jsonResponse({}, 200));
+    const wrongStatus = api(async () => jsonResponse({}, 200));
     await expect(wrongStatus.uploadAsset(
       "https://fe.test",
       capture.capture_id,
@@ -271,5 +276,89 @@ describe("capture API client", () => {
       "application/octet-stream",
       digest,
     )).rejects.toThrow(/expected 204/);
+  });
+
+  it("fails closed before every FE fetch when current host permission is revoked", async () => {
+    const fetchImplementation = vi.fn();
+    const permission = vi.fn(async () => false);
+    const client = new CaptureApi(fetchImplementation, permission);
+    const capture = envelope();
+    const poster = capture.media[0]!.variants[1]!;
+    const completion: FECaptureCompletionRequest = {
+      schema_version: "fe.capture.completion.v1",
+      idempotency_key: "complete-1",
+      assets: [],
+      warnings: [],
+    };
+
+    await expect(client.preflight("https://fe.test")).resolves.toMatchObject({
+      ok: false,
+      kind: "permission",
+    });
+    await expect(client.submitManifest("https://fe.test", capture)).rejects.toMatchObject({
+      kind: "permission",
+      retryable: true,
+      code: "fe_permission",
+    });
+    await expect(client.getStatus("https://fe.test", capture.capture_id)).rejects.toMatchObject({
+      kind: "permission",
+    });
+    await expect(client.uploadAsset(
+      "https://fe.test",
+      capture.capture_id,
+      poster,
+      `/v1/captures/${capture.capture_id}/assets/poster:maxresdefault/content`,
+      new Uint8Array([1]),
+      "image/jpeg",
+      { algorithm: "sha256", value: "00".repeat(32) },
+    )).rejects.toMatchObject({ kind: "permission" });
+    await expect(client.completeCapture(
+      "https://fe.test",
+      capture.capture_id,
+      completion,
+    )).rejects.toMatchObject({ kind: "permission" });
+
+    expect(permission).toHaveBeenCalledTimes(5);
+    expect(permission).toHaveBeenCalledWith("https://fe.test/*");
+    expect(fetchImplementation).not.toHaveBeenCalled();
+  });
+
+  it("allows the static default FE grant and requests exact routes without redirects", async () => {
+    const fetchImplementation = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      expect(init?.redirect).toBe("error");
+      if (url.endsWith("/v1/capabilities")) {
+        const capabilities = fixture<Record<string, unknown>>("valid-capabilities.json") as {
+          operations: { capture_manifest: boolean };
+        };
+        capabilities.operations.capture_manifest = true;
+        return jsonResponse(capabilities);
+      }
+      if (url.endsWith("/complete")) return jsonResponse(status("complete"));
+      return jsonResponse(status());
+    });
+    const permission = vi.fn(async (pattern: string) => pattern === "http://127.0.0.1:8091/*");
+    const client = new CaptureApi(fetchImplementation, permission);
+    const captureId = envelope().capture_id;
+    const completion: FECaptureCompletionRequest = {
+      schema_version: "fe.capture.completion.v1",
+      idempotency_key: "complete-static",
+      assets: [],
+      warnings: [],
+    };
+
+    await expect(client.preflight("http://127.0.0.1:8091")).resolves.toMatchObject({ ok: true });
+    await expect(client.getStatus("http://127.0.0.1:8091", captureId)).resolves.toMatchObject({
+      capture_id: captureId,
+    });
+    await expect(client.completeCapture(
+      "http://127.0.0.1:8091",
+      captureId,
+      completion,
+    )).resolves.toMatchObject({ completion: "complete" });
+
+    expect(fetchImplementation).toHaveBeenCalledTimes(3);
+    expect(permission).toHaveBeenCalledWith("http://127.0.0.1:8091/*");
+    expect(fetchImplementation.mock.calls.every(([, init]) => init?.redirect === "error")).toBe(true);
   });
 });

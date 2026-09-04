@@ -16,9 +16,14 @@ import type {
 } from "@/lib/jobStorage";
 import { CaptureJobStorageQuotaError } from "@/lib/jobStorage";
 import type { PageCaptureResult } from "@/capture/types";
-import { CaptureApiError, type CaptureApiClient } from "./captureApi";
+import { CaptureApi, CaptureApiError, type CaptureApiClient } from "./captureApi";
 import { CaptureJobCoordinator } from "./captureJobs";
-import { MediaTransferError, type AcquiredAsset, type MediaAcquirer } from "./mediaTransfer";
+import {
+  BrowserMediaAcquirer,
+  MediaTransferError,
+  type AcquiredAsset,
+  type MediaAcquirer,
+} from "./mediaTransfer";
 
 const fixtureDirectory = resolve(
   process.cwd(),
@@ -188,6 +193,14 @@ class MemoryJobs implements CaptureJobPersistence {
     this.events.push(`save:${job.captureId}:${job.phase}:${job.manifestAttempts}`);
     this.jobs.set(job.captureId, structuredClone(job));
   }
+
+  async removeTerminalJob(captureId: string): Promise<boolean> {
+    const job = this.jobs.get(captureId);
+    if (!job) return false;
+    if (!job.terminal) throw new Error("capture is still active");
+    this.jobs.delete(captureId);
+    return true;
+  }
 }
 
 class FakeApi implements CaptureApiClient {
@@ -259,7 +272,12 @@ class FakeAcquirer implements MediaAcquirer {
   }
 }
 
-function coordinator(store: MemoryJobs, api: FakeApi, prefix = "id", mediaAcquirer = new FakeAcquirer()) {
+function coordinator(
+  store: MemoryJobs,
+  api: CaptureApiClient,
+  prefix = "id",
+  mediaAcquirer: MediaAcquirer = new FakeAcquirer(),
+) {
   let nextId = 0;
   let tick = 0;
   return new CaptureJobCoordinator(store, api, {
@@ -440,6 +458,26 @@ describe("durable manifest capture coordinator", () => {
     expect(failed).toMatchObject({ captureId: "conflict-action", phase: "failed", terminal: true });
     expect(await jobs.retry(failed.captureId)).toEqual(failed);
     expect(api.events.filter((event) => event.startsWith("api:submit"))).toHaveLength(1);
+  });
+
+  it("keeps a retryable 409 nonterminal so the same capture ID can retry", async () => {
+    const store = new MemoryJobs();
+    const api = new FakeApi();
+    api.submit = async () => {
+      throw new CaptureApiError("temporary capture conflict", "conflict", true, 409, "conflict");
+    };
+    const jobs = coordinator(store, api, "retryable-conflict");
+    const failed = await jobs.start(input(true, "retryable-conflict-action"));
+
+    expect(failed).toMatchObject({
+      captureId: "retryable-conflict-action",
+      phase: "failed",
+      terminal: false,
+      error: { retryable: true, httpStatus: 409 },
+    });
+    const retried = await jobs.retry(failed.captureId);
+    expect(retried).toMatchObject({ captureId: failed.captureId, terminal: false });
+    expect(api.events.filter((event) => event.startsWith("api:submit"))).toHaveLength(2);
   });
 
   it("returns after acceptance, then completes no-upload work with preserved warnings", async () => {
@@ -862,9 +900,124 @@ describe("durable manifest capture coordinator", () => {
     const completed = await retryPromise;
 
     expect(completed.terminal).toBe(true);
-    expect(completed.permittedSourceOrigins).toEqual(["https://first.test", "https://second.test"]);
+    expect(completed.permittedSourceOrigins).toEqual(["https://second.test"]);
     expect(media.events.filter((id) => id.includes("first"))).toHaveLength(1);
     expect(media.events.filter((id) => id.includes("second"))).toHaveLength(1);
+  });
+
+  it("returns repeated START acceptance immediately and applies its new permission snapshot", async () => {
+    const page = capturedVariants([
+      { id: "first", url: "https://first.test/item" },
+      { id: "second", url: "https://second.test/item" },
+    ]);
+    const store = new MemoryJobs();
+    const api = new FakeApi();
+    api.submit = async (capture) => requestedAcceptance(capture.capture_id, [
+      { id: "first" }, { id: "second" },
+    ]);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const media = new FakeAcquirer();
+    media.acquireImplementation = async (id) => {
+      if (id.includes("first") && media.events.filter((item) => item.includes("first")).length === 1) {
+        await gate;
+      }
+      return media.result;
+    };
+    const jobs = coordinator(store, api, "start-permission-race", media);
+    const visible = await jobs.start(inputForCaptured(page, "start-permission-race", ["https://first.test"]));
+    await vi.waitFor(() => expect(media.events).toEqual(["media:first:first:0"]));
+
+    let repeatedResolved = false;
+    const repeated = jobs.start(inputForCaptured(
+      page,
+      visible.captureId,
+      ["https://first.test", "https://second.test"],
+    )).then((value) => {
+      repeatedResolved = true;
+      return value;
+    });
+    await vi.waitFor(() => expect(repeatedResolved).toBe(true));
+    expect((await repeated).acceptance?.capture_id).toBe(visible.captureId);
+    release();
+    await vi.waitFor(() => expect(store.jobs.get(visible.captureId)?.terminal).toBe(true));
+
+    const completed = store.jobs.get(visible.captureId)!;
+    expect(completed.permittedSourceOrigins).toEqual(["https://first.test", "https://second.test"]);
+    expect(api.events.filter((event) => event === `api:submit:${visible.captureId}`)).toHaveLength(1);
+    expect(media.events.filter((id) => id.includes("first"))).toHaveLength(1);
+    expect(media.events.filter((id) => id.includes("second"))).toHaveLength(1);
+  });
+
+  it("replaces stale permission snapshots and never fetches a revoked origin", async () => {
+    const store = new MemoryJobs();
+    const seedApi = new FakeApi();
+    const media = new FakeAcquirer();
+    const jobs = coordinator(store, seedApi, "revoked", media);
+    const visible = await jobs.start({
+      ...input(true, "revoked-action"),
+      permittedSourceOrigins: [],
+    });
+    await vi.waitFor(() => expect(store.jobs.get(visible.captureId)?.error?.code).toBe("media_permission"));
+    const stale = store.jobs.get(visible.captureId)!;
+    stale.permittedSourceOrigins = ["https://cdn.example.test"];
+    store.jobs.set(stale.captureId, stale);
+    seedApi.lookup = async () => captureStatus(stale.acceptance!);
+
+    const retried = await jobs.retry(stale.captureId, []);
+
+    expect(retried.permittedSourceOrigins).toEqual([]);
+    expect(retried.transfers?.[0]).toMatchObject({ state: "failed", retryable: true });
+    expect(media.events).toEqual([]);
+  });
+
+  it("rechecks current host permission before a startup resume uses a stale snapshot", async () => {
+    const store = new MemoryJobs();
+    const seedApi = new FakeApi();
+    const seeded = await coordinator(store, seedApi, "restart-permission").start({
+      ...input(true, "restart-revoked"),
+      permittedSourceOrigins: [],
+    });
+    await vi.waitFor(() => expect(store.jobs.get(seeded.captureId)?.error?.code).toBe("media_permission"));
+    const stale = store.jobs.get(seeded.captureId)!;
+    stale.permittedSourceOrigins = ["https://cdn.example.test"];
+    store.jobs.set(stale.captureId, stale);
+    const api = new FakeApi();
+    api.lookup = async () => captureStatus(stale.acceptance!);
+    const sourceFetch = vi.fn();
+    const media = new BrowserMediaAcquirer(sourceFetch, 30_000, async () => false);
+
+    const [resumed] = await coordinator(store, api, "unused", media).resumeAll();
+
+    expect(resumed?.error).toMatchObject({ code: "media_permission", retryable: true });
+    expect(sourceFetch).not.toHaveBeenCalled();
+  });
+
+  it("does no FE network work when startup resume finds its endpoint grant revoked", async () => {
+    const store = new MemoryJobs();
+    const seedApi = new FakeApi();
+    seedApi.submit = async (envelope) => accepted(envelope.capture_id, false);
+    const seeded = await coordinator(store, seedApi, "fe-revoked").start(
+      input(false, "fe-revoked-action"),
+    );
+    await vi.waitFor(() => expect(store.jobs.get(seeded.captureId)?.terminal).toBe(true));
+    const active = structuredClone(store.jobs.get(seeded.captureId)!);
+    active.terminal = false;
+    active.phase = "accepted";
+    delete active.status;
+    store.jobs.set(active.captureId, active);
+    const feFetch = vi.fn();
+    const revokedApi = new CaptureApi(feFetch, async () => false);
+
+    const [resumed] = await coordinator(store, revokedApi, "unused").resumeAll();
+
+    expect(resumed).toMatchObject({
+      captureId: active.captureId,
+      phase: "accepted",
+      terminal: false,
+      error: { stage: "preflight", code: "fe_permission", retryable: true },
+    });
+    expect(feFetch).not.toHaveBeenCalled();
   });
 
   it("never converts pre-PUT or post-204 persistence failures into permanent asset outcomes", async () => {

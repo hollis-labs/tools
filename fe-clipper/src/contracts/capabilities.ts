@@ -9,6 +9,7 @@ export const SUPPORTED_CAPTURE_CONTRACT_VERSION = "fe.capture.v1";
 
 export type CapturePreflightFailureKind =
   | "invalid-endpoint"
+  | "permission"
   | "network"
   | "server-error"
   | "invalid-response"
@@ -77,6 +78,7 @@ export async function preflightCaptureManifest(
       headers: { Accept: "application/json" },
       credentials: "omit",
       cache: "no-store",
+      redirect: "error",
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
