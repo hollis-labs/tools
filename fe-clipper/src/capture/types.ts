@@ -111,10 +111,27 @@ export type AdapterMetadataValue =
 
 export type AdapterProviderNamespace = `provider.${string}`;
 
+/**
+ * Where a provider extension belongs in the capture envelope. The two
+ * placements are durably different in Fragments Engine:
+ *
+ * - `document` lands in fragment and revision metadata, which is an
+ *   observation about the captured item itself and survives with it.
+ * - `extraction` lands on the capture attempt, which is provenance about how
+ *   this capture ran and is not carried on the fragment.
+ *
+ * `document` is the default because a provider observation describes the
+ * captured item, so it should outlive the attempt that happened to observe it.
+ * An adapter opts into `extraction` only for data that genuinely describes the
+ * run rather than the item.
+ */
+export type AdapterProviderMetadataPlacement = "document" | "extraction";
+
 /** Normalized provider observations only; never raw DOM or serialized state. */
 export interface AdapterProviderMetadataExtension {
   namespace: AdapterProviderNamespace;
   schemaVersion: string;
+  placement?: AdapterProviderMetadataPlacement;
   data: { readonly [key: string]: AdapterMetadataValue };
 }
 

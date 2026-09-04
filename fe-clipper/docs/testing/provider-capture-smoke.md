@@ -32,6 +32,8 @@ cross-object semantic identity rules.
 | YouTube with captions | Playback identity, three ordered posters, two subtitle candidates, structured rendered transcript, body, and highlight survive; no automatic video-byte request |
 | YouTube without captions | Playback identity and poster survive; transcript is absent with a structured warning |
 | YouTube sparse/malformed | Playback reference survives malformed page state; missing poster/caption/metadata warnings remain explicit |
+| Reddit shreddit thread | Post identity and self-text survive alongside a re-nested comment tree; the thread reaches both the indexed body and `provider.reddit` document extensions; credential sentinels are excluded |
+| Reddit old.reddit thread | `.child` nesting and `title`-attribute scores survive; "load more" affordances are excluded and reported as `reddit.comments_unexpanded` |
 | Generic article with media | Readability/Turndown body, selection, hero, and ordered inline media survive; inherited URL credentials are removed from Markdown |
 | Generic article without media | Useful text and annotations survive with an empty media manifest |
 

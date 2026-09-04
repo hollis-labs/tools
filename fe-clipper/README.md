@@ -49,6 +49,13 @@ rendered the page, so the extension just reads it.
   reference-only while posters and supported images may be transferred.
 - **YouTube:** video identity, readable context, posters, and available subtitle/transcript
   candidates. The extension never automatically downloads YouTube video bytes.
+- **Reddit:** post identity and self-text plus the comment thread the page had rendered, on both
+  the current `shreddit` client and `old.reddit.com`. The thread is written twice on purpose —
+  as a Markdown `## Comments` section in the document body, which is the only capture field FE
+  full-text indexes, and as a structured tree in the `provider.reddit` document extension, which
+  FE keeps as fragment metadata. Capture reads the rendered DOM only, so replies still collapsed
+  behind "load more" are reported by a `reddit.comments_unexpanded` warning rather than assumed
+  absent; expand what you want before clipping.
 - **Other pages:** the generic Readability/Turndown path plus meaningful hero/inline images,
   selection, note, and tags.
 

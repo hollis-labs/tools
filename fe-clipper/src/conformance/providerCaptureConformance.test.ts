@@ -430,6 +430,23 @@ describe("cross-provider capture conformance", () => {
         : "complete",
     );
 
+    if (scenario.adapter === "reddit") {
+      // The thread has to reach both destinations: the body, which is the only
+      // field FE full-text indexes, and document extensions, which is the only
+      // extension placement FE keeps on the fragment itself.
+      const redditExtension = envelope.document.extensions?.["provider.reddit"] as
+        | { data?: { comments?: unknown[]; commentsCaptured?: number; surface?: string } }
+        | undefined;
+      expect(redditExtension?.data?.surface).toBe(
+        scenario.id === "reddit-old-thread-unexpanded" ? "old_reddit" : "shreddit",
+      );
+      expect(redditExtension?.data?.comments?.length).toBeGreaterThan(0);
+      expect(redditExtension?.data?.commentsCaptured).toBeGreaterThan(0);
+      expect(envelope.extraction.extensions?.["provider.reddit"]).toBeUndefined();
+      expect(envelope.document.content?.body).toContain("## Comments");
+      expect(envelope.extraction.observed_capabilities).not.toContain("provider_metadata");
+    }
+
     if (scenario.adapter === "youtube") {
       const automaticVideoBytes = envelope.media
         .filter((media) => media.kind === "video")
@@ -439,7 +456,7 @@ describe("cross-provider capture conformance", () => {
             variant.kind === "original" && variant.transfer_preference === "browser_preferred",
       );
       expect(automaticVideoBytes).toEqual([]);
-      const youtubeExtension = envelope.extensions?.["provider.youtube"] as
+      const youtubeExtension = envelope.document.extensions?.["provider.youtube"] as
         | { data?: { transcript?: unknown } }
         | undefined;
       if (scenario.id === "youtube-with-captions") {

@@ -1,6 +1,7 @@
 import { genericPageCaptureAdapter } from "./adapters/generic";
 import { instagramPageCaptureAdapter } from "./adapters/instagram";
 import { pinterestPageCaptureAdapter } from "./adapters/pinterest";
+import { redditPageCaptureAdapter } from "./adapters/reddit";
 import { youtubePageCaptureAdapter } from "./adapters/youtube";
 import {
   ADAPTER_MATCH_CONFIDENCE,
@@ -260,5 +261,6 @@ export function createFailedPageCapture(
 export const pageCaptureAdapterRegistry = new PageCaptureAdapterRegistry([
   instagramPageCaptureAdapter,
   pinterestPageCaptureAdapter,
+  redditPageCaptureAdapter,
   youtubePageCaptureAdapter,
 ]);

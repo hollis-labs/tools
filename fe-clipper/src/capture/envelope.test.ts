@@ -238,4 +238,34 @@ describe("FE capture envelope mapping", () => {
     expect(vimeo.source.source_item_key).toBe("vimeo:3RmtNXqnreI");
     expect(youtube.source.source_item_key).not.toBe(vimeo.source.source_item_key);
   });
+
+  it("routes provider extensions to the placement FE keeps on the fragment", async () => {
+    const envelope = await buildCaptureEnvelope(
+      capture({
+        extensions: [
+          { namespace: "provider.reddit", schemaVersion: "1", data: { thread: "kept" } },
+          {
+            namespace: "provider.diagnostic",
+            schemaVersion: "1",
+            placement: "extraction",
+            data: { run: "provenance" },
+          },
+        ],
+      }),
+      { title: "", tags: [], note: "" },
+      options(),
+    );
+
+    // Default placement is fragment metadata, which is what FE persists with
+    // the item; only an explicit opt-in stays on the capture attempt.
+    expect(envelope.document.extensions).toEqual({
+      "provider.reddit": { schema_version: "1", data: { thread: "kept" } },
+    });
+    expect(envelope.extraction.extensions).toEqual({
+      "provider.diagnostic": { schema_version: "1", data: { run: "provenance" } },
+    });
+    // The envelope root is schema-valid but no FE code path reads it.
+    expect(envelope.extensions).toBeUndefined();
+    assertFECaptureEnvelope(envelope);
+  });
 });

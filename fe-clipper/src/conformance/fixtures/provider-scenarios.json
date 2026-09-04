@@ -194,5 +194,27 @@
     "body_includes": "substantial readable article prose",
     "media": [],
     "warning_codes": []
+  },
+  {
+    "id": "reddit-shreddit-thread",
+    "fixture": "reddit/fixtures/shreddit-thread.html",
+    "url": "https://fixture-user:fixture-password@www.reddit.com/r/houseplants/comments/abc123/which_soil_mix_actually_drains/?utm_source=conformance&access_token=QUERY_CREDENTIAL#section=top&session_token=FRAGMENT_CREDENTIAL",
+    "adapter": "reddit",
+    "provider": "reddit",
+    "selection": "Keep the pumice ratio.",
+    "body_includes": "**u/bark_and_pumice**",
+    "media": [],
+    "warning_codes": []
+  },
+  {
+    "id": "reddit-old-thread-unexpanded",
+    "fixture": "reddit/fixtures/old-reddit-thread.html",
+    "url": "https://old.reddit.com/r/metalworking/comments/def456/best_way_to_anneal_brass/",
+    "adapter": "reddit",
+    "provider": "reddit",
+    "selection": "Dull red, then air cool.",
+    "body_includes": "**u/torch_and_tongs**",
+    "media": [],
+    "warning_codes": ["reddit.comments_unexpanded"]
   }
 ]

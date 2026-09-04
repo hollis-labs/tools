@@ -119,11 +119,31 @@ function sanitizeExtensionValue(value: AdapterMetadataValue): SanitizedExtension
   return { value, removedCredential: false };
 }
 
+interface PlacedProviderExtensions {
+  /** Persisted by FE as fragment and revision metadata. */
+  document?: Record<string, object>;
+  /** Persisted by FE on the capture attempt as extraction provenance. */
+  extraction?: Record<string, object>;
+}
+
+/**
+ * Routes each provider extension to the single envelope field FE reads for
+ * that placement: `document.extensions` becomes fragment and revision
+ * metadata, while `extraction.extensions` is retained only on the capture
+ * attempt.
+ *
+ * Nothing is written to the envelope root. A copy there is schema-valid but no
+ * FE code path reads it, so it would spend manifest bytes against the 2 MiB
+ * limit without adding any recoverable data.
+ */
 function providerExtensions(
   extensions: readonly AdapterProviderMetadataExtension[],
   warnings: MappingWarning[],
-): Record<string, object> | undefined {
-  const result: Record<string, object> = {};
+): PlacedProviderExtensions {
+  const placed: { document: Record<string, object>; extraction: Record<string, object> } = {
+    document: {},
+    extraction: {},
+  };
   for (const extension of extensions) {
     if (!/^provider\.[a-z0-9][a-z0-9_-]*$/.test(extension.namespace)) {
       warnings.push({
@@ -133,7 +153,7 @@ function providerExtensions(
       continue;
     }
     const sanitized = sanitizeExtensionValue(extension.data);
-    result[extension.namespace] = {
+    placed[extension.placement === "extraction" ? "extraction" : "document"][extension.namespace] = {
       schema_version: extension.schemaVersion,
       data: sanitized.value,
     };
@@ -144,7 +164,10 @@ function providerExtensions(
       });
     }
   }
-  return Object.keys(result).length > 0 ? result : undefined;
+  return {
+    ...(Object.keys(placed.document).length ? { document: placed.document } : {}),
+    ...(Object.keys(placed.extraction).length ? { extraction: placed.extraction } : {}),
+  };
 }
 
 function optionalPositive(value: number | undefined): number | undefined {
@@ -364,6 +387,7 @@ export async function buildCaptureEnvelope(
         ? { language: captured.document.language }
         : {}),
       ...(body ? { content: { format: "markdown", body } } : {}),
+      ...(extensions.document ? { extensions: extensions.document } : {}),
     },
     tags,
     annotations,
@@ -373,14 +397,13 @@ export async function buildCaptureEnvelope(
       adapter_version: identifier(captured.adapter.version, "unknown"),
       observed_capabilities: observedCapabilities,
       warnings: contractWarnings(captured, mappingWarnings),
-      ...(extensions ? { extensions } : {}),
+      ...(extensions.extraction ? { extensions: extensions.extraction } : {}),
     },
     page_context: {
       document_url: submittedUrl,
       ...(captured.document.title ? { document_title: captured.document.title } : {}),
       selection_present: Boolean(selection),
     },
-    ...(extensions ? { extensions } : {}),
   };
 
   assertFECaptureEnvelope(envelope);
