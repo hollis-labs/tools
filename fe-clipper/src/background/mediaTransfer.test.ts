@@ -75,6 +75,21 @@ describe("browser media acquisition", () => {
     expect(JSON.stringify(fetchImplementation.mock.calls[0])).not.toMatch(/authorization|cookie|bearer/i);
   });
 
+  it("invokes browser fetch without binding the media acquirer as its receiver", async () => {
+    const observedReceivers: unknown[] = [];
+    const fetchImplementation: SourceFetchLike = function (this: unknown) {
+      observedReceivers.push(this);
+      return Promise.resolve(new Response(new Uint8Array(png()).buffer, { status: 200 }));
+    };
+
+    await expect(acquirer(fetchImplementation).acquire(
+      variant(),
+      ["https://media.test"],
+      1_000,
+    )).resolves.toMatchObject({ mimeType: "image/png" });
+    expect(observedReceivers).toEqual([undefined]);
+  });
+
   it("allows only bounded redirects whose exact origins were granted", async () => {
     const fetchImplementation = vi
       .fn()

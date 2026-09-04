@@ -252,7 +252,11 @@ export class BrowserMediaAcquirer implements MediaAcquirer {
       }
       let response: Response;
       try {
-        response = await this.fetchImplementation(source.toString(), {
+        // Native WorkerGlobalScope.fetch rejects an arbitrary receiver. Copy
+        // the injected callable before invoking it so the class instance is
+        // never used as `this` (which happens with `this.fetchImplementation()`).
+        const fetchImplementation = this.fetchImplementation;
+        response = await fetchImplementation(source.toString(), {
           method: "GET",
           credentials: "omit",
           redirect: "manual",
