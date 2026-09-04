@@ -9,7 +9,12 @@ import type {
   FECaptureManifestResponse,
   FECaptureStatus,
 } from "@/contracts/fragmentsEngine";
-import { CaptureApi, CaptureApiError, deriveCaptureManifestUrl } from "./captureApi";
+import {
+  CaptureApi,
+  CaptureApiError,
+  deriveAssetUploadUrl,
+  deriveCaptureManifestUrl,
+} from "./captureApi";
 
 const fixtureDirectory = resolve(
   process.cwd(),
@@ -186,5 +191,85 @@ describe("capture API client", () => {
         completion,
       ),
     ).rejects.toThrow(/completion HTTP 201; expected 200/);
+  });
+
+  it("semantically binds upload hrefs while accepting FE's real colon path form", () => {
+    const captureId = envelope().capture_id;
+    const endpoint = "https://fe.test/v1/captures";
+    expect(deriveAssetUploadUrl(
+      endpoint,
+      captureId,
+      "poster:maxresdefault",
+      `/v1/captures/${captureId}/assets/poster:maxresdefault/content`,
+    )).toBe(`https://fe.test/v1/captures/${captureId}/assets/poster:maxresdefault/content`);
+    expect(deriveAssetUploadUrl(
+      endpoint,
+      captureId,
+      "poster:maxresdefault",
+      `/v1/captures/${captureId}/assets/poster%3Amaxresdefault/content`,
+    )).toContain("poster%3Amaxresdefault/content");
+
+    for (const href of [
+      `https://evil.test/v1/captures/${captureId}/assets/poster:maxresdefault/content`,
+      `/v1/captures/${captureId}/assets/poster:maxresdefault/content?token=secret`,
+      `/v1/captures/${captureId}/assets/poster:maxresdefault/content#fragment`,
+      `/v1/captures/${captureId}/assets/poster%2Fmaxresdefault/content`,
+      `/v1/captures/${captureId}/assets/poster%253Amaxresdefault/content`,
+      `/v1/captures/../assets/poster:maxresdefault/content`,
+    ]) {
+      expect(() => deriveAssetUploadUrl(endpoint, captureId, "poster:maxresdefault", href)).toThrow(
+        /unsafe upload route/,
+      );
+    }
+  });
+
+  it("uploads exact bytes with RFC 9530 digest and no credentials or unrelated headers", async () => {
+    const fetchImplementation = vi.fn(
+      async (_input: string | URL, _init?: RequestInit) => new Response(null, { status: 204 }),
+    );
+    const api = new CaptureApi(fetchImplementation);
+    const capture = envelope();
+    const poster = capture.media[0]!.variants.find(
+      (candidate) => candidate.client_variant_id === "poster:maxresdefault",
+    )!;
+    const bytes = new Uint8Array([0, 1, 2, 255]);
+    const digest = { algorithm: "sha256" as const, value: "00".repeat(32) };
+
+    await api.uploadAsset(
+      "https://fe.test/v1/captures",
+      capture.capture_id,
+      poster,
+      `/v1/captures/${capture.capture_id}/assets/poster:maxresdefault/content`,
+      bytes,
+      "image/png",
+      digest,
+    );
+
+    const [url, init] = fetchImplementation.mock.calls[0]!;
+    expect(url).toContain("/assets/poster:maxresdefault/content");
+    expect(init).toMatchObject({
+      method: "PUT",
+      credentials: "omit",
+      cache: "no-store",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+      headers: {
+        "Content-Type": "image/png",
+        Digest: "sha-256=:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=:",
+      },
+    });
+    expect([...new Uint8Array(init?.body as ArrayBuffer)]).toEqual([...bytes]);
+    expect(JSON.stringify(init?.headers)).not.toMatch(/authorization|cookie|bearer|secret/i);
+
+    const wrongStatus = new CaptureApi(async () => jsonResponse({}, 200));
+    await expect(wrongStatus.uploadAsset(
+      "https://fe.test",
+      capture.capture_id,
+      poster,
+      `/v1/captures/${capture.capture_id}/assets/poster:maxresdefault/content`,
+      bytes,
+      "application/octet-stream",
+      digest,
+    )).rejects.toThrow(/expected 204/);
   });
 });

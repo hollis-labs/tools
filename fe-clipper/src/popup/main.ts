@@ -1,5 +1,5 @@
 import { parseTagsInput } from "@/lib/payload";
-import { requestHostPermission } from "@/lib/permissions";
+import { requestCapturePermissions } from "@/lib/permissions";
 import { getCaptureConfiguration } from "@/lib/storage";
 import { DEFAULT_TAGS, type CapturedPage, type ExtensionMessage } from "@/lib/types";
 
@@ -116,8 +116,8 @@ async function handleSubmit(event: SubmitEvent) {
       request = activeStartRequest;
     } else {
       const configuration = await getCaptureConfiguration();
-      const granted = await requestHostPermission(configuration.endpoint);
-      if (!granted) {
+      const permissions = await requestCapturePermissions(configuration.endpoint, captured);
+      if (!permissions.feGranted) {
         setStatus(
           `Permission to reach ${configuration.endpoint} was denied. Grant it from the options page.`,
           "error",
@@ -135,6 +135,7 @@ async function handleSubmit(event: SubmitEvent) {
           note: noteInput.value,
         },
         configuration,
+        permittedSourceOrigins: permissions.permittedSourceOrigins,
       };
       request = activeStartRequest;
     }

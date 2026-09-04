@@ -33,6 +33,11 @@ export interface CaptureConfigurationSnapshot {
   principalId: string;
 }
 
+/** HTTP(S) source origins for which the popup verified host permission during
+ * the explicit Send gesture. The background treats these as an allowlist, not
+ * as evidence that it may request more permissions later. */
+export type PermittedSourceOrigins = readonly string[];
+
 export type CaptureJobPhase =
   | "pending_manifest"
   | "preflighting"
@@ -53,8 +58,14 @@ export type ExtensionMessage =
       captured: CapturedPage;
       edits: EditableFields;
       configuration: CaptureConfigurationSnapshot;
+      permittedSourceOrigins: PermittedSourceOrigins;
     }
-  | { type: "RETRY_CAPTURE_JOB"; captureId: string }
+  | {
+      type: "RETRY_CAPTURE_JOB";
+      captureId: string;
+      /** A later retry UI may add grants obtained from that retry's gesture. */
+      permittedSourceOrigins?: PermittedSourceOrigins;
+    }
   | {
       type: "CAPTURE_JOB_RESULT";
       ok: true;

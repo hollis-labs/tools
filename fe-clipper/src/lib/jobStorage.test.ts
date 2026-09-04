@@ -59,7 +59,7 @@ function job(captureId = "01KCAPTURE0000000000000000"): CaptureJobRecord {
   ) as FECaptureEnvelope;
   envelope.capture_id = captureId;
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     captureId,
     endpoint: "http://127.0.0.1:8091/v1/captures",
     principalId: envelope.principal_id,
@@ -68,6 +68,7 @@ function job(captureId = "01KCAPTURE0000000000000000"): CaptureJobRecord {
     phase: "pending_manifest",
     terminal: false,
     manifestAttempts: 0,
+    permittedSourceOrigins: [],
     createdAt: "2026-09-03T20:00:00.000Z",
     updatedAt: "2026-09-03T20:00:00.000Z",
   };
@@ -93,6 +94,21 @@ describe("durable capture job storage", () => {
 
     expect(await store.getJob(expected.captureId)).toEqual(expected);
     expect(await store.listJobs()).toEqual([expected]);
+  });
+
+  it("migrates v1 durable jobs without inventing source permissions", async () => {
+    const storage = new MemoryStorage();
+    const expected = job("legacy-action");
+    const legacy = structuredClone(expected) as unknown as Record<string, unknown>;
+    legacy.schemaVersion = 1;
+    delete legacy.permittedSourceOrigins;
+    storage.values[`${JOB_PREFIX}legacy-action`] = legacy;
+
+    expect(await new CaptureJobStore(storage).getJob("legacy-action")).toEqual({
+      ...expected,
+      schemaVersion: 2,
+      permittedSourceOrigins: [],
+    });
   });
 
   it("rejects unsafe or internally inconsistent durable state", async () => {

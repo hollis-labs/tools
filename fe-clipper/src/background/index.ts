@@ -39,7 +39,9 @@ async function handleMessage(message: ExtensionMessage): Promise<ExtensionMessag
       return jobResult(await coordinator.start(message));
     }
     if (message.type === "RETRY_CAPTURE_JOB") {
-      return jobResult(await coordinator.retry(message.captureId));
+      return jobResult(
+        await coordinator.retry(message.captureId, message.permittedSourceOrigins ?? []),
+      );
     }
     return {
       type: "CAPTURE_JOB_RESULT",

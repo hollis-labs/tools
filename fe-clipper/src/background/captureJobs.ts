@@ -1,7 +1,6 @@
 import { buildCaptureEnvelope } from "@/capture/envelope";
 import {
   assertFECaptureCompletion,
-  type FEAssetInstruction,
   type FECapabilityDiscovery,
   type FECaptureCompletionRequest,
   type FECaptureManifestResponse,
@@ -12,6 +11,7 @@ import type {
   CaptureJobErrorStage,
   CaptureJobPersistence,
   CaptureJobRecord,
+  CaptureVariantTransfer,
 } from "@/lib/jobStorage";
 import type { CaptureConfigurationSnapshot, CapturedPage, EditableFields } from "@/lib/types";
 import {
@@ -19,18 +19,37 @@ import {
   deriveCaptureManifestUrl,
   type CaptureApiClient,
 } from "./captureApi";
+import {
+  bindPermittedSourceOrigins,
+  assertPersistedTransferPlan,
+  assertTransferRuntimeState,
+  envelopeVariants,
+  planCaptureTransfers,
+  reconcileTransferStatus,
+  transferCompletionOutcomes,
+  transfersReadyForCompletion,
+} from "./captureTransfer";
+import {
+  BrowserMediaAcquirer,
+  DEFAULT_MAX_ASSET_BYTES,
+  MediaTransferError,
+  type AcquiredAsset,
+  type MediaAcquirer,
+} from "./mediaTransfer";
 
 export interface StartCaptureJobInput {
   captureId: string;
   captured: CapturedPage;
   edits: EditableFields;
   configuration: CaptureConfigurationSnapshot;
+  permittedSourceOrigins: readonly string[];
 }
 
 export interface CaptureJobCoordinatorOptions {
   now?: () => Date;
   createId?: () => string;
   clientVersion?: string;
+  mediaAcquirer?: MediaAcquirer;
 }
 
 function terminalCompletion(completion: FECaptureStatus["completion"]): boolean {
@@ -48,10 +67,7 @@ function hasRequestedUploads(acceptance: FECaptureManifestResponse): boolean {
   return acceptance.asset_instructions.some((instruction) => instruction.action === "request_upload");
 }
 
-function stableIdsMatch(
-  acceptance: FECaptureManifestResponse,
-  status: FECaptureStatus,
-): boolean {
+function stableIdsMatch(acceptance: FECaptureManifestResponse, status: FECaptureStatus): boolean {
   return (
     acceptance.capture_id === status.capture_id &&
     acceptance.fragment_id === status.fragment_id &&
@@ -92,36 +108,7 @@ function unsupportedEnvelopeCapability(
   return undefined;
 }
 
-function completionOutcome(instruction: FEAssetInstruction) {
-  switch (instruction.action) {
-    case "reuse_blob": {
-      if (!instruction.digest) throw new Error("FE reuse_blob instruction is missing its digest.");
-      return {
-        client_variant_id: instruction.client_variant_id,
-        outcome: "already_available" as const,
-        digest: instruction.digest,
-      };
-    }
-    case "rejected":
-      return {
-        client_variant_id: instruction.client_variant_id,
-        outcome: "not_available" as const,
-        reason: instruction.reason || "Fragments Engine rejected this capture variant.",
-        retryable: false,
-      };
-    case "server_acquire":
-    case "reference_only":
-      return { client_variant_id: instruction.client_variant_id, outcome: "deferred" as const };
-    case "request_upload":
-      throw new Error("Capture completion cannot run while browser uploads remain requested.");
-  }
-}
-
-function captureError(
-  error: unknown,
-  stage: CaptureJobErrorStage,
-  now: string,
-): CaptureJobError {
+function captureError(error: unknown, stage: CaptureJobErrorStage, now: string): CaptureJobError {
   if (error instanceof CaptureApiError) {
     return {
       stage,
@@ -130,6 +117,15 @@ function captureError(
       at: now,
       ...(error.status !== undefined ? { httpStatus: error.status } : {}),
       ...(error.code ? { code: error.code } : {}),
+    };
+  }
+  if (error instanceof MediaTransferError) {
+    return {
+      stage,
+      message: error.message,
+      retryable: error.retryable,
+      at: now,
+      code: `media_${error.kind}`,
     };
   }
   return {
@@ -148,10 +144,39 @@ function identifierForAction(value: string): string {
   return captureId;
 }
 
+function effectiveAssetLimit(capabilities: FECapabilityDiscovery): number {
+  return Math.min(capabilities.capture.max_asset_bytes ?? DEFAULT_MAX_ASSET_BYTES, DEFAULT_MAX_ASSET_BYTES);
+}
+
+function transferWarnings(job: CaptureJobRecord) {
+  const warnings = [...(job.acceptance?.warnings ?? [])];
+  for (const transfer of job.transfers ?? []) {
+    if (transfer.state !== "failed" || !transfer.reason) continue;
+    warnings.push({
+      code: "capture.asset_transfer_failed",
+      message: transfer.reason,
+      subject_id: transfer.clientVariantId,
+    });
+  }
+  return warnings;
+}
+
+function shouldContinueAcceptedJob(job: CaptureJobRecord): boolean {
+  if (!job.acceptance || job.terminal) return false;
+  if (!job.error || job.error.retryable) return true;
+  return (job.transfers ?? []).some(
+    (transfer) =>
+      transfer.state === "pending" ||
+      transfer.state === "transferring" ||
+      (transfer.state === "failed" && transfer.retryable === true),
+  );
+}
+
 export class CaptureJobCoordinator {
   private readonly now: () => Date;
   private readonly createId: () => string;
   private readonly clientVersion: string;
+  private readonly mediaAcquirer: MediaAcquirer;
   private readonly running = new Map<string, Promise<CaptureJobRecord>>();
 
   constructor(
@@ -162,29 +187,35 @@ export class CaptureJobCoordinator {
     this.now = options.now ?? (() => new Date());
     this.createId = options.createId ?? (() => crypto.randomUUID());
     this.clientVersion = options.clientVersion ?? "0.1.0";
+    this.mediaAcquirer = options.mediaAcquirer ?? new BrowserMediaAcquirer();
   }
 
   async start(input: StartCaptureJobInput): Promise<CaptureJobRecord> {
     const active = this.running.get(input.captureId);
-    if (active) return active;
+    if (active) {
+      const persisted = await this.store.getJob(input.captureId);
+      if (persisted?.acceptance) return persisted;
+      return active;
+    }
     const operation = this.startOrResume(input).finally(() => {
-      this.running.delete(input.captureId);
+      if (this.running.get(input.captureId) === operation) {
+        this.running.delete(input.captureId);
+      }
     });
     this.running.set(input.captureId, operation);
     void operation
       .then((accepted) => {
-        if (accepted.acceptance && accepted.phase === "accepted" && !accepted.terminal) {
-          // Run only after the starting-operation lock is released.
+        if (shouldContinueAcceptedJob(accepted)) {
           queueMicrotask(() => {
-            void this.retry(accepted.captureId).catch((error) => {
+            void this.run(accepted.captureId, true).catch((error) => {
               console.error(`Could not continue accepted capture ${accepted.captureId}:`, error);
             });
           });
         }
       })
       .catch(() => {
-        // The caller receives the original rejection; this branch only keeps
-        // the detached continuation observer from becoming unhandled.
+        // The caller observes the rejection; this prevents an unhandled
+        // rejection on the detached continuation observer.
       });
     return operation;
   }
@@ -193,9 +224,21 @@ export class CaptureJobCoordinator {
     const captureId = identifierForAction(input.captureId);
     const existing = await this.store.getJob(captureId);
     if (existing) {
-      // Repeated START is intentional: the popup may have lost the response
-      // after the worker already persisted or submitted this exact action.
-      return this.process(captureId, true, false);
+      const permittedSourceOrigins = bindPermittedSourceOrigins(existing.envelope, [
+        ...existing.permittedSourceOrigins,
+        ...input.permittedSourceOrigins,
+      ]);
+      if (permittedSourceOrigins.join("\n") !== existing.permittedSourceOrigins.join("\n")) {
+        await this.store.saveJob({
+          ...existing,
+          permittedSourceOrigins,
+          updatedAt: this.now().toISOString(),
+        });
+      }
+      if (existing.acceptance) {
+        return (await this.store.getJob(captureId))!;
+      }
+      return this.process(captureId, true, true);
     }
     const completionIdempotencyKey = this.createId();
     const capturedAt = this.now().toISOString();
@@ -211,7 +254,7 @@ export class CaptureJobCoordinator {
       createId: this.createId,
     });
     const job: CaptureJobRecord = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       captureId,
       endpoint: deriveCaptureManifestUrl(input.configuration.endpoint),
       principalId,
@@ -220,40 +263,65 @@ export class CaptureJobCoordinator {
       phase: "pending_manifest",
       terminal: false,
       manifestAttempts: 0,
+      permittedSourceOrigins: bindPermittedSourceOrigins(envelope, input.permittedSourceOrigins),
       createdAt: capturedAt,
       updatedAt: capturedAt,
     };
 
-    // This awaited write is the durability boundary: no capability or capture
-    // network request starts until the exact envelope and mutable settings
-    // snapshot are safely outside popup/service-worker memory.
     await this.store.saveJob(job);
     return this.process(job.captureId, false, true);
   }
 
-  retry(captureId: string): Promise<CaptureJobRecord> {
-    return this.run(captureId, true);
+  async retry(
+    captureId: string,
+    newlyPermittedSourceOrigins: readonly string[] = [],
+  ): Promise<CaptureJobRecord> {
+    const prior = this.running.get(captureId);
+    const operation = (async () => {
+      if (prior) await prior;
+      const existing = await this.store.getJob(captureId);
+      if (!existing) throw new Error(`Durable capture job ${captureId} was not found.`);
+      if (newlyPermittedSourceOrigins.length > 0) {
+        const permittedSourceOrigins = bindPermittedSourceOrigins(existing.envelope, [
+          ...existing.permittedSourceOrigins,
+          ...newlyPermittedSourceOrigins,
+        ]);
+        await this.store.saveJob({
+          ...existing,
+          permittedSourceOrigins,
+          updatedAt: this.now().toISOString(),
+        });
+      }
+      return this.process(captureId, true, false);
+    })().finally(() => {
+      if (this.running.get(captureId) === operation) this.running.delete(captureId);
+    });
+    this.running.set(captureId, operation);
+    return operation;
   }
 
   async resumeAll(): Promise<CaptureJobRecord[]> {
     const jobs = await this.store.listJobs();
-    const results = await Promise.allSettled(
-      jobs.filter((job) => !job.terminal).map((job) => this.run(job.captureId, true)),
-    );
-    return results
-      .filter((result): result is PromiseFulfilledResult<CaptureJobRecord> => result.status === "fulfilled")
-      .map((result) => result.value);
+    const resumed: CaptureJobRecord[] = [];
+    // One job at a time bounds MV3 memory even when many 64 MiB variants were
+    // pending at browser startup. Per-variant requests within each job are also
+    // sequential and individually timeout.
+    for (const job of jobs) {
+      if (job.terminal) continue;
+      try {
+        resumed.push(await this.run(job.captureId, true));
+      } catch (error) {
+        console.error(`Could not resume durable capture ${job.captureId}:`, error);
+      }
+    }
+    return resumed;
   }
 
-  private run(
-    captureId: string,
-    reconcile: boolean,
-    returnAfterAcceptance = false,
-  ): Promise<CaptureJobRecord> {
+  private run(captureId: string, reconcile: boolean): Promise<CaptureJobRecord> {
     const active = this.running.get(captureId);
     if (active) return active;
-    const operation = this.process(captureId, reconcile, returnAfterAcceptance).finally(() => {
-      this.running.delete(captureId);
+    const operation = this.process(captureId, reconcile, false).finally(() => {
+      if (this.running.get(captureId) === operation) this.running.delete(captureId);
     });
     this.running.set(captureId, operation);
     return operation;
@@ -268,6 +336,19 @@ export class CaptureJobCoordinator {
     if (!job) throw new Error(`Durable capture job ${captureId} was not found.`);
     if (job.terminal) return job;
 
+    try {
+      const reboundOrigins = bindPermittedSourceOrigins(job.envelope, job.permittedSourceOrigins);
+      if (reboundOrigins.join("\n") !== job.permittedSourceOrigins.join("\n")) {
+        throw new CaptureApiError(
+          "Persisted media permission origins no longer match this capture envelope.",
+          "invalid_response",
+          false,
+        );
+      }
+    } catch (error) {
+      return this.failFromError(job, "transfer", error);
+    }
+
     job = await this.update(job, { phase: "preflighting", error: undefined });
     const preflight = await this.api.preflight(job.endpoint);
     if (!preflight.ok) {
@@ -275,7 +356,27 @@ export class CaptureJobCoordinator {
     }
     const unsupported = unsupportedEnvelopeCapability(job, preflight.capabilities);
     if (unsupported) return this.fail(job, "preflight", unsupported, false);
+    job = await this.update(job, { maxAssetBytes: effectiveAssetLimit(preflight.capabilities) });
     const completionAvailable = preflight.capabilities.operations.capture_completion;
+    const uploadAvailable = preflight.capabilities.operations.asset_upload;
+
+    if (job.acceptance && !job.transfers) {
+      try {
+        job = await this.update(job, {
+          transfers: planCaptureTransfers(job.envelope, job.endpoint, job.acceptance, this.now().toISOString()),
+        });
+      } catch (error) {
+        return this.failFromError(job, "transfer", error);
+      }
+    }
+    if (job.acceptance && job.transfers) {
+      try {
+        assertPersistedTransferPlan(job.envelope, job.endpoint, job.acceptance, job.transfers);
+        assertTransferRuntimeState(job.transfers);
+      } catch (error) {
+        return this.failFromError(job, "transfer", error);
+      }
+    }
 
     if (reconcile && job.manifestAttempts > 0) {
       job = await this.update(job, { phase: "reconciling" });
@@ -288,23 +389,25 @@ export class CaptureJobCoordinator {
             false,
           );
         }
+        const transfers = job.transfers
+          ? reconcileTransferStatus(job.transfers, status, this.now().toISOString())
+          : undefined;
         job = await this.update(job, {
           status,
+          ...(transfers ? { transfers } : {}),
           phase: phaseForStatus(status),
           terminal: terminalCompletion(status.completion),
           error: undefined,
         });
         if (job.terminal) return job;
-        if (job.acceptance) return this.continueAccepted(job, completionAvailable);
-        // GET proved the manifest exists but does not carry transfer
-        // instructions. Replaying the same persisted envelope recovers the
-        // immutable acceptance snapshot without creating another attempt.
+        if (job.acceptance) return this.continueAccepted(job, uploadAvailable, completionAvailable);
       } catch (error) {
         if (!(error instanceof CaptureApiError) || error.kind !== "not_found") {
           return this.failFromError(job, "reconcile", error);
         }
-        // A 404 is the only reconciliation result that authorizes resending.
       }
+    } else if (job.acceptance) {
+      return this.continueAccepted(job, uploadAvailable, completionAvailable);
     }
 
     job = await this.update(job, {
@@ -330,29 +433,149 @@ export class CaptureJobCoordinator {
         ),
       );
     }
-    job = await this.update(job, {
-      acceptance,
-      phase: hasRequestedUploads(acceptance) ? "pending_transfer" : "accepted",
-      terminal: false,
-      error: undefined,
-    });
-    if (returnAfterAcceptance && !hasRequestedUploads(acceptance)) return job;
-    return this.continueAccepted(job, completionAvailable);
+    try {
+      const transfers = planCaptureTransfers(job.envelope, job.endpoint, acceptance, this.now().toISOString());
+      job = await this.update(job, {
+        acceptance,
+        transfers,
+        phase: hasRequestedUploads(acceptance) ? "pending_transfer" : "accepted",
+        terminal: false,
+        error: undefined,
+      });
+    } catch (error) {
+      job = await this.update(job, { acceptance, phase: "accepted", terminal: false });
+      return this.failFromError(job, "transfer", error);
+    }
+    if (returnAfterAcceptance) return job;
+    return this.continueAccepted(job, uploadAvailable, completionAvailable);
   }
 
   private async continueAccepted(
     job: CaptureJobRecord,
+    uploadAvailable: boolean,
     completionAvailable: boolean,
   ): Promise<CaptureJobRecord> {
-    if (!job.acceptance) return job;
-    if (hasRequestedUploads(job.acceptance)) {
+    if (!job.acceptance || !job.transfers) return job;
+    if (hasRequestedUploads(job.acceptance) && !uploadAvailable) {
+      return this.fail(
+        job,
+        "transfer",
+        "Fragments Engine accepted the manifest but does not advertise asset upload. The accepted IDs and pending variants were retained.",
+        true,
+      );
+    }
+
+    const variants = envelopeVariants(job.envelope);
+    const transferOrder = job.transfers
+      .map((_, index) => index)
+      .sort((left, right) => {
+        const leftVariant = variants.get(job.transfers![left]!.clientVariantId)!.variant;
+        const rightVariant = variants.get(job.transfers![right]!.clientVariantId)!.variant;
+        const expiry = (value: string | undefined) => {
+          const parsed = value ? Date.parse(value) : Number.NaN;
+          return Number.isNaN(parsed) ? Number.POSITIVE_INFINITY : parsed;
+        };
+        return expiry(leftVariant.source_expires_at) - expiry(rightVariant.source_expires_at) || left - right;
+      });
+    for (const index of transferOrder) {
+      let transfer = job.transfers![index]!;
+      if (transfer.action !== "request_upload" || transfer.state === "available") continue;
+      if (transfer.state === "failed" && transfer.retryable === false) continue;
+      const observed = variants.get(transfer.clientVariantId)!;
+      if (!transfer.sourceOrigin || !job.permittedSourceOrigins.includes(transfer.sourceOrigin)) {
+        const error = new MediaTransferError(
+          `Media permission was denied for ${transfer.sourceOrigin ?? "the source origin"}; variant ${transfer.clientVariantId} remains retryable.`,
+          "permission",
+          true,
+        );
+        job = await this.recordTransferFailure(job, index, error);
+        continue;
+      }
+
+      transfer = {
+        ...transfer,
+        state: "transferring",
+        attempts: transfer.attempts + 1,
+        updatedAt: this.now().toISOString(),
+      };
+      delete transfer.outcome;
+      delete transfer.reason;
+      delete transfer.retryable;
+      job = await this.replaceTransfer(job, index, transfer, { phase: "pending_transfer", error: undefined });
+
+      let acquired: AcquiredAsset;
+      try {
+        acquired = await this.mediaAcquirer.acquire(
+          observed.variant,
+          job.permittedSourceOrigins,
+          job.maxAssetBytes ?? DEFAULT_MAX_ASSET_BYTES,
+        );
+        if (transfer.expectedDigest && acquired.digest.value !== transfer.expectedDigest.value) {
+          throw new MediaTransferError(
+            `Variant ${transfer.clientVariantId} did not match Fragments Engine's expected SHA-256 digest.`,
+            "digest_mismatch",
+            false,
+          );
+        }
+
+      } catch (error) {
+        if (!(error instanceof MediaTransferError)) throw error;
+        job = await this.recordTransferFailure(job, index, error);
+        continue;
+      }
+
+      transfer = {
+        ...transfer,
+        digest: acquired.digest,
+        byteSize: acquired.byteSize,
+        mimeType: acquired.mimeType,
+        observedMimeType: acquired.observedMimeType,
+        ...(acquired.width ? { width: acquired.width } : {}),
+        ...(acquired.height ? { height: acquired.height } : {}),
+        updatedAt: this.now().toISOString(),
+      };
+      // Persistence failure here must escape: without this durability boundary
+      // no PUT may begin and no permanent per-asset failure may be invented.
+      job = await this.replaceTransfer(job, index, transfer);
+      try {
+        await this.api.uploadAsset(
+          job.endpoint,
+          job.captureId,
+          observed.variant,
+          transfer.uploadUrl!,
+          acquired.bytes,
+          acquired.mimeType,
+          acquired.digest,
+        );
+      } catch (error) {
+        if (!(error instanceof CaptureApiError)) throw error;
+        job = await this.recordTransferFailure(job, index, error);
+        continue;
+      }
+      transfer = {
+        ...transfer,
+        state: "available",
+        outcome: {
+          client_variant_id: transfer.clientVariantId,
+          outcome: "uploaded",
+          digest: acquired.digest,
+          byte_size: acquired.byteSize,
+        },
+        updatedAt: this.now().toISOString(),
+      };
+      // A failed post-204 write also escapes. The persisted transferring state
+      // forces GET-first reconciliation on restart instead of false completion.
+      job = await this.replaceTransfer(job, index, transfer, { error: undefined });
+    }
+
+    if (!transfersReadyForCompletion(job.transfers!)) {
       return this.update(job, { phase: "pending_transfer", terminal: false });
     }
     if (!completionAvailable) {
       return this.fail(
         job,
         "completion",
-        "Fragments Engine accepted the manifest but does not advertise capture completion. The accepted IDs were retained for retry after the server is upgraded.",
+        "Fragments Engine accepted the manifest but does not advertise capture completion. Final asset outcomes were retained for retry after the server is upgraded.",
         true,
       );
     }
@@ -360,10 +583,10 @@ export class CaptureJobCoordinator {
     const completion: FECaptureCompletionRequest = {
       schema_version: "fe.capture.completion.v1",
       idempotency_key: job.completionIdempotencyKey,
-      assets: job.acceptance.asset_instructions.map(completionOutcome),
-      warnings: job.acceptance.warnings,
+      assets: transferCompletionOutcomes(job.transfers!),
+      warnings: transferWarnings(job),
     };
-    const acceptance = job.acceptance;
+    const acceptance = job.acceptance!;
     assertFECaptureCompletion(completion);
     job = await this.update(job, { phase: "completing", error: undefined });
     try {
@@ -386,14 +609,51 @@ export class CaptureJobCoordinator {
     }
   }
 
+  private async recordTransferFailure(
+    job: CaptureJobRecord,
+    index: number,
+    error: unknown,
+  ): Promise<CaptureJobRecord> {
+    const detail = captureError(error, "transfer", this.now().toISOString());
+    const previous = job.transfers![index]!;
+    const transfer: CaptureVariantTransfer = {
+      ...previous,
+      state: "failed",
+      reason: detail.message,
+      retryable: detail.retryable,
+      outcome: {
+        client_variant_id: previous.clientVariantId,
+        outcome: "failed",
+        reason: detail.message,
+        retryable: detail.retryable,
+      },
+      updatedAt: detail.at,
+    };
+    return this.replaceTransfer(job, index, transfer, {
+      phase: "pending_transfer",
+      terminal: false,
+      error: detail,
+    });
+  }
+
+  private replaceTransfer(
+    job: CaptureJobRecord,
+    index: number,
+    transfer: CaptureVariantTransfer,
+    changes: Partial<CaptureJobRecord> = {},
+  ): Promise<CaptureJobRecord> {
+    const transfers = [...(job.transfers ?? [])];
+    transfers[index] = transfer;
+    return this.update(job, { ...changes, transfers });
+  }
+
   private async failFromError(
     job: CaptureJobRecord,
     stage: CaptureJobErrorStage,
     error: unknown,
   ): Promise<CaptureJobRecord> {
     const detail = captureError(error, stage, this.now().toISOString());
-    const terminal =
-      !job.acceptance && error instanceof CaptureApiError && error.kind === "conflict";
+    const terminal = !job.acceptance && error instanceof CaptureApiError && error.kind === "conflict";
     return this.update(job, {
       phase: job.acceptance
         ? hasRequestedUploads(job.acceptance)
@@ -431,7 +691,7 @@ export class CaptureJobCoordinator {
       ...changes,
       updatedAt: this.now().toISOString(),
     };
-    if (changes.error === undefined) delete updated.error;
+    if (Object.hasOwn(changes, "error") && changes.error === undefined) delete updated.error;
     await this.store.saveJob(updated);
     return updated;
   }

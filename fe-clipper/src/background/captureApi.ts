@@ -6,6 +6,7 @@ import {
   feContractValidators,
   formatFEValidationIssues,
   type FEAPIProblem,
+  type FECaptureAssetVariant,
   type FECaptureCompletionRequest,
   type FECaptureEnvelope,
   type FECaptureManifestResponse,
@@ -42,6 +43,15 @@ export interface CaptureApiClient {
   preflight(endpoint: string): Promise<CapturePreflightResult>;
   submitManifest(endpoint: string, envelope: FECaptureEnvelope): Promise<FECaptureManifestResponse>;
   getStatus(endpoint: string, captureId: string): Promise<FECaptureStatus>;
+  uploadAsset(
+    endpoint: string,
+    captureId: string,
+    variant: FECaptureAssetVariant,
+    uploadHref: string,
+    bytes: Uint8Array,
+    mimeType: string,
+    digest: { algorithm: "sha256"; value: string },
+  ): Promise<void>;
   completeCapture(
     endpoint: string,
     captureId: string,
@@ -64,6 +74,65 @@ function captureResourceUrl(endpoint: string, captureId: string, suffix = ""): s
   const manifestUrl = new URL(deriveCaptureManifestUrl(endpoint));
   manifestUrl.pathname = `/v1/captures/${encodeURIComponent(captureId)}${suffix}`;
   return manifestUrl.toString();
+}
+
+export function deriveAssetUploadUrl(
+  endpoint: string,
+  captureId: string,
+  clientVariantId: string,
+  uploadHref: string,
+): string {
+  const manifestUrl = new URL(deriveCaptureManifestUrl(endpoint));
+  const upload = new URL(uploadHref, manifestUrl.origin);
+  const match = upload.pathname.match(/^\/v1\/captures\/([^/]+)\/assets\/([^/]+)\/content$/);
+  let decodedCaptureId: string | undefined;
+  let decodedVariantId: string | undefined;
+  try {
+    decodedCaptureId = match ? decodeURIComponent(match[1]!) : undefined;
+    decodedVariantId = match ? decodeURIComponent(match[2]!) : undefined;
+  } catch {
+    // Invalid percent escapes are unsafe route data.
+  }
+  const unsafeSegment = (raw: string | undefined, decoded: string | undefined) =>
+    !raw ||
+    decoded === undefined ||
+    /%2f|%5c/i.test(raw) ||
+    decoded.includes("/") ||
+    decoded.includes("\\") ||
+    decoded === "." ||
+    decoded === "..";
+  if (
+    upload.origin !== manifestUrl.origin ||
+    upload.username ||
+    upload.password ||
+    upload.search ||
+    upload.hash ||
+    !match ||
+    unsafeSegment(match?.[1], decodedCaptureId) ||
+    unsafeSegment(match?.[2], decodedVariantId) ||
+    decodedCaptureId !== captureId ||
+    decodedVariantId !== clientVariantId
+  ) {
+    throw new CaptureApiError(
+      `Fragments Engine returned an unsafe upload route for variant ${clientVariantId}.`,
+      "invalid_response",
+      false,
+    );
+  }
+  return upload.toString();
+}
+
+function digestHeader(digest: { algorithm: "sha256"; value: string }): string {
+  if (digest.algorithm !== "sha256" || !/^[a-f0-9]{64}$/.test(digest.value)) {
+    throw new CaptureApiError("Cannot upload an invalid SHA-256 digest.", "invalid_response", false);
+  }
+  const digestBytes = new Uint8Array(32);
+  for (let index = 0; index < digestBytes.length; index += 1) {
+    digestBytes[index] = Number.parseInt(digest.value.slice(index * 2, index * 2 + 2), 16);
+  }
+  let binary = "";
+  for (const byte of digestBytes) binary += String.fromCharCode(byte);
+  return `sha-256=:${btoa(binary)}:`;
 }
 
 function describeProblem(problem: FEAPIProblem): string {
@@ -213,6 +282,41 @@ export class CaptureApi implements CaptureApiClient {
     }
     requireMatchingCaptureId(captureId, body.capture_id, "Capture status response");
     return body;
+  }
+
+  async uploadAsset(
+    endpoint: string,
+    captureId: string,
+    variant: FECaptureAssetVariant,
+    uploadHref: string,
+    bytes: Uint8Array,
+    mimeType: string,
+    digest: { algorithm: "sha256"; value: string },
+  ): Promise<void> {
+    const url = deriveAssetUploadUrl(endpoint, captureId, variant.client_variant_id, uploadHref);
+    const body = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+      ? bytes.buffer as ArrayBuffer
+      : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    const response = await fetchResponse(this.fetchImplementation, url, {
+      method: "PUT",
+      headers: { "Content-Type": mimeType, Digest: digestHeader(digest) },
+      body,
+      cache: "no-store",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+    });
+    if (!response.ok) {
+      const responseValue = await responseBody(response);
+      throw responseError(response, responseValue);
+    }
+    if (response.status !== 204) {
+      throw new CaptureApiError(
+        `Fragments Engine returned unexpected asset upload HTTP ${response.status}; expected 204.`,
+        "invalid_response",
+        false,
+        response.status,
+      );
+    }
   }
 
   async completeCapture(

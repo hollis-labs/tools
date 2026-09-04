@@ -2,6 +2,8 @@ import {
   assertFECaptureEnvelope,
   assertFECaptureManifestResponse,
   assertFECaptureStatus,
+  assertFEAssetOutcome,
+  type FEAssetOutcome,
   type FECaptureEnvelope,
   type FECaptureManifestResponse,
   type FECaptureStatus,
@@ -24,7 +26,7 @@ const JOB_PHASES = new Set<CaptureJobPhase>([
   "failed",
 ]);
 
-export type CaptureJobErrorStage = "preflight" | "reconcile" | "manifest" | "completion";
+export type CaptureJobErrorStage = "preflight" | "reconcile" | "manifest" | "transfer" | "completion";
 
 export interface CaptureJobError {
   stage: CaptureJobErrorStage;
@@ -35,8 +37,37 @@ export interface CaptureJobError {
   code?: string;
 }
 
+export type CaptureVariantTransferState =
+  | "pending"
+  | "transferring"
+  | "available"
+  | "reference_only"
+  | "failed";
+
+export interface CaptureVariantTransfer {
+  clientVariantId: string;
+  action: "request_upload" | "reuse_blob" | "server_acquire" | "reference_only" | "rejected";
+  state: CaptureVariantTransferState;
+  attempts: number;
+  updatedAt: string;
+  assetVariantId?: string;
+  sourceUrl?: string;
+  sourceOrigin?: string;
+  uploadUrl?: string;
+  expectedDigest?: { algorithm: "sha256"; value: string };
+  digest?: { algorithm: "sha256"; value: string };
+  byteSize?: number;
+  mimeType?: string;
+  observedMimeType?: string;
+  width?: number;
+  height?: number;
+  retryable?: boolean;
+  reason?: string;
+  outcome?: FEAssetOutcome;
+}
+
 export interface CaptureJobRecord {
-  schemaVersion: 1;
+  schemaVersion: 2;
   captureId: string;
   endpoint: string;
   principalId: string;
@@ -45,6 +76,9 @@ export interface CaptureJobRecord {
   phase: CaptureJobPhase;
   terminal: boolean;
   manifestAttempts: number;
+  permittedSourceOrigins: string[];
+  maxAssetBytes?: number;
+  transfers?: CaptureVariantTransfer[];
   createdAt: string;
   updatedAt: string;
   acceptance?: FECaptureManifestResponse;
@@ -88,11 +122,96 @@ function quotaExceeded(error: unknown): boolean {
   );
 }
 
-function decodeJob(value: unknown): CaptureJobRecord {
-  if (!value || typeof value !== "object") throw new Error("Stored capture job is not an object.");
-  const job = value as Partial<CaptureJobRecord>;
+function canonicalHttpOrigin(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      !url.username &&
+      !url.password &&
+      url.origin === value
+    );
+  } catch {
+    return false;
+  }
+}
+
+function migrateJob(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const job = value as { schemaVersion?: unknown; permittedSourceOrigins?: unknown };
+  if (job.schemaVersion !== 1) return value;
+  return {
+    ...job,
+    schemaVersion: 2,
+    permittedSourceOrigins: Array.isArray(job.permittedSourceOrigins)
+      ? job.permittedSourceOrigins
+      : [],
+  };
+}
+
+function validateTransfer(
+  transfer: CaptureVariantTransfer,
+  knownVariantIds: ReadonlySet<string>,
+): void {
   if (
-    job.schemaVersion !== 1 ||
+    !transfer ||
+    typeof transfer !== "object" ||
+    typeof transfer.clientVariantId !== "string" ||
+    !knownVariantIds.has(transfer.clientVariantId) ||
+    !["request_upload", "reuse_blob", "server_acquire", "reference_only", "rejected"].includes(transfer.action) ||
+    !["pending", "transferring", "available", "reference_only", "failed"].includes(transfer.state) ||
+    !Number.isSafeInteger(transfer.attempts) ||
+    transfer.attempts < 0 ||
+    typeof transfer.updatedAt !== "string" ||
+    Number.isNaN(Date.parse(transfer.updatedAt))
+  ) {
+    throw new Error("Stored capture variant transfer metadata is invalid.");
+  }
+  for (const identifier of [transfer.assetVariantId, transfer.sourceUrl, transfer.sourceOrigin, transfer.uploadUrl, transfer.mimeType, transfer.observedMimeType, transfer.reason]) {
+    if (identifier !== undefined && (typeof identifier !== "string" || !identifier.trim())) {
+      throw new Error("Stored capture variant transfer strings are invalid.");
+    }
+  }
+  if (transfer.sourceOrigin !== undefined && !canonicalHttpOrigin(transfer.sourceOrigin)) {
+    throw new Error("Stored capture variant transfer origin is unsafe.");
+  }
+  if (transfer.byteSize !== undefined && (!Number.isSafeInteger(transfer.byteSize) || transfer.byteSize < 0)) {
+    throw new Error("Stored capture variant transfer byte size is invalid.");
+  }
+  for (const dimension of [transfer.width, transfer.height]) {
+    if (dimension !== undefined && (!Number.isSafeInteger(dimension) || dimension < 1)) {
+      throw new Error("Stored capture variant transfer dimensions are invalid.");
+    }
+  }
+  for (const digest of [transfer.expectedDigest, transfer.digest]) {
+    if (digest !== undefined && (digest.algorithm !== "sha256" || !/^[a-f0-9]{64}$/.test(digest.value))) {
+      throw new Error("Stored capture variant transfer digest is invalid.");
+    }
+  }
+  if (transfer.retryable !== undefined && typeof transfer.retryable !== "boolean") {
+    throw new Error("Stored capture variant transfer retry state is invalid.");
+  }
+  if (transfer.outcome) {
+    assertFEAssetOutcome(transfer.outcome);
+    if (transfer.outcome.client_variant_id !== transfer.clientVariantId) {
+      throw new Error("Stored capture variant outcome belongs to another variant.");
+    }
+  }
+  if (
+    (["available", "reference_only"].includes(transfer.state) && !transfer.outcome) ||
+    (transfer.state === "failed" && (!transfer.outcome || !transfer.reason)) ||
+    (["pending", "transferring"].includes(transfer.state) && transfer.outcome)
+  ) {
+    throw new Error("Stored capture variant state and outcome are inconsistent.");
+  }
+}
+
+function decodeJob(value: unknown): CaptureJobRecord {
+  const migrated = migrateJob(value);
+  if (!migrated || typeof migrated !== "object") throw new Error("Stored capture job is not an object.");
+  const job = migrated as Partial<CaptureJobRecord>;
+  if (
+    job.schemaVersion !== 2 ||
     typeof job.captureId !== "string" ||
     typeof job.endpoint !== "string" ||
     typeof job.principalId !== "string" ||
@@ -103,7 +222,12 @@ function decodeJob(value: unknown): CaptureJobRecord {
     !Number.isSafeInteger(job.manifestAttempts) ||
     (job.manifestAttempts ?? -1) < 0 ||
     typeof job.createdAt !== "string" ||
-    typeof job.updatedAt !== "string"
+    typeof job.updatedAt !== "string" ||
+    !Array.isArray(job.permittedSourceOrigins) ||
+    !job.permittedSourceOrigins.every((origin) => typeof origin === "string" && canonicalHttpOrigin(origin)) ||
+    new Set(job.permittedSourceOrigins).size !== job.permittedSourceOrigins.length ||
+    (job.maxAssetBytes !== undefined && (!Number.isSafeInteger(job.maxAssetBytes) || job.maxAssetBytes < 1)) ||
+    (job.transfers !== undefined && !Array.isArray(job.transfers))
   ) {
     throw new Error("Stored capture job metadata is incomplete.");
   }
@@ -160,7 +284,7 @@ function decodeJob(value: unknown): CaptureJobRecord {
   }
   if (job.error) {
     if (
-      !["preflight", "reconcile", "manifest", "completion"].includes(job.error.stage) ||
+      !["preflight", "reconcile", "manifest", "transfer", "completion"].includes(job.error.stage) ||
       typeof job.error.message !== "string" ||
       !job.error.message.trim() ||
       typeof job.error.retryable !== "boolean" ||
@@ -174,6 +298,17 @@ function decodeJob(value: unknown): CaptureJobRecord {
         (typeof job.error.code !== "string" || !job.error.code.trim()))
     ) {
       throw new Error("Stored capture job error is invalid.");
+    }
+  }
+  if (job.transfers) {
+    const knownVariantIds = new Set(job.envelope.media.flatMap((media) => media.variants.map((variant) => variant.client_variant_id)));
+    const seen = new Set<string>();
+    for (const transfer of job.transfers) {
+      validateTransfer(transfer, knownVariantIds);
+      if (seen.has(transfer.clientVariantId)) {
+        throw new Error("Stored capture job has duplicate variant transfer state.");
+      }
+      seen.add(transfer.clientVariantId);
     }
   }
   return job as CaptureJobRecord;
