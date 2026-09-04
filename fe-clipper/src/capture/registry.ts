@@ -2,6 +2,7 @@ import { genericPageCaptureAdapter } from "./adapters/generic";
 import { instagramPageCaptureAdapter } from "./adapters/instagram";
 import { pinterestPageCaptureAdapter } from "./adapters/pinterest";
 import { redditPageCaptureAdapter } from "./adapters/reddit";
+import { twitterPageCaptureAdapter } from "./adapters/twitter";
 import { youtubePageCaptureAdapter } from "./adapters/youtube";
 import {
   ADAPTER_MATCH_CONFIDENCE,
@@ -164,8 +165,42 @@ export class PageCaptureAdapterRegistry {
     };
   }
 
-  capture(context: PageCaptureContext): PageCaptureResult {
+  /**
+   * Runs the selected adapter's optional pre-pass and returns the warnings it
+   * produced, which the caller passes back into `capture`.
+   *
+   * This is separate from `capture` so the synchronous capture path stays
+   * synchronous for every caller that does not need a pre-pass, including the
+   * fixture-driven test and conformance suites.
+   */
+  async prepare(context: PageCaptureContext): Promise<readonly AdapterExtractionWarning[]> {
     const selection = this.select(context);
+    if (!selection.adapter.prepare) return [];
+    try {
+      return (await selection.adapter.prepare(context)) ?? [];
+    } catch (error) {
+      return [
+        {
+          code: "registry.adapter_prepare_failed",
+          severity: "warning",
+          stage: "matching",
+          message: `Adapter "${selection.adapter.id}" could not prepare this page; captured what it had already rendered. ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        },
+      ];
+    }
+  }
+
+  capture(
+    context: PageCaptureContext,
+    preparedWarnings: readonly AdapterExtractionWarning[] = [],
+  ): PageCaptureResult {
+    const selected = this.select(context);
+    const selection: AdapterSelection = {
+      ...selected,
+      warnings: [...selected.warnings, ...preparedWarnings],
+    };
 
     try {
       return executeAdapter(
@@ -262,5 +297,6 @@ export const pageCaptureAdapterRegistry = new PageCaptureAdapterRegistry([
   instagramPageCaptureAdapter,
   pinterestPageCaptureAdapter,
   redditPageCaptureAdapter,
+  twitterPageCaptureAdapter,
   youtubePageCaptureAdapter,
 ]);

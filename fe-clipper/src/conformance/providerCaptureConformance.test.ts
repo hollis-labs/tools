@@ -447,6 +447,19 @@ describe("cross-provider capture conformance", () => {
       expect(envelope.extraction.observed_capabilities).not.toContain("provider_metadata");
     }
 
+    if (scenario.adapter === "twitter") {
+      const twitterExtension = envelope.document.extensions?.["provider.twitter"] as
+        | { data?: { replies?: unknown[]; root?: unknown; scrollHarvested?: boolean } }
+        | undefined;
+      expect(twitterExtension?.data?.root).toBeDefined();
+      expect(twitterExtension?.data?.replies?.length).toBeGreaterThan(0);
+      // Conformance reads a static fixture, so no walk ran; the flag has to
+      // say so or a sparse capture would look like a sparse conversation.
+      expect(twitterExtension?.data?.scrollHarvested).toBe(false);
+      expect(envelope.extraction.extensions?.["provider.twitter"]).toBeUndefined();
+      expect(envelope.document.content?.body).toContain("## Replies");
+    }
+
     if (scenario.adapter === "youtube") {
       const automaticVideoBytes = envelope.media
         .filter((media) => media.kind === "video")

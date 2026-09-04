@@ -7,6 +7,13 @@
 // third-party libraries (Readability, Turndown) has to run via a `files`
 // injection like this one instead.
 //
+// Capture completes asynchronously because an adapter may need a pre-pass
+// before the page holds what it claims to show; X mounts conversation replies
+// only near the viewport, so its adapter walks the thread first. The readback
+// therefore polls, and the synchronous prelude below clears any previous
+// result so that poll can never observe a stale capture from an earlier
+// injection into this same tab.
+//
 // This file must stay a fully self-contained bundle (no runtime imports of
 // its own) since it's injected as a classic content-script file, not loaded
 // as an ES module.
@@ -25,21 +32,29 @@ declare global {
   }
 }
 
+// Synchronous prelude. `executeScript({files})` resolves once this runs, so
+// the popup can rely on the stale result being gone before it starts polling.
+delete window.__FE_CLIPPER_CAPTURE__;
+
 function captureContext(): PageCaptureContext {
   return {
     document,
     location: toPageCaptureLocation(window.location.href),
+    // Read before any pre-pass: scrolling the page can collapse the selection.
     selectionText: window.getSelection()?.toString() ?? "",
   };
 }
 
 const context = captureContext();
 
-try {
-  window.__FE_CLIPPER_CAPTURE__ = pageCaptureAdapterRegistry.capture(context);
-} catch (err) {
-  window.__FE_CLIPPER_CAPTURE__ = createFailedPageCapture(
-    context,
-    err instanceof Error ? err.message : String(err),
-  );
-}
+void (async () => {
+  try {
+    const prepared = await pageCaptureAdapterRegistry.prepare(context);
+    window.__FE_CLIPPER_CAPTURE__ = pageCaptureAdapterRegistry.capture(context, prepared);
+  } catch (err) {
+    window.__FE_CLIPPER_CAPTURE__ = createFailedPageCapture(
+      context,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+})();

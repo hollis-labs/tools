@@ -56,6 +56,12 @@ rendered the page, so the extension just reads it.
   FE keeps as fragment metadata. Capture reads the rendered DOM only, so replies still collapsed
   behind "load more" are reported by a `reddit.comments_unexpanded` warning rather than assumed
   absent; expand what you want before clipping.
+- **X/Twitter:** the status you clipped plus its replies. X mounts replies only near the
+  viewport, so the adapter walks the conversation first — the page visibly scrolls and is then
+  returned to where you left it. The walk stops on the first of a time, step, or
+  no-new-replies budget, and `twitter.scroll_budget_exhausted` says so when a budget ended it
+  rather than the conversation. Replies land in the body as a `## Replies` section and in the
+  `provider.twitter` document extension, the same split Reddit uses.
 - **Other pages:** the generic Readability/Turndown path plus meaningful hero/inline images,
   selection, note, and tags.
 

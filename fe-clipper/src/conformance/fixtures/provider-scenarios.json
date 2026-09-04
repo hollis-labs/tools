@@ -216,5 +216,27 @@
     "body_includes": "**u/torch_and_tongs**",
     "media": [],
     "warning_codes": ["reddit.comments_unexpanded"]
+  },
+  {
+    "id": "twitter-conversation",
+    "fixture": "twitter/fixtures/conversation.html",
+    "url": "https://fixture-user:fixture-password@x.com/ada_builds/status/1830000000000000001?utm_source=conformance&access_token=QUERY_CREDENTIAL#session_token=FRAGMENT_CREDENTIAL",
+    "adapter": "twitter",
+    "provider": "twitter",
+    "selection": "Drain the queue first.",
+    "body_includes": "**Grace in SRE** (@queue_sre)",
+    "media": [],
+    "warning_codes": []
+  },
+  {
+    "id": "twitter-unrendered-replies",
+    "fixture": "twitter/fixtures/unrendered-replies.html",
+    "url": "https://twitter.com/rin_writes/status/1840000000000000001",
+    "adapter": "twitter",
+    "provider": "twitter",
+    "selection": "A plural name is a promise.",
+    "body_includes": "@typed_thoughts",
+    "media": [],
+    "warning_codes": ["twitter.replies_unrendered"]
   }
 ]

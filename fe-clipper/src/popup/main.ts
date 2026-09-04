@@ -12,6 +12,14 @@ import { acceptedCaptureNotice, scheduleAcceptedPopupClose } from "./lifecycle";
 import { CaptureActionState, CaptureMutationGuard } from "./captureActionState";
 import { dispatchExistingCaptureRetry } from "./startRetry";
 
+/**
+ * Ceiling for in-page extraction. It must clear the X adapter's own scroll
+ * budget with room to spare, or a long conversation would time out here after
+ * the walk had already succeeded.
+ */
+const CAPTURE_TIMEOUT_MS = 45_000;
+const CAPTURE_POLL_MS = 150;
+
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const copyErrorButton = document.getElementById("copy-error-button") as HTMLButtonElement;
 const formEl = document.getElementById("clip-form") as HTMLFormElement;
@@ -108,16 +116,30 @@ async function refreshJobs(reportFailure = false, afterCurrent = false): Promise
   }
 }
 
+/**
+ * Capture finishes asynchronously in the page, because an adapter may walk a
+ * virtualized list before reading it. The content script clears the previous
+ * result in its synchronous prelude, so a defined value here is always this
+ * capture's own.
+ */
 async function captureActiveTab(): Promise<CapturedPage> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) throw new Error("No active tab to capture.");
-  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content-script.js"] });
-  const [{ result } = { result: undefined }] = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    func: () => window.__FE_CLIPPER_CAPTURE__,
-  });
-  if (!result) throw new Error("Capture failed: the content script returned nothing.");
-  return result;
+  const tabId = tab.id;
+  await chrome.scripting.executeScript({ target: { tabId }, files: ["content-script.js"] });
+
+  const deadline = Date.now() + CAPTURE_TIMEOUT_MS;
+  for (;;) {
+    const [{ result } = { result: undefined }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => window.__FE_CLIPPER_CAPTURE__,
+    });
+    if (result) return result;
+    if (Date.now() >= deadline) {
+      throw new Error("the page did not finish extracting in time.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, CAPTURE_POLL_MS));
+  }
 }
 
 async function runCapture() {

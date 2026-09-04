@@ -276,3 +276,80 @@ describe("PageCaptureAdapterRegistry result", () => {
     expect(JSON.stringify(result)).not.toContain("fragment-secret");
   });
 });
+
+describe("adapter pre-pass", () => {
+  it("runs only the selected adapter's pre-pass", async () => {
+    const ran: string[] = [];
+    const registry = new PageCaptureAdapterRegistry([
+      makeAdapter("weak", ADAPTER_MATCH_CONFIDENCE.possible, {
+        prepare: async () => {
+          ran.push("weak");
+        },
+      }),
+      makeAdapter("strong", ADAPTER_MATCH_CONFIDENCE.exact, {
+        prepare: async () => {
+          ran.push("strong");
+        },
+      }),
+    ]);
+
+    await registry.prepare(makeContext());
+    expect(ran).toEqual(["strong"]);
+  });
+
+  it("is a no-op for adapters that declare no pre-pass", async () => {
+    const registry = new PageCaptureAdapterRegistry([
+      makeAdapter("plain", ADAPTER_MATCH_CONFIDENCE.exact),
+    ]);
+    await expect(registry.prepare(makeContext())).resolves.toEqual([]);
+  });
+
+  it("contains a failing pre-pass rather than losing the capture", async () => {
+    const registry = new PageCaptureAdapterRegistry([
+      makeAdapter("scroller", ADAPTER_MATCH_CONFIDENCE.exact, {
+        prepare: async () => {
+          throw new Error("the page navigated away mid-walk");
+        },
+      }),
+    ]);
+    const context = makeContext();
+
+    const warnings = await registry.prepare(context);
+    expect(warnings.map((warning) => warning.code)).toEqual([
+      "registry.adapter_prepare_failed",
+    ]);
+    expect(warnings[0]?.message).toContain("navigated away mid-walk");
+
+    // The capture still happens, carrying the pre-pass warning with it.
+    const result = registry.capture(context, warnings);
+    expect(result.adapter.id).toBe("scroller");
+    expect(result.warnings.map((warning) => warning.code)).toContain(
+      "registry.adapter_prepare_failed",
+    );
+  });
+
+  it("threads pre-pass warnings through a generic fallback", async () => {
+    const registry = new PageCaptureAdapterRegistry([
+      makeAdapter("broken", ADAPTER_MATCH_CONFIDENCE.exact, {
+        prepare: async () => [
+          {
+            code: "provider.prepare_partial",
+            severity: "info" as const,
+            stage: "matching" as const,
+            message: "Only part of the page was revealed.",
+          },
+        ],
+        extractDocument: () => {
+          throw new Error("extraction failed");
+        },
+      }),
+    ]);
+    const context = makeContext();
+
+    const result = registry.capture(context, await registry.prepare(context));
+    const codes = result.warnings.map((warning) => warning.code);
+    expect(result.adapter.usedGenericFallback).toBe(true);
+    expect(codes).toContain("provider.prepare_partial");
+    expect(codes).toContain("registry.adapter_extraction_failed");
+  });
+});

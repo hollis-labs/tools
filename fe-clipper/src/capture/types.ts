@@ -181,6 +181,21 @@ export interface PageCaptureAdapter {
   readonly id: string;
   readonly version: string;
   matches(context: PageCaptureContext): AdapterMatchConfidence;
+  /**
+   * Optional asynchronous pre-pass for pages that do not have their content in
+   * the DOM yet, run only for the selected adapter before the synchronous
+   * stages below.
+   *
+   * The extraction stages stay synchronous on purpose: they are pure
+   * observations of a settled DOM, which is what makes them testable against
+   * static fixtures. An adapter that needs to make the page reveal more first
+   * — a virtualized list that mounts rows only near the viewport, say — does
+   * that here and leaves the result where its own stages can read it.
+   *
+   * A failed pre-pass is never fatal. The registry captures whatever the page
+   * already had and records a warning.
+   */
+  prepare?(context: PageCaptureContext): Promise<readonly AdapterExtractionWarning[] | void>;
   identify(
     context: PageCaptureContext,
   ): AdapterStageResult<AdapterCanonicalIdentityObservation>;
