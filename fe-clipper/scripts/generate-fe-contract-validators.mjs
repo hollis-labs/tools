@@ -75,10 +75,12 @@ for (const reference of Object.values(exportsByName)) {
 function convertStandaloneRequiresToEsm(source) {
   let converted = source.replace(
     /const ([A-Za-z_$][A-Za-z0-9_$]*) = require\("([^"]+)"\)\.default;/gu,
-    (_match, identifier, specifier) => `import ${identifier} from "${specifier}.js";`,
+    (_match, identifier, specifier) =>
+      `import * as ${identifier}Module from "${specifier}.js";\n` +
+      `const ${identifier} = ${identifier}Module.default?.default ?? ${identifier}Module.default;`,
   );
   if (converted.includes('require("ajv-formats/dist/formats").fullFormats')) {
-    converted = `import formatsModule from "ajv-formats/dist/formats.js";\n${converted.replaceAll(
+    converted = `import * as formatsModule from "ajv-formats/dist/formats.js";\n${converted.replaceAll(
       'require("ajv-formats/dist/formats").fullFormats',
       "formatsModule.fullFormats",
     )}`;
