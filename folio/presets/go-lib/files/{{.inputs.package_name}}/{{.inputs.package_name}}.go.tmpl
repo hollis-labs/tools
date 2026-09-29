@@ -1,3 +1,4 @@
+{{ if eq .inputs.package_layout "subdir" -}}
 package {{ .inputs.package_name }}
 
 // Hello returns a greeting from the {{ .inputs.package_name }} package.
@@ -8,3 +9,4 @@ package {{ .inputs.package_name }}
 func Hello() string {
 	return "hello from {{ .inputs.package_name }}"
 }
+{{ end -}}
