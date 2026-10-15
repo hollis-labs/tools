@@ -1,0 +1,4 @@
+- [x] Catalogue desired artefacts from `PROJECT.md` and stakeholder notes
+- [x] Select MVP output files with acceptance criteria
+- [x] Map each artefact to data sources/commands the tool must call
+- [x] Publish MVP output specification and enhancement roadmap

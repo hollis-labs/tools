@@ -1,0 +1,226 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+use LaravelContextPack\Generator\AbstractGenerator;
+
+/**
+ * {{ class }} - {{ description }}.
+ *
+ * This generator analyzes your Laravel project and generates documentation
+ * for {{ generator_name }}.
+ *
+ * Usage:
+ * - The generator will scan relevant files in your project
+ * - Parse and analyze the data
+ * - Generate a markdown documentation file
+ * - Log all operations for debugging
+ *
+ * Configuration:
+ * You can customize this generator's behavior by implementing getConfigSchema()
+ * and reading config values in the generate() method.
+ */
+final class {{ class }} extends AbstractGenerator
+{
+    /**
+     * {@inheritdoc}
+     */
+    public function getName(): string
+    {
+        return '{{ generator_name }}';
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function getDescription(): string
+    {
+        return '{{ description }}';
+    }
+
+    /**
+     * {@inheritdoc}
+     *
+     * @param string $projectPath Absolute path to the Laravel project root
+     * @param string $outputPath Absolute path to the output directory
+     *
+     * @return array{status: string, message: string, ...} Result with status and message
+     */
+    public function generate(string $projectPath, string $outputPath): array
+    {
+        $outputFile = $outputPath . '/{{ generator_name }}.md';
+        $logFile = $outputPath . '/logs/{{ generator_name }}.log';
+
+        $this->appendLog($logFile, '[' . $this->now() . '] Generation started for {{ generator_name }}');
+
+        try {
+            // TODO: Step 1 - Scan and discover files
+            // Example: Find all controllers, models, config files, etc.
+            // $files = $this->discoverFiles($projectPath);
+            // $this->appendLog($logFile, sprintf('Found %d files to process', count($files)));
+
+            // TODO: Step 2 - Parse and analyze the files
+            // Example: Extract data from files, parse PHP code, read configs
+            // $data = $this->parseFiles($files);
+
+            // TODO: Step 3 - Transform data into documentation format
+            // Example: Build markdown sections, format data
+            // $documentation = $this->buildDocumentation($data);
+
+            // TODO: Step 4 - Write output file
+            // Example implementation:
+            $content = $this->buildMarkdown($projectPath);
+
+            $this->filesystem->dumpFile($outputFile, $content);
+
+            $this->appendLog($logFile, '[' . $this->now() . '] Documentation written to ' . $outputFile);
+
+            return [
+                'status' => 'success',
+                'message' => '{{ description }} completed successfully',
+                'outputFile' => $outputFile,
+                'itemsProcessed' => 0, // TODO: Add actual count
+            ];
+        } catch (\Exception $e) {
+            $this->appendLog($logFile, '[' . $this->now() . '] ERROR: ' . $e->getMessage());
+
+            return [
+                'status' => 'failure',
+                'message' => 'Failed to generate {{ generator_name }}: ' . $e->getMessage(),
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * {@inheritdoc}
+     *
+     * Check if this generator can run on the given project.
+     * Return false if required files/directories are missing.
+     */
+    public function canRun(string $projectPath): bool
+    {
+        // TODO: Add pre-run checks
+        //
+        // Examples:
+        // - Check if required directories exist
+        // - Verify necessary files are present
+        // - Validate project structure
+        //
+        // return $this->isDirectoryAccessible($projectPath . '/app/Http/Controllers');
+        // return $this->isFileAccessible($projectPath . '/config/app.php');
+
+        return true;
+    }
+
+    /**
+     * {@inheritdoc}
+     *
+     * Define configuration schema for this generator.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public function getConfigSchema(): array
+    {
+        // TODO: Define configuration options if needed
+        //
+        // Example:
+        // return [
+        //     'include_examples' => [
+        //         'type' => 'boolean',
+        //         'default' => true,
+        //         'description' => 'Include code examples in documentation'
+        //     ],
+        //     'output_format' => [
+        //         'type' => 'string',
+        //         'default' => 'markdown',
+        //         'enum' => ['markdown', 'html', 'json'],
+        //         'description' => 'Output format for documentation'
+        //     ],
+        //     'max_depth' => [
+        //         'type' => 'integer',
+        //         'default' => 3,
+        //         'description' => 'Maximum directory depth to scan'
+        //     ],
+        // ];
+
+        return [];
+    }
+
+    // -------------------------------------------------------------------------
+    // Private Helper Methods (TODO: Implement your custom logic)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Build the markdown documentation content.
+     *
+     * TODO: Implement this method with your custom logic.
+     */
+    private function buildMarkdown(string $projectPath): string
+    {
+        $lines = [];
+        $lines[] = '# {{ description }}';
+        $lines[] = '';
+        $lines[] = '*Generated at:* ' . $this->now();
+        $lines[] = '*Project:* ' . basename($projectPath);
+        $lines[] = '';
+        $lines[] = '## Overview';
+        $lines[] = '';
+        $lines[] = 'TODO: Add your generated content here.';
+        $lines[] = '';
+        $lines[] = '## Details';
+        $lines[] = '';
+        $lines[] = 'This is a placeholder. Implement your custom documentation logic.';
+        $lines[] = '';
+
+        return implode(PHP_EOL, $lines);
+    }
+
+    /**
+     * Example: Discover relevant files to process.
+     *
+     * TODO: Uncomment and implement if needed.
+     *
+     * @return list<string>
+     */
+    // private function discoverFiles(string $projectPath): array
+    // {
+    //     $files = [];
+    //
+    //     // Example: Find all PHP files in a directory
+    //     $finder = new \Symfony\Component\Finder\Finder();
+    //     $finder->files()
+    //         ->in($projectPath . '/app')
+    //         ->name('*.php')
+    //         ->sortByName();
+    //
+    //     foreach ($finder as $file) {
+    //         $files[] = $file->getRealPath();
+    //     }
+    //
+    //     return $files;
+    // }
+
+    /**
+     * Example: Parse data from files.
+     *
+     * TODO: Uncomment and implement if needed.
+     *
+     * @param list<string> $files
+     * @return array<string, mixed>
+     */
+    // private function parseFiles(array $files): array
+    // {
+    //     $data = [];
+    //
+    //     foreach ($files as $file) {
+    //         // Parse file content
+    //         // Extract relevant data
+    //         // Store in $data array
+    //     }
+    //
+    //     return $data;
+    // }
+}

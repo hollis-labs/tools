@@ -1,0 +1,242 @@
+[
+  {
+    "id": "pinterest-image-pin",
+    "fixture": "pinterest/fixtures/complete.html",
+    "url": "https://fixture-user:fixture-password@m.pinterest.com/pin/104427285104852001/?utm_source=conformance&access_token=QUERY_CREDENTIAL#section=details&session_token=FRAGMENT_CREDENTIAL",
+    "adapter": "pinterest",
+    "provider": "pinterest",
+    "selection": "Keep the drainage advice.",
+    "body_includes": "containers with drainage",
+    "media": [
+      { "kind": "image", "role": "primary", "variants": ["original", "thumbnail"] }
+    ],
+    "warning_codes": []
+  },
+  {
+    "id": "pinterest-partial-image",
+    "fixture": "pinterest/fixtures/partial.html",
+    "url": "https://www.pinterest.com/pin/440336776902815005/",
+    "adapter": "pinterest",
+    "provider": "pinterest",
+    "selection": "Keep the partial pin context.",
+    "body_includes": "partial",
+    "media": [
+      { "kind": "image", "role": "primary", "variants": ["original"] }
+    ],
+    "warning_codes": [
+      "pinterest.page_state_invalid",
+      "pinterest.json_ld_invalid",
+      "pinterest.thumbnail_missing",
+      "pinterest.original_dimensions_missing"
+    ]
+  },
+  {
+    "id": "pinterest-sparse",
+    "fixture": "pinterest/fixtures/sparse.html",
+    "url": "https://www.pinterest.com/pin/220113869289381002/",
+    "adapter": "pinterest",
+    "provider": "pinterest",
+    "selection": "Keep the sparse pin context.",
+    "body_includes": "sparse pin page",
+    "media": [],
+    "warning_codes": ["pinterest.primary_media_missing", "pinterest.metadata_sparse"]
+  },
+  {
+    "id": "instagram-image",
+    "fixture": "instagram/fixtures/image-post.html",
+    "url": "https://fixture-user:fixture-password@m.instagram.com/p/IMAGE123/?igsh=tracking&access_token=QUERY_CREDENTIAL#comments&session_token=FRAGMENT_CREDENTIAL",
+    "adapter": "instagram",
+    "provider": "instagram",
+    "selection": "Keep this highlighted detail.",
+    "body_includes": "synthetic post description",
+    "media": [
+      { "kind": "image", "role": "primary", "variants": ["original", "thumbnail"] }
+    ],
+    "warning_codes": []
+  },
+  {
+    "id": "instagram-video",
+    "fixture": "instagram/fixtures/reel-video.html",
+    "url": "https://www.instagram.com/reels/REEL456/?utm_medium=copy_link",
+    "adapter": "instagram",
+    "provider": "instagram",
+    "selection": "Keep the reel description.",
+    "body_includes": "synthetic reel page",
+    "media": [
+      { "kind": "video", "role": "primary", "variants": ["stream_reference", "poster"] }
+    ],
+    "warning_codes": []
+  },
+  {
+    "id": "instagram-credential-boundary",
+    "fixture": "instagram/fixtures/credential-exclusion.html",
+    "url": "https://TEST_ONLY_PAGE_USER_MUST_NOT_LEAK:TEST_ONLY_PAGE_PASSWORD_MUST_NOT_LEAK@www.instagram.com/p/SAFE999/?igsh=SHARE_CONTEXT_RETAINED&access_token=TEST_ONLY_PAGE_QUERY_TOKEN_MUST_NOT_LEAK#comments",
+    "adapter": "instagram",
+    "provider": "instagram",
+    "selection": "Keep the safe normalized observation.",
+    "body_includes": "credential-boundary post",
+    "media": [
+      { "kind": "image", "role": "primary", "variants": ["original", "thumbnail"] }
+    ],
+    "warning_codes": []
+  },
+  {
+    "id": "instagram-mixed-gallery",
+    "fixture": "instagram/fixtures/mixed-carousel.html",
+    "url": "https://www.instagram.com/p/MIXED789/",
+    "adapter": "instagram",
+    "provider": "instagram",
+    "selection": "Keep the gallery order.",
+    "body_includes": "synthetic carousel",
+    "media": [
+      { "kind": "image", "role": "gallery_item", "variants": ["original", "thumbnail"] },
+      { "kind": "video", "role": "gallery_item", "variants": ["stream_reference", "poster"] },
+      { "kind": "image", "role": "gallery_item", "variants": ["original", "thumbnail"] }
+    ],
+    "warning_codes": []
+  },
+  {
+    "id": "instagram-sparse-gallery",
+    "fixture": "instagram/fixtures/sparse-carousel.html",
+    "url": "https://www.instagram.com/p/SPARSE01/",
+    "adapter": "instagram",
+    "provider": "instagram",
+    "selection": "Keep the sparse gallery context.",
+    "body_includes": "synthetic sparse carousel",
+    "media": [
+      { "kind": "image", "role": "gallery_item", "variants": ["original"] },
+      { "kind": "other", "role": "gallery_item", "variants": [] },
+      { "kind": "video", "role": "gallery_item", "variants": ["poster"] }
+    ],
+    "warning_codes": [
+      "instagram.image_thumbnail_missing",
+      "instagram.media_item_unsupported",
+      "instagram.video_stream_missing"
+    ]
+  },
+  {
+    "id": "youtube-with-captions",
+    "fixture": "youtube/fixtures/watch-captions.html",
+    "url": "https://fixture-user:fixture-password@www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s&access_token=QUERY_CREDENTIAL#chapter=two&session_token=FRAGMENT_CREDENTIAL",
+    "adapter": "youtube",
+    "provider": "youtube",
+    "selection": "highlighted rendered words",
+    "body_includes": "Readable video page",
+    "media": [
+      {
+        "kind": "video",
+        "role": "primary",
+        "variants": [
+          "stream_reference",
+          "poster",
+          "poster",
+          "poster",
+          "subtitles",
+          "subtitles"
+        ]
+      }
+    ],
+    "warning_codes": ["youtube.caption_url_rejected"]
+  },
+  {
+    "id": "youtube-without-captions",
+    "fixture": "youtube/fixtures/share-no-captions.html",
+    "url": "https://youtu.be/aqz-KE-bpKQ?si=fixture",
+    "adapter": "youtube",
+    "provider": "youtube",
+    "selection": "Keep the public video context.",
+    "body_includes": "share URL",
+    "media": [
+      { "kind": "video", "role": "primary", "variants": ["stream_reference", "poster"] }
+    ],
+    "warning_codes": ["youtube.captions_unavailable"]
+  },
+  {
+    "id": "youtube-sparse-malformed",
+    "fixture": "youtube/fixtures/shorts-sparse-malformed.html",
+    "url": "https://www.youtube.com/shorts/M7lc1UVf-VE?feature=share",
+    "adapter": "youtube",
+    "provider": "youtube",
+    "selection": "Keep the sparse Shorts context.",
+    "body_includes": "sparse Shorts page",
+    "media": [
+      { "kind": "video", "role": "primary", "variants": ["stream_reference"] }
+    ],
+    "warning_codes": [
+      "youtube.posters_unavailable",
+      "youtube.captions_unavailable",
+      "youtube.serialized_state_malformed",
+      "youtube.metadata_sparse"
+    ]
+  },
+  {
+    "id": "generic-article-with-media",
+    "fixture": "fixtures/generic/article-media.html",
+    "url": "https://fixture-user:fixture-password@news.example.test/read/story/index.html?campaign=kept&access_token=QUERY_CREDENTIAL#selection=kept&session_token=FRAGMENT_CREDENTIAL",
+    "adapter": "generic",
+    "provider": "web",
+    "selection": "Keep this selected observation.",
+    "body_includes": "Measurements",
+    "media": [
+      { "kind": "image", "role": "hero", "variants": ["original"] },
+      { "kind": "image", "role": "inline", "variants": ["original"] },
+      { "kind": "image", "role": "inline", "variants": ["original"] }
+    ],
+    "warning_codes": ["generic.media_sources_unusable"]
+  },
+  {
+    "id": "generic-article-without-media",
+    "fixture": "fixtures/generic/no-image.html",
+    "url": "https://example.test/text-only",
+    "adapter": "generic",
+    "provider": "web",
+    "selection": "Keep this text-only observation.",
+    "body_includes": "substantial readable article prose",
+    "media": [],
+    "warning_codes": []
+  },
+  {
+    "id": "reddit-shreddit-thread",
+    "fixture": "reddit/fixtures/shreddit-thread.html",
+    "url": "https://fixture-user:fixture-password@www.reddit.com/r/houseplants/comments/abc123/which_soil_mix_actually_drains/?utm_source=conformance&access_token=QUERY_CREDENTIAL#section=top&session_token=FRAGMENT_CREDENTIAL",
+    "adapter": "reddit",
+    "provider": "reddit",
+    "selection": "Keep the pumice ratio.",
+    "body_includes": "**u/bark_and_pumice**",
+    "media": [],
+    "warning_codes": []
+  },
+  {
+    "id": "reddit-old-thread-unexpanded",
+    "fixture": "reddit/fixtures/old-reddit-thread.html",
+    "url": "https://old.reddit.com/r/metalworking/comments/def456/best_way_to_anneal_brass/",
+    "adapter": "reddit",
+    "provider": "reddit",
+    "selection": "Dull red, then air cool.",
+    "body_includes": "**u/torch_and_tongs**",
+    "media": [],
+    "warning_codes": ["reddit.comments_unexpanded"]
+  },
+  {
+    "id": "twitter-conversation",
+    "fixture": "twitter/fixtures/conversation.html",
+    "url": "https://fixture-user:fixture-password@x.com/ada_builds/status/1830000000000000001?utm_source=conformance&access_token=QUERY_CREDENTIAL#session_token=FRAGMENT_CREDENTIAL",
+    "adapter": "twitter",
+    "provider": "twitter",
+    "selection": "Drain the queue first.",
+    "body_includes": "**Grace in SRE** (@queue_sre)",
+    "media": [],
+    "warning_codes": []
+  },
+  {
+    "id": "twitter-unrendered-replies",
+    "fixture": "twitter/fixtures/unrendered-replies.html",
+    "url": "https://twitter.com/rin_writes/status/1840000000000000001",
+    "adapter": "twitter",
+    "provider": "twitter",
+    "selection": "A plural name is a promise.",
+    "body_includes": "@typed_thoughts",
+    "media": [],
+    "warning_codes": ["twitter.replies_unrendered"]
+  }
+]

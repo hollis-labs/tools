@@ -1,0 +1,479 @@
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+
+import { describe, expect, it, vi } from "vitest";
+
+import type {
+  FECaptureCompletionRequest,
+  FECaptureEnvelope,
+  FECaptureManifestResponse,
+  FECaptureStatus,
+} from "@/contracts/fragmentsEngine";
+import {
+  assertCaptureManifestSemantics,
+  assertCaptureStatusSemantics,
+  CaptureApi,
+  CaptureApiError,
+  deriveAssetUploadUrl,
+  deriveCaptureManifestUrl,
+} from "./captureApi";
+
+const fixtureDirectory = resolve(
+  process.cwd(),
+  "vendor/fragments-engine-browser-contract-v1/fixtures",
+);
+
+function fixture<T>(name: string): T {
+  return JSON.parse(readFileSync(join(fixtureDirectory, name), "utf8")) as T;
+}
+
+function envelope(): FECaptureEnvelope {
+  return fixture<FECaptureEnvelope>("valid-capture-youtube.json");
+}
+
+function acceptance(replay = false): FECaptureManifestResponse {
+  const capture = envelope();
+  return {
+    schema_version: "fe.capture.result.v1",
+    capture_id: capture.capture_id,
+    fragment_id: "fragment-1",
+    fragment_revision_id: "revision-1",
+    capture_attempt_id: "attempt-1",
+    completion: "accepting",
+    idempotent_replay: replay,
+    asset_instructions: [
+      {
+        client_variant_id: "video:reference",
+        asset_variant_id: "variant-video",
+        action: "reference_only",
+      },
+      {
+        client_variant_id: "poster:maxresdefault",
+        asset_variant_id: "variant-poster",
+        action: "request_upload",
+        upload_href: `/v1/captures/${capture.capture_id}/assets/poster%3Amaxresdefault/content`,
+      },
+    ],
+    warnings: [],
+    reader_item: fixture("valid-reader-video.json"),
+  };
+}
+
+function status(completion: FECaptureStatus["completion"] = "accepting"): FECaptureStatus {
+  const accepted = acceptance();
+  return {
+    schema_version: "fe.capture.status.v1",
+    capture_id: accepted.capture_id,
+    fragment_id: accepted.fragment_id,
+    fragment_revision_id: accepted.fragment_revision_id,
+    capture_attempt_id: accepted.capture_attempt_id,
+    completion,
+    assets: [
+      { client_variant_id: "video:reference", outcome: "deferred" },
+      { client_variant_id: "poster:maxresdefault", outcome: "deferred" },
+    ],
+    enrichment_in_progress: false,
+    warnings: [],
+  };
+}
+
+function jsonResponse(body: unknown, statusCode = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status: statusCode,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function api(fetchImplementation: ConstructorParameters<typeof CaptureApi>[0]): CaptureApi {
+  return new CaptureApi(fetchImplementation, async () => true);
+}
+
+describe("capture API client", () => {
+  it("derives only the credential-free canonical manifest route", () => {
+    expect(
+      deriveCaptureManifestUrl("https://fe.example.test/old/path?token=secret#fragment"),
+    ).toBe("https://fe.example.test/v1/captures");
+    expect(() =>
+      deriveCaptureManifestUrl("https://user:secret@fe.example.test/v1/captures"),
+    ).toThrow(/credentials/);
+    expect(() => deriveCaptureManifestUrl("file:///tmp/fe")).toThrow(/http/);
+  });
+
+  it.each([
+    [201, false],
+    [200, true],
+  ])("submits valid manifests with HTTP %s replay=%s", async (httpStatus, replay) => {
+    const fetchImplementation = vi.fn(
+      async (_input: string | URL, _init?: RequestInit) =>
+        jsonResponse(acceptance(replay), httpStatus),
+    );
+    const client = api(fetchImplementation);
+
+    const result = await client.submitManifest(
+      "https://fe.example.test/configured?token=must-not-carry#secret",
+      envelope(),
+    );
+
+    expect(result.idempotent_replay).toBe(replay);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchImplementation.mock.calls[0]!;
+    expect(url).toBe("https://fe.example.test/v1/captures");
+    expect(init).toMatchObject({
+      method: "POST",
+      credentials: "omit",
+      cache: "no-store",
+      redirect: "error",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+    });
+    expect(JSON.stringify(init)).not.toMatch(/cookie|authorization|must-not-carry|secret/i);
+    expect(JSON.parse(String(init?.body))).toEqual(envelope());
+  });
+
+  it("rejects malformed and mismatched success responses", async () => {
+    const malformed = api(async () => jsonResponse({ capture_id: envelope().capture_id }, 201));
+    await expect(malformed.submitManifest("https://fe.test", envelope())).rejects.toMatchObject({
+      kind: "invalid_response",
+    });
+
+    const wrong = acceptance();
+    wrong.capture_id = "different-capture";
+    const mismatched = api(async () => jsonResponse(wrong, 201));
+    await expect(mismatched.submitManifest("https://fe.test", envelope())).rejects.toThrow(
+      /expected 01KCAPTURE/,
+    );
+  });
+
+  it("rejects schema-valid responses whose cross-object identities are inconsistent", async () => {
+    const cases: Array<[string, (value: FECaptureManifestResponse) => void]> = [
+      ["Reader fragment", (value) => { value.reader_item.fragment_id = "other-fragment"; }],
+      ["Reader principal", (value) => {
+        value.reader_item.reading_state.principal_id = "other-principal";
+      }],
+      ["Reader source", (value) => { value.reader_item.source.source_item_key = "youtube:other"; }],
+      ["asset-instruction", (value) => {
+        value.asset_instructions[0]!.client_variant_id = "video:other";
+      }],
+      ["asset variant", (value) => {
+        const instruction = value.asset_instructions[0]!;
+        if (instruction.action !== "reference_only") throw new Error("fixture changed");
+        instruction.asset_variant_id = "variant-other";
+      }],
+      ["attachment", (value) => {
+        value.reader_item.media[0]!.attachment.fragment_revision_id = "other-revision";
+      }],
+    ];
+
+    for (const [label, mutate] of cases) {
+      const response = structuredClone(acceptance());
+      mutate(response);
+      const client = api(async () => jsonResponse(response, 201));
+      await expect(client.submitManifest("https://fe.test", envelope()), label).rejects.toMatchObject({
+        kind: "invalid_response",
+        retryable: false,
+      });
+    }
+  });
+
+  it("accepts a stable-fragment Reader projection that retains an earlier submitted URL alias", async () => {
+    const recapture = envelope();
+    recapture.source.submitted_url = "https://youtu.be/3RmtNXqnreI?si=alternate";
+    const client = api(async () => jsonResponse(acceptance(), 201));
+
+    await expect(client.submitManifest("https://fe.test", recapture)).resolves.toMatchObject({
+      fragment_id: "fragment-1",
+      reader_item: {
+        source: { submitted_url: "https://www.youtube.com/watch?v=3RmtNXqnreI" },
+      },
+    });
+  });
+
+  it("accepts repeated gallery positions that share FE asset variants", () => {
+    const capture = envelope();
+    const repeatedMedia = structuredClone(capture.media[0]!);
+    repeatedMedia.client_media_id = "youtube:3RmtNXqnreI:repeat";
+    repeatedMedia.position = 1;
+    repeatedMedia.variants[0]!.client_variant_id = "video:reference:repeat";
+    repeatedMedia.variants[1]!.client_variant_id = "poster:maxresdefault:repeat";
+    capture.media.push(repeatedMedia);
+
+    const response = acceptance();
+    response.asset_instructions.push(
+      {
+        client_variant_id: "video:reference:repeat",
+        asset_variant_id: "variant-video",
+        action: "reference_only",
+      },
+      {
+        client_variant_id: "poster:maxresdefault:repeat",
+        asset_variant_id: "variant-poster",
+        action: "request_upload",
+        upload_href: `/v1/captures/${capture.capture_id}/assets/poster%3Amaxresdefault%3Arepeat/content`,
+      },
+    );
+    const repeatedReaderMedia = structuredClone(response.reader_item.media[0]!);
+    repeatedReaderMedia.attachment.attachment_id = "attachment-repeat";
+    repeatedReaderMedia.attachment.position = 1;
+    response.reader_item.media.push(repeatedReaderMedia);
+
+    expect(() => assertCaptureManifestSemantics(capture, response)).not.toThrow();
+
+    const duplicateAttachment = structuredClone(response);
+    duplicateAttachment.reader_item.media[1]!.attachment.attachment_id =
+      duplicateAttachment.reader_item.media[0]!.attachment.attachment_id;
+    expect(() => assertCaptureManifestSemantics(capture, duplicateAttachment)).toThrow(
+      /repeated attachment_id/,
+    );
+  });
+
+  it("still requires Reader attachment identity when every media instruction is rejected", () => {
+    const capture = envelope();
+    const response = acceptance();
+    response.asset_instructions = capture.media[0]!.variants.map((variant) => ({
+      client_variant_id: variant.client_variant_id,
+      action: "rejected" as const,
+      reason: "Deterministic rejection.",
+    }));
+    expect(() => assertCaptureManifestSemantics(capture, response)).not.toThrow();
+
+    const wrongProvider = structuredClone(response);
+    wrongProvider.reader_item.media[0]!.provider_media_id = "other-video";
+    expect(() => assertCaptureManifestSemantics(capture, wrongProvider)).toThrow(
+      /provider_media_id/,
+    );
+
+    const missingAttachment = structuredClone(response);
+    missingAttachment.reader_item.media = [];
+    expect(() => assertCaptureManifestSemantics(capture, missingAttachment)).toThrow(
+      /omitted envelope media position/,
+    );
+  });
+
+  it("rejects schema-valid status outcomes that do not cover the exact envelope variants", () => {
+    const response = status();
+    response.assets[0]!.client_variant_id = "video:other";
+    expect(() => assertCaptureStatusSemantics(envelope(), response)).toThrow(
+      /did not exactly match the capture envelope/,
+    );
+  });
+
+  it("returns typed 404/409 problems and never invents a replacement", async () => {
+    const problem = (statusCode: number, code: "not_found" | "conflict") => ({
+      type: "about:blank",
+      title: code === "not_found" ? "Capture not found" : "Capture conflict",
+      status: statusCode,
+      code,
+    });
+    const missing = api(async () => jsonResponse(problem(404, "not_found"), 404));
+    await expect(missing.getStatus("https://fe.test", envelope().capture_id)).rejects.toMatchObject({
+      kind: "not_found",
+      status: 404,
+    });
+
+    const conflict = api(async () => jsonResponse(problem(409, "conflict"), 409));
+    const error = await conflict
+      .submitManifest("https://fe.test", envelope())
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(CaptureApiError);
+    expect(error).toMatchObject({ kind: "conflict", retryable: false, status: 409 });
+
+    const malformed = api(async () => jsonResponse({ error: "gateway" }, 502));
+    await expect(malformed.getStatus("https://fe.test", envelope().capture_id)).rejects.toMatchObject({
+      kind: "invalid_response",
+      retryable: false,
+      status: 502,
+    });
+  });
+
+  it("requires exact 200 and valid stable IDs for status and completion", async () => {
+    const noContentStatus = api(async () => jsonResponse(status(), 201));
+    await expect(noContentStatus.getStatus("https://fe.test", envelope().capture_id)).rejects.toThrow(
+      /expected 200/,
+    );
+
+    const completion: FECaptureCompletionRequest = {
+      schema_version: "fe.capture.completion.v1",
+      idempotency_key: "completion-1",
+      assets: [],
+      warnings: [],
+    };
+    const wrongStatus = status("complete");
+    wrongStatus.capture_id = "wrong";
+    const mismatched = api(async () => jsonResponse(wrongStatus));
+    await expect(
+      mismatched.completeCapture("https://fe.test", envelope().capture_id, completion),
+    ).rejects.toThrow(/expected 01KCAPTURE/);
+
+    const wrongCompletionStatus = api(async () => jsonResponse(status("complete"), 201));
+    await expect(
+      wrongCompletionStatus.completeCapture(
+        "https://fe.test",
+        envelope().capture_id,
+        completion,
+      ),
+    ).rejects.toThrow(/completion HTTP 201; expected 200/);
+  });
+
+  it("semantically binds upload hrefs while accepting FE's real colon path form", () => {
+    const captureId = envelope().capture_id;
+    const endpoint = "https://fe.test/v1/captures";
+    expect(deriveAssetUploadUrl(
+      endpoint,
+      captureId,
+      "poster:maxresdefault",
+      `/v1/captures/${captureId}/assets/poster:maxresdefault/content`,
+    )).toBe(`https://fe.test/v1/captures/${captureId}/assets/poster:maxresdefault/content`);
+    expect(deriveAssetUploadUrl(
+      endpoint,
+      captureId,
+      "poster:maxresdefault",
+      `/v1/captures/${captureId}/assets/poster%3Amaxresdefault/content`,
+    )).toContain("poster%3Amaxresdefault/content");
+
+    for (const href of [
+      `https://evil.test/v1/captures/${captureId}/assets/poster:maxresdefault/content`,
+      `/v1/captures/${captureId}/assets/poster:maxresdefault/content?token=secret`,
+      `/v1/captures/${captureId}/assets/poster:maxresdefault/content#fragment`,
+      `/v1/captures/${captureId}/assets/poster%2Fmaxresdefault/content`,
+      `/v1/captures/${captureId}/assets/poster%253Amaxresdefault/content`,
+      `/v1/captures/../assets/poster:maxresdefault/content`,
+    ]) {
+      expect(() => deriveAssetUploadUrl(endpoint, captureId, "poster:maxresdefault", href)).toThrow(
+        /unsafe upload route/,
+      );
+    }
+  });
+
+  it("uploads exact bytes with RFC 9530 digest and no credentials or unrelated headers", async () => {
+    const fetchImplementation = vi.fn(
+      async (_input: string | URL, _init?: RequestInit) => new Response(null, { status: 204 }),
+    );
+    const client = api(fetchImplementation);
+    const capture = envelope();
+    const poster = capture.media[0]!.variants.find(
+      (candidate) => candidate.client_variant_id === "poster:maxresdefault",
+    )!;
+    const bytes = new Uint8Array([0, 1, 2, 255]);
+    const digest = { algorithm: "sha256" as const, value: "00".repeat(32) };
+
+    await client.uploadAsset(
+      "https://fe.test/v1/captures",
+      capture.capture_id,
+      poster,
+      `/v1/captures/${capture.capture_id}/assets/poster:maxresdefault/content`,
+      bytes,
+      "image/png",
+      digest,
+    );
+
+    const [url, init] = fetchImplementation.mock.calls[0]!;
+    expect(url).toContain("/assets/poster:maxresdefault/content");
+    expect(init).toMatchObject({
+      method: "PUT",
+      credentials: "omit",
+      cache: "no-store",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+      headers: {
+        "Content-Type": "image/png",
+        Digest: "sha-256=:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=:",
+      },
+    });
+    expect([...new Uint8Array(init?.body as ArrayBuffer)]).toEqual([...bytes]);
+    expect(JSON.stringify(init?.headers)).not.toMatch(/authorization|cookie|bearer|secret/i);
+
+    const wrongStatus = api(async () => jsonResponse({}, 200));
+    await expect(wrongStatus.uploadAsset(
+      "https://fe.test",
+      capture.capture_id,
+      poster,
+      `/v1/captures/${capture.capture_id}/assets/poster:maxresdefault/content`,
+      bytes,
+      "application/octet-stream",
+      digest,
+    )).rejects.toThrow(/expected 204/);
+  });
+
+  it("fails closed before every FE fetch when current host permission is revoked", async () => {
+    const fetchImplementation = vi.fn();
+    const permission = vi.fn(async () => false);
+    const client = new CaptureApi(fetchImplementation, permission);
+    const capture = envelope();
+    const poster = capture.media[0]!.variants[1]!;
+    const completion: FECaptureCompletionRequest = {
+      schema_version: "fe.capture.completion.v1",
+      idempotency_key: "complete-1",
+      assets: [],
+      warnings: [],
+    };
+
+    await expect(client.preflight("https://fe.test")).resolves.toMatchObject({
+      ok: false,
+      kind: "permission",
+    });
+    await expect(client.submitManifest("https://fe.test", capture)).rejects.toMatchObject({
+      kind: "permission",
+      retryable: true,
+      code: "fe_permission",
+    });
+    await expect(client.getStatus("https://fe.test", capture.capture_id)).rejects.toMatchObject({
+      kind: "permission",
+    });
+    await expect(client.uploadAsset(
+      "https://fe.test",
+      capture.capture_id,
+      poster,
+      `/v1/captures/${capture.capture_id}/assets/poster:maxresdefault/content`,
+      new Uint8Array([1]),
+      "image/jpeg",
+      { algorithm: "sha256", value: "00".repeat(32) },
+    )).rejects.toMatchObject({ kind: "permission" });
+    await expect(client.completeCapture(
+      "https://fe.test",
+      capture.capture_id,
+      completion,
+    )).rejects.toMatchObject({ kind: "permission" });
+
+    expect(permission).toHaveBeenCalledTimes(5);
+    expect(permission).toHaveBeenCalledWith("https://fe.test/*");
+    expect(fetchImplementation).not.toHaveBeenCalled();
+  });
+
+  it("allows the static default FE grant and requests exact routes without redirects", async () => {
+    const fetchImplementation = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      expect(init?.redirect).toBe("error");
+      if (url.endsWith("/v1/capabilities")) {
+        const capabilities = fixture<Record<string, unknown>>("valid-capabilities.json") as {
+          operations: { capture_manifest: boolean };
+        };
+        capabilities.operations.capture_manifest = true;
+        return jsonResponse(capabilities);
+      }
+      if (url.endsWith("/complete")) return jsonResponse(status("complete"));
+      return jsonResponse(status());
+    });
+    const permission = vi.fn(async (pattern: string) => pattern === "http://127.0.0.1:8091/*");
+    const client = new CaptureApi(fetchImplementation, permission);
+    const captureId = envelope().capture_id;
+    const completion: FECaptureCompletionRequest = {
+      schema_version: "fe.capture.completion.v1",
+      idempotency_key: "complete-static",
+      assets: [],
+      warnings: [],
+    };
+
+    await expect(client.preflight("http://127.0.0.1:8091")).resolves.toMatchObject({ ok: true });
+    await expect(client.getStatus("http://127.0.0.1:8091", captureId)).resolves.toMatchObject({
+      capture_id: captureId,
+    });
+    await expect(client.completeCapture(
+      "http://127.0.0.1:8091",
+      captureId,
+      completion,
+    )).resolves.toMatchObject({ completion: "complete" });
+
+    expect(fetchImplementation).toHaveBeenCalledTimes(3);
+    expect(permission).toHaveBeenCalledWith("http://127.0.0.1:8091/*");
+    expect(fetchImplementation.mock.calls.every(([, init]) => init?.redirect === "error")).toBe(true);
+  });
+});

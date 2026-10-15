@@ -1,0 +1,5 @@
+- [x] Draft metadata schema covering version, tooling, database info
+- [x] Implement Laravel project validation checks
+- [x] Capture package/tool availability and environment details
+- [x] Persist metadata to output workspace and log summary
+- [x] Document metadata contract for downstream generators

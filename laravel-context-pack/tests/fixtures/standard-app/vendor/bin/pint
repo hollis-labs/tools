@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "Pint analysis complete"
+exit 0

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en-US">
+  <head>
+    <title>Media Rich Article | Example News</title>
+    <meta name="description" content="A deterministic article media fixture.">
+    <meta property="og:image" content="/media/hero.jpg#presentation">
+    <meta property="og:image:type" content="image/jpeg">
+    <meta property="og:image:width" content="1800">
+    <meta property="og:image:height" content="1000">
+    <meta property="og:image:alt" content="A river winding through a broad valley">
+    <link rel="canonical" href="/stories/media-rich?utm_source=fixture#article">
+    <style>.css-hidden { display: none; }</style>
+  </head>
+  <body>
+    <header class="site-header">
+      <img class="site-logo" src="/chrome/logo.svg" width="180" height="48" alt="Example News">
+    </header>
+    <article>
+      <h1>Media Rich Article</h1>
+      <p>{{ARTICLE_TEXT}}</p>
+
+      <figure class="lead-visual">
+        <img src="/media/hero.jpg" width="1800" height="1000" alt="A duplicate of the metadata hero">
+      </figure>
+
+      <section>
+        <h2>Measurements</h2>
+        <figure>
+          <picture>
+            <source
+              type="image/webp"
+              srcset="/media/chart-800.webp 800w, /media/chart-1600.webp?utm_source=fixture#detail 1600w"
+            >
+            <img
+              src="/media/chart-640.jpg"
+              width="800"
+              height="450"
+              alt="A chart comparing the measurements"
+            >
+          </picture>
+          <figcaption>Measurements increased throughout the study.</figcaption>
+        </figure>
+      </section>
+
+      <section>
+        <h2>Field notes</h2>
+        <figure>
+          <img
+            src="../photos/detail.png"
+            width="1200"
+            height="800"
+            alt="Researchers recording observations"
+          >
+          <figcaption>Researchers documented each observation.</figcaption>
+        </figure>
+      </section>
+
+      <nav><img src="/chrome/nav-photo.jpg" width="900" height="500" alt="Navigation promotion"></nav>
+      <img class="author-avatar" src="/people/avatar.jpg" width="300" height="300" alt="The author">
+      <img class="article-logo" src="/chrome/brand.jpg" width="800" height="500" alt="Example News logo">
+      <div class="share-toolbar"><img src="/chrome/action.jpg" width="800" height="500" alt="Share action"></div>
+      <img src="/tracking/pixel.gif" width="1" height="1" alt="Analytics pixel">
+      <img hidden src="/media/hidden.jpg" width="1000" height="600" alt="Hidden image">
+      <img class="css-hidden" src="/media/css-hidden.jpg" width="1000" height="600" alt="CSS-hidden image">
+      <img src="/media/decorative.jpg" width="1000" height="600" alt="">
+      <img src="data:image/png;base64,AAAA" width="1000" height="600" alt="Embedded data image">
+      <img src="javascript:alert('no')" width="1000" height="600" alt="Script URL image">
+      <img
+        src="/media/chart-1600.webp?utm_source=duplicate"
+        width="1600"
+        height="900"
+        alt="Repeated chart"
+      >
+    </article>
+    <footer><img src="/chrome/footer-promo.jpg" width="1200" height="600" alt="Footer promotion"></footer>
+  </body>
+</html>

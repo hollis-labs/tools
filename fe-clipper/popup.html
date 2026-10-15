@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>FE Clipper</title>
+    <link rel="stylesheet" href="/src/popup/style.css" />
+  </head>
+  <body>
+    <main class="popup">
+      <header class="popup__header">
+        <h1>FE Clipper</h1>
+      </header>
+
+      <div class="status-row">
+        <div id="status" class="status" role="status"></div>
+        <button id="copy-error-button" type="button" class="copy-error-button" hidden>
+          Copy error
+        </button>
+      </div>
+
+      <form id="clip-form" class="clip-form" hidden>
+        <label class="field">
+          <span>Title</span>
+          <input id="title-input" name="title" type="text" autocomplete="off" />
+        </label>
+
+        <label class="field">
+          <span>Tags (comma-separated)</span>
+          <input id="tags-input" name="tags" type="text" autocomplete="off" />
+        </label>
+
+        <label class="field">
+          <span>Note (optional)</span>
+          <textarea
+            id="note-input"
+            name="note"
+            rows="2"
+            placeholder="Context for yourself or the ingest system"
+          ></textarea>
+        </label>
+
+        <div class="field field--readonly">
+          <span>Selection captured</span>
+          <p id="selection-preview" class="selection-preview">None</p>
+        </div>
+
+        <button id="send-button" type="submit">Send to Fragments Engine</button>
+      </form>
+
+      <section id="capture-jobs" class="capture-jobs" aria-labelledby="capture-jobs-heading" hidden>
+        <h2 id="capture-jobs-heading">Recent captures</h2>
+        <div id="capture-job-list" class="capture-job-list"></div>
+      </section>
+    </main>
+    <script type="module" src="/src/popup/main.ts"></script>
+  </body>
+</html>

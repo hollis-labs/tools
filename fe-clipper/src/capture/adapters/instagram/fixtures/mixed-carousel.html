@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Field Notes carousel</title>
+    <link rel="canonical" href="https://www.instagram.com/p/MIXED789/">
+  </head>
+  <body>
+    <main>
+      <article>
+        <h1>Three field notes</h1>
+        <p>This synthetic carousel supplies an image, a short video, and a second image in a deliberate order. Its readable text explains the sequence independently of the media manifest and remains available to the generic extraction path.</p>
+      </article>
+      <aside aria-label="Suggested posts">
+        <img src="https://cdn.example.test/recommendation-must-not-appear.jpg" alt="Suggested post">
+      </aside>
+    </main>
+    <script type="application/json" id="__data">
+      {
+        "entry_data": {
+          "PostPage": [{
+            "graphql": {
+              "shortcode_media": {
+                "id": "180000000000003",
+                "shortcode": "MIXED789",
+                "__typename": "GraphSidecar",
+                "owner": {"username": "field_notes", "full_name": "Field Notes"},
+                "edge_media_to_caption": {
+                  "edges": [{"node": {"text": "Morning, motion, evening. #FieldNotes #Sequence"}}]
+                },
+                "edge_sidecar_to_children": {
+                  "edges": [
+                    {"node": {
+                      "id": "carousel-image-a",
+                      "shortcode": "MIXED789-A",
+                      "__typename": "GraphImage",
+                      "is_video": false,
+                      "display_url": "https://cdn.example.test/carousel-a-original.jpg",
+                      "dimensions": {"width": 1200, "height": 900},
+                      "display_resources": [
+                        {"src": "https://cdn.example.test/carousel-a-thumb.jpg", "config_width": 320, "config_height": 240},
+                        {"src": "https://cdn.example.test/carousel-a-original.jpg", "config_width": 1200, "config_height": 900}
+                      ],
+                      "accessibility_caption": "Morning light across a field"
+                    }},
+                    {"node": {
+                      "id": "carousel-video-b",
+                      "shortcode": "MIXED789-B",
+                      "__typename": "GraphVideo",
+                      "is_video": true,
+                      "video_url": "https://video.example.test/carousel-b.mp4",
+                      "video_duration": 8.5,
+                      "display_url": "https://cdn.example.test/carousel-b-poster.jpg",
+                      "dimensions": {"width": 1080, "height": 1080},
+                      "accessibility_caption": "Grass moving in the wind"
+                    }},
+                    {"node": {
+                      "id": "carousel-image-c",
+                      "shortcode": "MIXED789-C",
+                      "__typename": "GraphImage",
+                      "is_video": false,
+                      "display_url": "https://cdn.example.test/carousel-c-original.jpg",
+                      "dimensions": {"width": 900, "height": 1200},
+                      "display_resources": [
+                        {"src": "https://cdn.example.test/carousel-c-thumb.jpg", "config_width": 240, "config_height": 320},
+                        {"src": "https://cdn.example.test/carousel-c-original.jpg", "config_width": 900, "config_height": 1200}
+                      ],
+                      "accessibility_caption": "Evening notebook on a bench"
+                    }}
+                  ]
+                }
+              }
+            }
+          }]
+        }
+      }
+    </script>
+  </body>
+</html>

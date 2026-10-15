@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Sparse carousel</title>
+    <link rel="canonical" href="https://www.instagram.com/p/SPARSE01/">
+  </head>
+  <body>
+    <main><article><p>This synthetic sparse carousel deliberately omits optional and required provider fields from selected items. The adapter should preserve the page text and every source position while reporting exactly which media observations are incomplete.</p></article></main>
+    <script type="application/json" id="__data">
+      {
+        "graphql": {
+          "shortcode_media": {
+            "id": "180000000000004",
+            "shortcode": "SPARSE01",
+            "owner": {"username": "sparse_example"},
+            "edge_sidecar_to_children": {
+              "edges": [
+                {"node": {
+                  "id": "sparse-image-a",
+                  "__typename": "GraphImage",
+                  "is_video": false,
+                  "display_url": "https://cdn.example.test/sparse-a.jpg",
+                  "dimensions": {"width": 800, "height": 600}
+                }},
+                {"node": {"id": "sparse-unsupported-b", "__typename": "GraphSidecar"}},
+                {"node": {
+                  "id": "sparse-video-c",
+                  "__typename": "GraphVideo",
+                  "is_video": true,
+                  "display_url": "https://cdn.example.test/sparse-c-poster.jpg"
+                }}
+              ]
+            }
+          }
+        }
+      }
+    </script>
+  </body>
+</html>
