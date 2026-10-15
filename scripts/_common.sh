@@ -69,7 +69,7 @@ modules() {
 valid_module() {
   local all
   all="$(modules)"
-  printf '%s\n' "$all" | grep -qxF -- "$1"
+  grep -qxF -- "$1" <<<"$all"
 }
 
 # Escape the dots in a path for use inside an extended regular expression.
@@ -79,5 +79,5 @@ re_escape() {
 
 # Names of imported repositories: lower case, digits, '.', '_' and '-', not starting with a dot.
 valid_name() {
-  printf '%s\n' "$1" | grep -Eq '^[a-z0-9][a-z0-9._-]*$'
+  grep -Eq '^[a-z0-9][a-z0-9._-]*$' <<<"$1"
 }

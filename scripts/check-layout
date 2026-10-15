@@ -52,7 +52,7 @@ for m in $(modules); do
   gm="$REPO_ROOT/$m/go.mod"
   want="$MODULE_PREFIX/$m"
   path="$(awk '$1 == "module" { print $2; exit }' "$gm")"
-  if ! printf '%s\n' "$path" | grep -Eq "^$(re_escape "$want")(/v[2-9][0-9]*)?\$"; then
+  if ! grep -Eq "^$(re_escape "$want")(/v[2-9][0-9]*)?\$" <<<"$path"; then
     bad "$m/go.mod: module path is '$path'; want '$want' (or '$want/vN' for N >= 2)"
   fi
   grep -Eq '^go[[:space:]]+[0-9]+\.[0-9]+' "$gm" || bad "$m/go.mod: no go directive"
