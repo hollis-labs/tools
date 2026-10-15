@@ -110,7 +110,7 @@ if [ "$major" -ge 2 ]; then
     *) nope "major version $major needs the module path to end in /v$major (found '$modpath')" ;;
   esac
 else
-  if printf '%s\n' "$modpath" | grep -Eq '/v[0-9]+$'; then
+  if grep -Eq '/v[0-9]+$' <<<"$modpath"; then
     nope "module path '$modpath' has a /vN suffix, which v0 and v1 must not have"
   else
     ok "module path has no major suffix (right for v$major)"

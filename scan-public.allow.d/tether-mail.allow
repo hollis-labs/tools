@@ -1,0 +1,2 @@
+# tether-mail: findings reviewed by the owner 2026-10-15 (path, host and home-directory references only).
+agent-box-host (commit-message)@9e20f3a6f35c Internal build machine name used as a label or example; reviewed by the owner 2026-10-15, not an access path.

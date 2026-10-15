@@ -125,10 +125,10 @@ BIGEOF
 fi
 
 raw="$(git -C "$src" log --all -m --raw --no-abbrev --format= 2>/dev/null || true)"
-if printf '%s\n' "$raw" | grep -Eq '^:[0-7]+ 160000 |^:160000 '; then
+if grep -Eq '^:[0-7]+ 160000 |^:160000 ' <<<"$raw"; then
   halt "a submodule (gitlink) in the source history"
 fi
-if printf '%s\n' "$raw" | grep -Eq '[[:space:]](.*/)?\.gitmodules$'; then
+if grep -Eq '[[:space:]](.*/)?\.gitmodules$' <<<"$raw"; then
   halt "a .gitmodules in the source history"
 fi
 if [ -n "$(git -C "$src" log --all --format=%h -1 -G'filter=lfs' -- '*.gitattributes' 2>/dev/null)" ] ||
@@ -198,7 +198,7 @@ fi
 
 if [ "$KIND" = "tools" ] && [ -f "$target/$dest/go.mod" ]; then
   old_module="$(awk '$1 == "module" { print $2; exit }' "$target/$dest/go.mod")"
-  suffix="$(printf '%s\n' "$old_module" | grep -oE '/v[2-9][0-9]*$' || true)"
+  suffix="$(grep -oE '/v[2-9][0-9]*$' <<<"$old_module" || true)"
   new_module="$MODULE_PREFIX/$dest$suffix"
   requirements="$(awk '
     $1 == "require" && $2 == "(" { inblock = 1; next }
