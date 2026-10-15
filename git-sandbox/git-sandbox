@@ -1,0 +1,433 @@
+#!/usr/bin/env bash
+# git-sandbox — safe throwaway git worktrees
+# Version: 1.3.1
+# Updated: 2025-10-11
+# Authors: Chrispian Burks / Hollis Labs + ChatGPT
+# License: No restrictions; use at your own risk. No warranty or liability.
+
+set -euo pipefail
+
+# --------------------------- Config ------------------------------------------
+SESSION_FILE=".git/.sandbox-session"
+WORKTREES_DIR="../_sandboxes"   # relative to repo root
+AUTO_SWITCH=1                   # enter sandbox by default
+END_ONLY=0
+KEEP_ON_END=0
+COLOR=1
+TMUX_MODE=0
+THEME="green"                   # green | blue | mono | synth | sunset
+INTERACTIVE=0                   # default: non-interactive (no prompts)
+ALLOW_DIRTY=0                   # default: refuse if working tree dirty
+SHOW_COMMITS=0                  # default: don't print commits
+
+VERSION="1.3.1"
+UPDATED="2025-10-11"
+AUTHORS="Chrispian Burks / Hollis Labs + ChatGPT"
+
+# early flags
+SHOW_HELP=0
+SHOW_README=0
+SHOW_VERSION=0
+
+# --------------------------- Helpers: ansi & layout ---------------------------
+[[ -n "${NO_COLOR:-}" ]] && COLOR=0
+
+# theme globals
+C_PRIMARY=""; C_ACCENT=""; C_SECOND=""
+C_BOLD=""; C_DIM=""; C_RESET=""
+
+set_theme() {
+  local name="${1:-green}"
+  case "$name" in
+    green)  C_PRIMARY=$'\033[32m'; C_ACCENT=$'\033[36m'; C_SECOND=$'\033[33m' ;;
+    blue)   C_PRIMARY=$'\033[34m'; C_ACCENT=$'\033[36m'; C_SECOND=$'\033[33m' ;;
+    synth)  C_PRIMARY=$'\033[35m'; C_ACCENT=$'\033[36m'; C_SECOND=$'\033[33m' ;; # magenta/cyan/yellow
+    sunset) C_PRIMARY=$'\033[91m'; C_ACCENT=$'\033[35m'; C_SECOND=$'\033[33m' ;; # warm + purple
+    mono|none) COLOR=0; C_PRIMARY=""; C_ACCENT=""; C_SECOND="" ;;
+    *) echo "Unknown theme: $name (using green)"; C_PRIMARY=$'\033[32m'; C_ACCENT=$'\033[36m'; C_SECOND=$'\033[33m' ;;
+  esac
+  if [[ "${COLOR:-1}" -eq 1 ]]; then
+    C_BOLD=$'\033[1m'; C_DIM=$'\033[2m'; C_RESET=$'\033[0m'
+  else
+    C_PRIMARY=""; C_ACCENT=""; C_SECOND=""; C_BOLD=""; C_DIM=""; C_RESET=""
+  fi
+}
+
+die() { echo "Error: $*" >&2; exit 1; }
+is_git_repo() { git rev-parse --is-inside-work-tree >/dev/null 2>&1; }
+repo_root() { git rev-parse --show-toplevel; }
+sanitize_phrase() { tr ' ' '-' | tr -cd '[:alnum:]-'; }
+
+visible_len() {
+  # strip ANSI CSI sequences
+  local s
+  s="$(printf "%s" "$1" | sed -E $'s/\x1B\\[[0-9;]*[A-Za-z]//g')"
+  printf "%s" "$s" | awk '{print length}'
+}
+
+hr() {
+  local cols=${COLUMNS:-80} line=""
+  for ((i=0;i<cols;i++)); do line+="─"; done
+  printf "%s%s%s\n" "$C_PRIMARY" "$line" "$C_RESET"
+}
+
+section() {
+  local label="$1"
+  hr
+  printf "%s▌ %s%s%s\n" "$C_PRIMARY" "$C_BOLD" "$label" "$C_RESET"
+  hr
+}
+
+note() { printf "%s•%s %s\n" "$C_ACCENT" "$C_RESET" "$1"; }
+
+confirm_yn() {
+  local prompt="$1" default="${2:-N}" hint="y/N"
+  [[ "$default" =~ ^[Yy]$ ]] && hint="Y/n"
+  printf "%s?%s %s [%s] " "$C_ACCENT" "$C_RESET" "$prompt" "$hint"
+  read -r ans || true
+  [[ -z "$ans" ]] && ans="$default"
+  [[ "$ans" =~ ^[Yy]$ ]]
+}
+
+# Box: colored borders, ASCII text inside for perfect alignment; optional fixed width as $3
+box() {
+  local title="$1" subtitle="$2" fixed_width="${3:-}"
+  local pad=2 char="-"
+
+  # ASCII-only text inside box (normalize bullets if any)
+  title="${title//•/-}"
+  subtitle="${subtitle//•/-}"
+
+  local len_title=${#title}
+  local len_sub=${#subtitle}
+  local width i line leftpad rightpad
+  if [[ -n "$fixed_width" ]]; then
+    width="$fixed_width"
+  else
+    (( width = (len_title > len_sub ? len_title : len_sub) + pad * 2 ))
+  fi
+
+  line=""
+  for ((i = 0; i < width; i++)); do line+="$char"; done
+
+  printf "%s+%s+%s\n" "$C_PRIMARY" "$line" "$C_RESET"
+
+  leftpad=$(( (width - len_title) / 2 ))
+  rightpad=$(( width - leftpad - len_title ))
+  printf "%s|%s%*s%s%*s%s|%s\n" \
+     "$C_PRIMARY" "$C_RESET" "$leftpad" "" "$title" "$rightpad" "" "$C_PRIMARY" "$C_RESET"
+
+  leftpad=$(( (width - len_sub) / 2 ))
+  rightpad=$(( width - leftpad - len_sub ))
+  printf "%s|%s%*s%s%*s%s|%s\n" \
+     "$C_PRIMARY" "$C_RESET" "$leftpad" "" "$subtitle" "$rightpad" "" "$C_PRIMARY" "$C_RESET"
+
+  printf "%s+%s+%s\n" "$C_PRIMARY" "$line" "$C_RESET"
+}
+
+# Docs ------------------------------------------------------------------------
+docs_show() {
+  local name="${1:?missing block name}"
+  if [[ "$name" == "README" ]]; then
+    box "git-sandbox" "safe throwaway git worktrees"
+    echo
+  fi
+  awk -v name="$name" '
+    BEGIN { in_docs=0; in_block=0 }
+    /^__DOCS__$/ { in_docs=1; next }
+    in_docs && $0 ~ ("^<<<"name"$") { in_block=1; next }
+    in_docs && $0 ~ ("^"name">>>$") { in_block=0; exit }
+    in_block { print }
+  ' "$0"
+}
+usage()   { docs_show "USAGE"; }
+version() { echo "git-sandbox ${VERSION} (updated ${UPDATED})"; }
+
+active_session_id()    { [[ -f "$SESSION_FILE" ]] && sed -n '1p' "$SESSION_FILE" || true; }
+active_session_path()  { local id="${1:-}"; [[ -n "$id" ]] && echo "$(repo_root)/$WORKTREES_DIR/$id"; }
+active_session_branch(){ local id="${1:-}"; [[ -n "$id" ]] && echo "sandbox/$id"; }
+
+end_session() {
+  local id="$1"
+  [[ -z "$id" ]] && { echo "No active sandbox session."; return 0; }
+
+  section "Ending Sandbox"
+  printf "%s🧹 %s%s%s\n" "$C_BOLD" "$C_DIM" "$id" "$C_RESET"
+  local wpath branch
+  wpath="$(active_session_path "$id")"
+  branch="$(active_session_branch "$id")"
+  if [[ "$KEEP_ON_END" -eq 1 ]]; then
+    note "Keeping worktree and branch (--keep supplied)."
+  else
+    if [[ -n "$wpath" && -d "$wpath" ]]; then
+      note "Removing worktree: $wpath"; git worktree remove --force "$wpath" || true
+    fi
+    if git rev-parse --verify -q "$branch" >/dev/null; then
+      note "Deleting branch: $branch"; git branch -D "$branch" || true
+    fi
+  fi
+  rm -f "$SESSION_FILE"
+  echo; printf "%s✅ Sandbox session closed.%s\n" "$C_BOLD" "$C_RESET"
+}
+
+# --------------------------- Arg Parse (stage 1: flags) ----------------------
+PHRASE=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help) SHOW_HELP=1; shift ;;
+    --readme) SHOW_README=1; shift ;;
+    -v|--version) SHOW_VERSION=1; shift ;;
+    -n|--no-switch) AUTO_SWITCH=0; shift ;;
+    -e|--end) END_ONLY=1; shift ;;
+    -k|--keep) KEEP_ON_END=1; shift ;;
+    -i|--interactive) INTERACTIVE=1; shift ;;     # <— restored
+    --allow-dirty) ALLOW_DIRTY=1; shift ;;
+    --show-commits) SHOW_COMMITS=1; shift ;;
+    --tmux) TMUX_MODE=1; shift ;;
+    --theme=*) THEME="${1#*=}"; shift ;;
+    --theme) shift; THEME="${1:-$THEME}"; shift || true ;;
+    --no-color) COLOR=0; shift ;;
+    --) shift; break ;;
+    -*)
+      echo "Unknown option: $1"; SHOW_HELP=1; shift ;;
+    *)
+      if [[ -z "$PHRASE" ]]; then PHRASE="$1"; else PHRASE="$PHRASE $1"; fi
+      shift ;;
+  esac
+done
+
+# Init theme before any colored output
+set_theme "$THEME"
+
+# Early exits
+[[ "$SHOW_VERSION" -eq 1 ]] && { version; exit 0; }
+[[ "$SHOW_README"  -eq 1 ]] && { docs_show "README"; exit 0; }
+[[ "$SHOW_HELP"    -eq 1 ]] && { usage; exit 0; }
+
+# --------------------------- Preconditions -----------------------------------
+is_git_repo || die "Not inside a Git repository."
+cd "$(repo_root)"
+
+if [[ "$END_ONLY" -eq 1 ]]; then end_session "$(active_session_id)"; exit 0; fi
+[[ -z "${PHRASE// }" ]] && { usage; exit 1; }
+
+CURRENT_ID="$(active_session_id)"
+if [[ -n "$CURRENT_ID" ]]; then
+  section "Active Sandbox Detected"
+  printf "ID: %s%s%s\n" "$C_BOLD" "$CURRENT_ID" "$C_RESET"
+  if [[ "$INTERACTIVE" -eq 1 ]]; then
+    if confirm_yn "End the current sandbox before creating a new one?" "N"; then
+      end_session "$CURRENT_ID"
+    else
+      echo; printf "%sAborted%s (a sandbox is already active).\n" "$C_DIM" "$C_RESET"; exit 0
+    fi
+  else
+    die "Sandbox already active ($CURRENT_ID). Use: git sandbox --end"
+  fi
+fi
+
+# Non-interactive: refuse dirty unless --allow-dirty
+if [[ "$INTERACTIVE" -eq 0 && "$ALLOW_DIRTY" -eq 0 ]]; then
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    die "Working tree has uncommitted changes. Commit/stash or pass --allow-dirty."
+  fi
+fi
+
+# Interactive optional checkpoint
+if [[ "$INTERACTIVE" -eq 1 ]]; then
+  section "Checkpoint"
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    if confirm_yn "Uncommitted changes detected. Commit them now?" "N"; then
+      printf "%s⮑ Commit message:%s " "$C_ACCENT" "$C_RESET"
+      read -r msg || true
+      git add -A
+      git commit -m "${msg:-chore: checkpoint before sandbox}"
+    else
+      echo; printf "%sProceeding with a dirty tree.%s\n" "$C_DIM" "$C_RESET"
+    fi
+  else
+    note "Working tree clean."
+  fi
+fi
+
+# --------------------------- Create Sandbox ----------------------------------
+section "Create Sandbox"
+TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
+SAFE_PHRASE="$(printf '%s' "$PHRASE" | sanitize_phrase)"
+ID="${TIMESTAMP}-${SAFE_PHRASE}"
+
+BRANCH="sandbox/$ID"
+SANDBOX_DIR="$WORKTREES_DIR/$ID"
+mkdir -p "$WORKTREES_DIR"
+
+note "Branch : $BRANCH"
+note "Path   : $SANDBOX_DIR"
+
+git worktree add -b "$BRANCH" "$SANDBOX_DIR" HEAD
+
+# Record session lock
+{
+  echo "$ID"
+  echo "$PHRASE"
+  echo "$BRANCH"
+  echo "$SANDBOX_DIR"
+} > "$SESSION_FILE"
+
+# Compute unified banner width from subshell banner lines
+_sub_title="SANDBOX: $ID"
+_sub_sub="Branch: $BRANCH"
+_len_t=$(visible_len "$_sub_title")
+_len_s=$(visible_len "$_sub_sub")
+_pad=2; _width=$(( (_len_t > _len_s ? _len_t : _len_s) + _pad*2 ))
+
+# Pre-banner (width-locked to subshell/tmux banner)
+echo
+box "git-sandbox" "v${VERSION} | updated ${UPDATED}" "$_width"
+echo
+printf "%sDisclaimer:%s Use at your own risk. No warranty. No liability.\n\n" "$C_DIM" "$C_RESET"
+
+echo; printf "%s✅ Sandbox ready.%s\n" "$C_BOLD" "$C_RESET"
+
+# --------------------------- Enter Sandbox -----------------------------------
+enter_shell_subshell() {
+  (
+    # Terminal title
+    printf "\033]0;SANDBOX: %s — %s\007" "$ID" "$(basename "$(git rev-parse --show-toplevel)")"
+
+    echo
+    box "SANDBOX: $ID" "Branch: $BRANCH" "$_width"
+    if [[ "$INTERACTIVE" -eq 1 ]]; then
+      echo
+      [[ "$SHOW_COMMITS" -eq 1 ]] && { printf "%sLast 5 commits%s\n" "$C_BOLD" "$C_RESET"; git --no-pager log --oneline --decorate -5 || true; echo; }
+      confirm_yn "Enter sandbox now?" "Y" || { echo; printf "%sAborted entry.%s\n" "$C_DIM" "$C_RESET"; exit 0; }
+    fi
+
+    # Prompt prefix
+    local CYAN="$C_ACCENT" RESET="$C_RESET" ORIG_PS1="${PS1-}"
+    export PS1="\[${CYAN}\][SANDBOX ${ID}]\[${RESET}\] ${ORIG_PS1:-\u@\h:\w\$ }"
+    export PROMPT_COMMAND=':'
+
+    exec "${SHELL:-/bin/bash}" -l
+  )
+}
+
+enter_tmux() {
+  local tmux_color="green"
+  [[ "$THEME" == "blue"  ]] && tmux_color="blue"
+  [[ "$THEME" == "synth" ]] && tmux_color="magenta"
+  [[ "$THEME" == "sunset" ]] && tmux_color="yellow"
+
+  # If interactive, show banner & optional commits BEFORE entering tmux
+  if [[ "$INTERACTIVE" -eq 1 ]]; then
+    echo
+    box "SANDBOX: $ID" "Branch: $BRANCH" "$_width"
+    echo
+    [[ "$SHOW_COMMITS" -eq 1 ]] && { printf "%sLast 5 commits%s\n" "$C_BOLD" "$C_RESET"; git --no-pager log --oneline --decorate -5 || true; echo; }
+    confirm_yn "Enter tmux sandbox now?" "Y" || { echo; printf "%sAborted entry.%s\n" "$C_DIM" "$C_RESET"; return 0; }
+  fi
+
+  # Welcome banner INSIDE tmux (ASCII only, no pager/flash)
+  cat > "$SANDBOX_DIR/.sandbox-welcome.sh" <<'EOS'
+#!/usr/bin/env bash
+clear
+TITLE="SANDBOX: ${ID}"
+SUB="Branch: ${BRANCH}"
+lt=${#TITLE}; ls=${#SUB}; pad=2; w=$(( (lt>ls?lt:ls) + pad*2 ))
+line=$(printf '%*s' "$w" '' | tr ' ' '-')
+printf "+%s+\n" "$line"
+printf "|%*s%s%*s|\n" $(( (w-lt)/2 )) "" "$TITLE" $(( w-((w-lt)/2)-lt )) ""
+printf "|%*s%s%*s|\n" $(( (w-ls)/2 )) "" "$SUB"   $(( w-((w-ls)/2)-ls )) ""
+printf "+%s+\n" "$line"
+echo
+EOS
+  chmod +x "$SANDBOX_DIR/.sandbox-welcome.sh"
+
+  tmux new-session -A -s "sandbox-$ID" \
+    "export ID='$ID' BRANCH='$BRANCH'; cd '$SANDBOX_DIR'; './.sandbox-welcome.sh'; exec ${SHELL:-/bin/bash} -l" \; \
+    set -g status-bg "$tmux_color" \; \
+    set -g status-fg black \; \
+    set -g pane-border-style "fg=$tmux_color" \; \
+    set -g pane-active-border-style "fg=$tmux_color" \; \
+    set -g status-left " #[bold]SANDBOX $ID #[default] " \; \
+    set -g status-right " #H "
+}
+
+if [[ "$AUTO_SWITCH" -eq 1 ]]; then
+  section "Enter Sandbox"
+  if [[ "$TMUX_MODE" -eq 1 ]]; then
+    note "Launching inside tmux (theme: $THEME)"
+    enter_tmux
+  else
+    note "Launching subshell (theme: $THEME)"
+    enter_shell_subshell
+  fi
+
+  # Auto-cleanup on exit when non-interactive, else ask
+  if [[ "$INTERACTIVE" -eq 0 ]]; then
+    end_session "$ID"
+  else
+    echo
+    if confirm_yn "End and cleanup this sandbox now?" "Y"; then
+      end_session "$ID"
+    else
+      echo; note "Leaving sandbox active. End later with: git sandbox --end"
+    fi
+  fi
+else
+  echo
+  note "Skipping subshell (--no-switch)."
+  note "cd \"$SANDBOX_DIR\" to work in the sandbox."
+  note "End later with: git sandbox --end"
+fi
+
+exit 0
+
+__DOCS__
+<<<USAGE
+Usage:
+  git sandbox "phrase"                 Create sandbox & enter immediately; auto-cleanup on exit
+  git sandbox -i "phrase"              Interactive: pause before entry; ask to cleanup
+  git sandbox --tmux "phrase"          Create sandbox inside tmux (framed)
+  git sandbox --theme=blue "phrase"    Use a color theme (green|blue|mono|synth|sunset)
+  git sandbox --readme                 Show full README
+  git sandbox -h|--help                Show this help
+  git sandbox -v|--version             Show version
+
+Flags:
+  -i, --interactive  Enable prompts; pause before entering; ask to cleanup
+      --show-commits Show last 5 commits during interactive pause
+      --allow-dirty  Proceed even if working tree is dirty (non-interactive default is to refuse)
+  -n, --no-switch    Don’t auto-enter the sandbox (just create worktree)
+  -e, --end          End/cleanup active sandbox session
+  -k, --keep         Keep branch/worktree when ending
+      --tmux         Enter sandbox inside tmux with colored borders
+      --theme=NAME   Color theme: green (default), blue, mono, synth, sunset
+      --no-color     Disable ANSI color output
+  -v, --version      Print version and exit
+
+Notes:
+  • Sandboxes are created as branches: sandbox/<timestamp>-<phrase>
+  • Worktrees live at: ../_sandboxes/<id>
+  • Session lock: .git/.sandbox-session
+USAGE>>>
+<<<README
+TL;DR
+  git sandbox "remove old registry"     # non-interactive; auto-cleanup on exit
+  git sandbox -i "try deletes"          # interactive; pause + prompts (+ optional --show-commits)
+  git sandbox --tmux "experiment"       # tmux session with colored frame
+  git sandbox --theme=synth "name"      # theme: green|blue|mono|synth|sunset
+  git sandbox --end                     # end & cleanup active sandbox
+  git sandbox --end -k                  # end but keep branch/worktree
+  git sandbox -v                        # version
+
+Behavior
+  • Default: non-interactive → enter immediately; auto-cleanup on exit
+  • Interactive (-i): pause before entering; optional last-5 commits; choose cleanup
+  • tmux: no pre-launch pager; clean entry with status bar and borders
+
+Version & Credits
+  • git-sandbox v1.3.1 — updated 2025-10-11
+  • Authors: Chrispian Burks / Hollis Labs + ChatGPT
+  • License: No restrictions; use at your own risk. No warranty or liability.
+README>>>
+
