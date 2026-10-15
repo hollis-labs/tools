@@ -1,0 +1,6 @@
+# laravel-context-pack: findings reviewed by the owner 2026-10-15 (path, host and home-directory references only).
+agent-box-host (commit-message)@9e20f3a6f35c Internal build machine name used as a label or example; reviewed by the owner 2026-10-15, not an access path.
+home-path-macos laravel-context-pack/PROJECT.md Developer home directory path in a test, doc or local config; reviewed by the owner 2026-10-15, no credential.
+home-path-macos laravel-context-pack/delegation/cleanup-worktree.sh Developer home directory path in a test, doc or local config; reviewed by the owner 2026-10-15, no credential.
+home-path-macos laravel-context-pack/delegation/setup-worktree.sh Developer home directory path in a test, doc or local config; reviewed by the owner 2026-10-15, no credential.
+secret-assignment laravel-context-pack/docs/ai-integration.md Test, fixture, documentation sample or design-token name; a high-entropy literal check found no live credential; reviewed by the owner 2026-10-15.
