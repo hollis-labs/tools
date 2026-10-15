@@ -1,0 +1,227 @@
+:root {
+  color-scheme: light dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+  width: 360px;
+}
+
+.popup {
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.popup__header h1 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.status-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.status {
+  flex: 1;
+  font-size: 12.5px;
+  line-height: 1.4;
+  min-height: 1em;
+}
+
+.status[data-kind="loading"] {
+  opacity: 0.7;
+}
+
+.status[data-kind="error"] {
+  color: #c22b2b;
+}
+
+.status[data-kind="success"] {
+  color: #1a7f37;
+}
+
+.clip-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+
+.field input,
+.field textarea {
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-family: inherit;
+}
+
+.field textarea {
+  resize: vertical;
+}
+
+.copy-error-button {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid #c22b2b;
+  background: transparent;
+  color: #c22b2b;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.copy-error-button:hover {
+  background: rgba(194, 43, 43, 0.08);
+}
+
+.field--readonly {
+  color: #666;
+}
+
+.selection-preview {
+  margin: 0;
+  font-size: 12px;
+  max-height: 60px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  background: rgba(127, 127, 127, 0.1);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+button#send-button {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: none;
+  background: #2563eb;
+  color: white;
+  cursor: pointer;
+}
+
+button#send-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.capture-jobs {
+  border-top: 1px solid rgba(127, 127, 127, 0.35);
+  padding-top: 10px;
+}
+
+.capture-jobs h2 {
+  font-size: 12px;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+
+.capture-job-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 310px;
+  overflow-y: auto;
+}
+
+.capture-job {
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  border-radius: 7px;
+  padding: 8px;
+  font-size: 11.5px;
+}
+
+.capture-job__heading,
+.capture-job__status,
+.capture-job__meta,
+.capture-job__detail,
+.capture-job__error {
+  margin: 0;
+}
+
+.capture-job__heading {
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.capture-job__meta {
+  margin-top: 2px;
+  opacity: 0.65;
+}
+
+.capture-job__status {
+  margin-top: 6px;
+  font-weight: 600;
+}
+
+.capture-job[data-tone="success"] .capture-job__status {
+  color: #1a7f37;
+}
+
+.capture-job[data-tone="warning"] .capture-job__status,
+.capture-job[data-tone="error"] .capture-job__status,
+.capture-job__error {
+  color: #c22b2b;
+}
+
+.capture-job__detail,
+.capture-job__error {
+  margin-top: 3px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.capture-job__variants {
+  margin: 7px 0 0;
+  padding-left: 18px;
+}
+
+.capture-job__variants li + li {
+  margin-top: 2px;
+}
+
+.capture-job__origin,
+.capture-job__reason {
+  display: block;
+  opacity: 0.7;
+  overflow-wrap: anywhere;
+}
+
+.capture-job__actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.capture-job__actions button {
+  font: inherit;
+  font-weight: 600;
+  border: 1px solid rgba(127, 127, 127, 0.6);
+  border-radius: 5px;
+  background: transparent;
+  padding: 4px 7px;
+  cursor: pointer;
+}
+
+.capture-job__actions button[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: default;
+}

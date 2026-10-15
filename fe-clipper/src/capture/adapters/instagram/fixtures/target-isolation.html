@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Target-scoped fallback post</title>
+    <link rel="canonical" href="https://www.instagram.com/p/TARGET42/">
+  </head>
+  <body>
+    <main>
+      <article>
+        <p>This synthetic target-isolation page puts unrelated recommendation state before the requested post observation. The adapter must select only data scoped to the shortcode in the browser URL.</p>
+      </article>
+    </main>
+    <script type="application/json" id="__data">
+      {
+        "graphql": {
+          "shortcode_media": {
+            "id": "unrelated-state-media",
+            "shortcode": "RECOMMEND1",
+            "__typename": "GraphImage",
+            "is_video": false,
+            "display_url": "https://cdn.example.test/UNRELATED_STATE_MEDIA_MUST_NOT_LEAK.jpg",
+            "owner": {"username": "UNRELATED_STATE_AUTHOR_MUST_NOT_LEAK"},
+            "caption": {"text": "UNRELATED_STATE_CAPTION_MUST_NOT_LEAK"}
+          }
+        }
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "SocialMediaPosting",
+            "url": "https://www.instagram.com/p/RECOMMEND2/",
+            "articleBody": "UNRELATED_JSONLD_CAPTION_MUST_NOT_LEAK",
+            "author": {"@type": "Person", "name": "UNRELATED_JSONLD_AUTHOR_MUST_NOT_LEAK"},
+            "image": {
+              "@type": "ImageObject",
+              "identifier": "unrelated-jsonld-media",
+              "contentUrl": "https://cdn.example.test/UNRELATED_JSONLD_MEDIA_MUST_NOT_LEAK.jpg"
+            }
+          },
+          {
+            "@type": "SocialMediaPosting",
+            "url": "https://www.instagram.com/p/TARGET42/",
+            "articleBody": "Target-scoped caption. #TargetOnly",
+            "author": {"@type": "Person", "name": "Target Author", "alternateName": "@target_author"},
+            "image": {
+              "@type": "ImageObject",
+              "identifier": "target-jsonld-media",
+              "contentUrl": "https://cdn.example.test/target-original.jpg",
+              "thumbnailUrl": "https://cdn.example.test/target-thumb.jpg",
+              "width": 1200,
+              "height": 900
+            }
+          }
+        ]
+      }
+    </script>
+  </body>
+</html>
