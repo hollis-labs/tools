@@ -1,0 +1,34 @@
+# fe-clipper: findings reviewed by the owner 2026-10-15 (path, host and home-directory references only).
+agent-box-host (commit-message)@6b43fd5c7593 Internal build machine name used as a label or example; reviewed by the owner 2026-10-15, not an access path.
+bearer-token fe-clipper/src/capture/adapters/instagram/fixtures/credential-exclusion.html Bearer-token-shaped sample in a test fixture; reviewed by the owner 2026-10-15, no live credential.
+bearer-token fe-clipper/src/capture/adapters/reddit/fixtures/credential-exclusion.html Bearer-token-shaped sample in a test fixture; reviewed by the owner 2026-10-15, no live credential.
+bearer-token fe-clipper/src/capture/adapters/twitter/fixtures/credential-exclusion.html Bearer-token-shaped sample in a test fixture; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/background/captureApi.test.ts Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/background/captureJobSummary.test.ts Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/background/mediaTransfer.test.ts Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/background/messages.test.ts Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/capture/adapters/generic.test.ts Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/capture/adapters/generic.test.ts Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/capture/adapters/instagram/fixtures/credential-exclusion.html Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/capture/adapters/instagram/instagram.test.ts Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/capture/adapters/pinterest/adapter.test.ts Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/capture/adapters/pinterest/fixtures/complete.html Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/capture/adapters/youtube/youtube.test.ts Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/capture/registry.test.ts Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/conformance/fixtures/provider-scenarios.json Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/conformance/fixtures/provider-scenarios.json Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/conformance/fixtures/provider-scenarios.json Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/contracts/capabilities.test.ts Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/lib/extractPage.test.ts Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/lib/jobStorage.test.ts Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/lib/permissions.test.ts Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+credentials-in-url fe-clipper/src/lib/storage.test.ts Placeholder connection string in a test or doc; reviewed by the owner 2026-10-15, no live credential.
+home-path-macos fe-clipper/docs/superpowers/plans/2026-09-03-provider-capture-background-transfer.md Developer home directory path in a test, doc or local config; reviewed by the owner 2026-10-15, no credential.
+home-path-macos fe-clipper/docs/superpowers/specs/2026-09-03-provider-capture-background-transfer.md Developer home directory path in a test, doc or local config; reviewed by the owner 2026-10-15, no credential.
+home-path-macos fe-clipper/vendor/fragments-engine-browser-contract-v1/README.md Developer home directory path in a test, doc or local config; reviewed by the owner 2026-10-15, no credential.
+secret-assignment fe-clipper/src/capture/adapters/instagram/fixtures/credential-exclusion.html Test, fixture, documentation sample or design-token name; a high-entropy literal check found no live credential; reviewed by the owner 2026-10-15.
+secret-assignment fe-clipper/src/capture/adapters/pinterest/fixtures/complete.html Test, fixture, documentation sample or design-token name; a high-entropy literal check found no live credential; reviewed by the owner 2026-10-15.
+secret-assignment fe-clipper/src/capture/adapters/reddit/fixtures/credential-exclusion.html Test, fixture, documentation sample or design-token name; a high-entropy literal check found no live credential; reviewed by the owner 2026-10-15.
+secret-assignment fe-clipper/src/capture/adapters/twitter/fixtures/credential-exclusion.html Test, fixture, documentation sample or design-token name; a high-entropy literal check found no live credential; reviewed by the owner 2026-10-15.
+secret-assignment fe-clipper/src/capture/adapters/youtube/fixtures/watch-captions.html Test, fixture, documentation sample or design-token name; a high-entropy literal check found no live credential; reviewed by the owner 2026-10-15.
+token-store-file fe-clipper/.npmrc Package registry mapping only; reviewed by the owner 2026-10-15, holds no credential.
