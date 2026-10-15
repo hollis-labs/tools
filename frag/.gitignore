@@ -1,0 +1,12 @@
+# Build artifacts
+Frag
+*.o
+*.d
+
+# macOS
+.DS_Store
+
+# Xcode (if ever used)
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/

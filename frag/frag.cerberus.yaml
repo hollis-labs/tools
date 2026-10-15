@@ -1,0 +1,35 @@
+kind: cerberus-project/v1
+owner: frag
+namespace: local
+project:
+  id: frag
+  name: Frag
+resources:
+  - id: frag-dev
+    name: Frag (Menu Bar, Dev)
+    type: process
+    project: frag
+    connector: local
+    config:
+      build_strategy:
+        kind: legacy_command
+        rules:
+          command:
+            - bash
+            - build.sh
+      command:
+        - /Users/chrispian/Applications/Frag.app/Contents/MacOS/Frag
+      dir: /Users/chrispian/dev/projects/frag
+      mode: os_service
+      run_from: workspace
+      supervisor: launchd
+    tags:
+      - gui
+      - swift
+      - macos
+      - menubar
+      - launchd
+      - dev
+      - v2
+    depends_on:
+      - fragments-engine-dev
