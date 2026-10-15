@@ -1,0 +1,2 @@
+# laravel-tool-crate: findings reviewed by the owner 2026-10-15 (path, host and home-directory references only).
+home-path-macos laravel-tool-crate/.claude/settings.local.json Developer home directory path in a test, doc or local config; reviewed by the owner 2026-10-15, no credential.
