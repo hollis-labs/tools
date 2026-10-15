@@ -1,0 +1,111 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go mod download
+        run: go mod download
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test -race
+        run: go test -race ./...
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.11.4
+
+  vuln:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Pinned, not @latest: an unpinned scanner changes its verdict without a
+      # commit. The version is platform-pins.yaml's govulncheck_version.
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+
+  pins:
+    name: platform pins
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Every version pin this repo carries (preset defaults, rendered workflow
+      # templates, this CI) must agree with platform-pins.yaml.
+      - name: drift check
+        run: sh scripts/check-platform-pins-drift.sh .
+
+      - name: drift check positive control
+        run: sh scripts/check-platform-pins-drift.sh . --self-test
+
+  chimera-consumers:
+    name: generated Chimera consumers
+    runs-on: ubuntu-latest
+    env:
+      TMPDIR: ${{ github.workspace }}/.scratch/tmp
+      GOCACHE: ${{ github.workspace }}/.scratch/gocache
+      GOMODCACHE: ${{ github.workspace }}/.scratch/gomodcache
+      npm_config_cache: ${{ github.workspace }}/.scratch/npmcache
+    steps:
+      - uses: actions/checkout@v5
+      - name: Prepare owned proof directories
+        run: mkdir -p .scratch/tmp .scratch/gocache .scratch/gomodcache .scratch/npmcache .scratch/browsers
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+      - name: Install exact isolated native-proof tool
+        run: |
+          mkdir -p .scratch/tmp .scratch/gocache .scratch/gomodcache .scratch/npmcache .scratch/browsers
+          npm install --prefix .scratch/native-tools --no-audit --no-fund @playwright/test@1.63.0
+          PLAYWRIGHT_BROWSERS_PATH="$PWD/.scratch/browsers" .scratch/native-tools/node_modules/.bin/playwright install --with-deps chromium
+      - name: Prove shell and explicit licensed plugin consumers
+        env:
+          FOLIO_PLAYWRIGHT_MODULE: ${{ github.workspace }}/.scratch/native-tools/node_modules/@playwright/test
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.scratch/browsers
+        run: |
+          node scripts/check-chimera-consumers.cjs
+          FOLIO_PROOF_VARIANT=plugin node scripts/check-chimera-consumers.cjs
