@@ -1,0 +1,7 @@
+- [x] Confirm schema dump output format and filename
+- [x] Execute `php artisan schema:dump` within CLI workflow
+- [x] Implement database-specific fallback dump strategies
+- [x] Persist dump artefact and associated logs into output pack
+- [x] Validate solution on sample Laravel project and document usage
+- [x] Smoke test fallback commands (sqlite3/mysqldump/pg_dump) across macOS + Linux environments
+- [x] Detect and warn when fallback binaries are missing or not executable

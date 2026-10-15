@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "PHPStan analysis complete - no errors found"
+exit 0

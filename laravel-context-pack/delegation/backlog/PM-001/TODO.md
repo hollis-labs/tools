@@ -1,0 +1,4 @@
+- [x] Confirm decision-makers and success criteria for the MVP runtime choice
+- [x] Document comparison of Bun CLI vs Node script vs PHP wrapper vs shell
+- [x] Select recommended approach with rationale and risks
+- [x] Publish decision note and update affected planning docs

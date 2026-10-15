@@ -1,0 +1,12 @@
+includes:
+    - vendor/phpstan/phpstan/conf/bleedingEdge.neon
+
+parameters:
+    paths:
+        - src
+        - bin
+    level: 6
+    tmpDir: var/phpstan
+    checkMissingIterableValueType: true
+    treatPhpDocTypesAsCertain: false
+    reportUnmatchedIgnoredErrors: false

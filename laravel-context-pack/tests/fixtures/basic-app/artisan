@@ -1,0 +1,122 @@
+#!/usr/bin/env php
+<?php
+
+$command = $argv[1] ?? null;
+
+if ($command === null) {
+    echo 'Laravel Framework 11.9.0';
+    exit(0);
+}
+
+if ($command === 'schema:dump') {
+    $schemaPath = null;
+    foreach ($argv as $argument) {
+        if (str_starts_with($argument, '--schema-path=')) {
+            $schemaPath = trim(substr($argument, strlen('--schema-path=')), "'\"");
+        }
+    }
+
+    if ($schemaPath === null) {
+        fwrite(STDERR, 'Missing schema path argument.');
+        exit(1);
+    }
+
+    $schema = <<<SQL
+-- SQLite Schema Dump
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name VARCHAR(255),
+    email VARCHAR(255) UNIQUE,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
+);
+
+CREATE TABLE posts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    title VARCHAR(255),
+    content TEXT,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
+);
+
+CREATE TABLE comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id INTEGER,
+    content TEXT,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
+);
+
+CREATE TABLE profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    bio TEXT,
+    avatar VARCHAR(255),
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
+);
+
+CREATE TABLE categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name VARCHAR(255),
+    slug VARCHAR(255),
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
+);
+SQL;
+
+    file_put_contents($schemaPath, $schema . PHP_EOL);
+    echo 'Schema dump written.';
+    exit(0);
+}
+
+if ($command === 'route:list') {
+    $routes = [
+        [
+            'method' => ['GET', 'HEAD'],
+            'uri' => 'users',
+            'name' => 'users.index',
+            'action' => 'App\\Http\\Controllers\\UserController@index',
+            'middleware' => ['web'],
+            'prefix' => null,
+        ],
+        [
+            'method' => ['GET', 'HEAD'],
+            'uri' => 'users/{id}',
+            'name' => 'users.show',
+            'action' => 'App\\Http\\Controllers\\UserController@show',
+            'middleware' => ['web'],
+            'prefix' => null,
+        ],
+        [
+            'method' => ['GET', 'HEAD'],
+            'uri' => 'posts',
+            'name' => 'posts.index',
+            'action' => 'App\\Http\\Controllers\\PostController@index',
+            'middleware' => ['web'],
+            'prefix' => null,
+        ],
+        [
+            'method' => ['POST'],
+            'uri' => 'posts',
+            'name' => 'posts.store',
+            'action' => 'App\\Http\\Controllers\\PostController@store',
+            'middleware' => ['web', 'auth'],
+            'prefix' => null,
+        ],
+    ];
+
+    if (in_array('--json', $argv, true)) {
+        echo json_encode($routes, JSON_PRETTY_PRINT);
+    } else {
+        echo "GET|HEAD        users           users.index     App\\\\Http\\\\Controllers\\\\UserController@index     web\n";
+        echo "GET|HEAD        users/{id}      users.show      App\\\\Http\\\\Controllers\\\\UserController@show      web\n";
+        echo "GET|HEAD        posts           posts.index     App\\\\Http\\\\Controllers\\\\PostController@index     web\n";
+        echo "POST            posts           posts.store     App\\\\Http\\\\Controllers\\\\PostController@store     web,auth\n";
+    }
+
+    exit(0);
+}
+
+echo 'Laravel Framework 11.9.0';

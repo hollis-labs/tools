@@ -1,0 +1,50 @@
+{
+    "name": "hollis-labs/laravel-context-pack",
+    "description": "CLI tool to generate rich context packs for Laravel applications",
+    "version": "0.1.0-beta",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "symfony/console": "^7.1",
+        "symfony/filesystem": "^7.1",
+        "symfony/process": "^7.1",
+        "symfony/finder": "^7.1"
+    },
+    "require-dev": {
+        "pestphp/pest": "^2.33",
+        "laravel/pint": "^1.15",
+        "phpstan/phpstan": "^1.11",
+        "rector/rector": "^1.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "LaravelContextPack\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "LaravelContextPack\\Tests\\": "tests/"
+        }
+    },
+    "bin": [
+        "bin/context-pack.php"
+    ],
+    "scripts": {
+        "pint": "vendor/bin/pint",
+        "post-install-cmd": [
+            "@pint"
+        ],
+        "test": "pest",
+        "lint": "@pint",
+        "analyse": "PHPSTAN_DISABLE_PARALLEL=1 vendor/bin/phpstan analyse",
+        "rector": "vendor/bin/rector process"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    }
+}
