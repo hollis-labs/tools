@@ -1,0 +1,271 @@
+#!/usr/bin/env bash
+# Import an existing repository into this one as <name>/, keeping its history.
+#
+# Usage: scripts/import-repo [options] <source> [<name>]
+#
+#   <source>   path or URL of the repository; its default branch is imported
+#   <name>     directory the files land in, at the repository root (flat: no groups).
+#              Default: the source's basename without .git. Lower case, digits, '.', '_', '-'.
+#
+# Options:
+#   --target DIR          repository to import into (default: the one this script is in)
+#   --source-allowlist F  allowlist for the source scan (RULE-ID PATH-GLOB REASON lines; paths
+#                         are the source's own). Owner-reviewed; reasons must not quote values
+#                         or addresses.
+#   --allow-main          allow the import while main is checked out
+#   -h, --help
+#
+# What it does: clones the source into a scratch directory and, before anything is written
+# here, STOPS (exit 1, target untouched) when the source history holds
+#   - a file over 10 MiB in any commit on any ref,
+#   - a submodule (a .gitmodules or a gitlink) in any commit, or
+#   - Git LFS (a filter=lfs attribute or an LFS pointer) in any commit.
+# These need an owner decision; there is no flag to override them. It then runs
+# scripts/scan-public on the clone (tip AND every commit; findings stop the import), rewrites
+# the clone with git filter-repo so every path sits under <name>/ (original commits, authors
+# and dates are kept), and merges it with a merge commit that records the source name, its
+# HEAD and its tags. The source repository is only read. The target must be clean.
+#
+# Old tags are not carried; they are listed in the merge commit message. See AGENTS.md.
+#
+# Per kind (KIND in scripts/repo.conf):
+#   tools     A follow-up commit drops <name>/AGENTS.md, CLAUDE.md, LICENSE, lefthook.yml.
+#             When <name>/go.mod exists, another rewrites its module line to
+#             MODULE_PREFIX/<name> and the old module path in <name>'s .go and .md files.
+#             Requirements stay as they were. A go.work, a replace directive or a nested
+#             go.mod in the import is reported (scripts/check-layout will fail on them).
+#   projects  A follow-up commit drops the same four per-project files. Nothing else changes.
+#   archive   Nothing is dropped or rewritten (a go.mod keeps its old module line). A
+#             follow-up commit adds <name>/ARCHIVED.md with the source name, HEAD and date.
+#
+# Work on a branch, not main. Needs git-filter-repo: set GIT_FILTER_REPO to the executable,
+# or put it on PATH.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=_common.sh
+. "$(cd "$(dirname "$0")" && pwd)/_common.sh"
+
+usage() {
+  awk 'NR > 1 && /^set -euo pipefail/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"
+}
+
+target="$REPO_ROOT"
+allow_main=0
+source_allowlist=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --target) [ $# -ge 2 ] || die "--target needs a directory"; target="$2"; shift 2 ;;
+    --source-allowlist) [ $# -ge 2 ] || die "--source-allowlist needs a file"; source_allowlist="$2"; shift 2 ;;
+    --allow-main) allow_main=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    --) shift; break ;;
+    -*) die "unknown flag: $1 (see --help)" ;;
+    *) break ;;
+  esac
+done
+{ [ $# -eq 1 ] || [ $# -eq 2 ]; } || { usage >&2; exit 2; }
+source_repo="$1"
+name="${2:-}"
+if [ -z "$name" ]; then
+  name="$(basename "$source_repo")"
+  name="${name%.git}"
+fi
+name="${name%/}"
+valid_name "$name" || die "name '$name' must match [a-z0-9][a-z0-9._-]* (flat layout; pass a second argument to rename)"
+if is_reserved "$name"; then die "name '$name' is reserved ($RESERVED_DIRS)"; fi
+dest="$name"
+
+target="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)" || die "--target is not a git repository"
+[ ! -e "$target/$dest" ] || die "$dest already exists in the target"
+git -C "$target" rev-parse -q --verify HEAD >/dev/null || die "the target has no commits yet"
+[ -z "$(git -C "$target" status --porcelain)" ] || die "the target working tree is not clean; commit or stash first"
+branch="$(git -C "$target" symbolic-ref --short -q HEAD || true)"
+if [ "$allow_main" -eq 0 ] && { [ "$branch" = "main" ] || [ "$branch" = "master" ]; }; then
+  die "refusing to import onto $branch; use a task branch or worktree (or pass --allow-main)"
+fi
+
+if [ -n "${GIT_FILTER_REPO:-}" ]; then
+  [ -x "$GIT_FILTER_REPO" ] || die "GIT_FILTER_REPO='$GIT_FILTER_REPO' is not an executable file"
+  filter_repo="$GIT_FILTER_REPO"
+else
+  filter_repo="$(command -v git-filter-repo || true)"
+  [ -n "$filter_repo" ] || die "git-filter-repo not found: set GIT_FILTER_REPO or put it on PATH"
+fi
+
+work="$(mktemp -d "${TMPDIR:-/tmp}/import-repo.XXXXXX")"
+tmpref="refs/import-tmp/$name"
+cleanup() {
+  git -C "$target" update-ref -d "$tmpref" >/dev/null 2>&1 || true
+  case "${work:-}" in
+    */import-repo.??????) [ ! -d "$work" ] || rm -rf -- "$work" ;;
+  esac
+}
+trap cleanup EXIT
+
+echo "cloning $name"
+git clone --quiet --no-hardlinks "$source_repo" "$work/src" || die "could not clone '$source_repo'"
+src="$work/src"
+
+# --- stops that need an owner decision (before the scan, before any write) ---------------
+stop=0
+halt() {
+  echo "STOP: $*" >&2
+  stop=1
+}
+
+big="$(git -C "$src" rev-list --objects --all |
+  git -C "$src" cat-file --batch-check='%(objecttype) %(objectsize) %(rest)' |
+  awk -v max="$MAX_BYTES" '$1 == "blob" && $2 > max { print $2, $3 }' | sort -u)"
+if [ -n "$big" ]; then
+  while IFS= read -r l; do
+    halt "a file over 10 MiB in the source history: ${l#* } (${l%% *} bytes)"
+  done <<BIGEOF
+$big
+BIGEOF
+fi
+
+raw="$(git -C "$src" log --all -m --raw --no-abbrev --format= 2>/dev/null || true)"
+if printf '%s\n' "$raw" | grep -Eq '^:[0-7]+ 160000 |^:160000 '; then
+  halt "a submodule (gitlink) in the source history"
+fi
+if printf '%s\n' "$raw" | grep -Eq '[[:space:]](.*/)?\.gitmodules$'; then
+  halt "a .gitmodules in the source history"
+fi
+if [ -n "$(git -C "$src" log --all --format=%h -1 -G'filter=lfs' -- '*.gitattributes' 2>/dev/null)" ] ||
+  [ -n "$(git -C "$src" log --all --format=%h -1 -G'git-lfs\.github\.com/spec' 2>/dev/null)" ]; then
+  halt "Git LFS (attribute or pointer) in the source history"
+fi
+if [ "$stop" -ne 0 ]; then
+  die "import stopped; the owner must decide how to handle the items above. Nothing was written to the target."
+fi
+
+# --- public-hygiene scan: tip and every commit ---------------------------------------------
+echo "scanning $name (tip and full history) for secrets, internal hosts and private paths"
+scan_args=(--repo "$src")
+if [ -n "$source_allowlist" ]; then
+  [ -f "$source_allowlist" ] || die "--source-allowlist '$source_allowlist' is not a file"
+  scan_args+=(--allowlist "$source_allowlist")
+else
+  scan_args+=(--no-allowlist)
+fi
+"$SCRIPT_DIR/scan-public" "${scan_args[@]}" >"$work/scan.log" 2>&1 || {
+  cat "$work/scan.log" >&2
+  die "source scan failed; the owner triages the findings and passes --source-allowlist (reasons required)"
+}
+
+src_head="$(git -C "$src" rev-parse HEAD)"
+src_head_date="$(git -C "$src" log -1 --format=%cs HEAD)"
+src_commits="$(git -C "$src" rev-list --count HEAD)"
+src_tags="$(git -C "$src" tag --merged HEAD | sort -V | tr '\n' ' ' | sed 's/ $//')"
+
+echo "rewriting $src_commits commits under $dest/"
+(cd "$src" && "$filter_repo" --force --to-subdirectory-filter "$dest") >"$work/filter.log" 2>&1 || {
+  cat "$work/filter.log" >&2
+  die "git filter-repo failed"
+}
+
+echo "merging into $target"
+git -C "$target" fetch --quiet --no-tags "$src" "HEAD:$tmpref"
+
+msg="import: $name into $dest (history preserved)
+
+Source: $name
+Source HEAD: ${src_head:0:12} ($src_commits commits)
+Source tags, not carried: ${src_tags:-none}
+Imported with scripts/import-repo (git filter-repo --to-subdirectory-filter $dest)."
+if ! git -C "$target" merge --quiet --no-ff --allow-unrelated-histories -m "$msg" "$tmpref"; then
+  git -C "$target" merge --abort >/dev/null 2>&1 || true
+  die "merge failed and was aborted; the target is unchanged"
+fi
+
+# --- per kind -------------------------------------------------------------------------------
+requirements=""
+if [ "$KIND" != "archive" ]; then
+  strip_files=""
+  for f in AGENTS.md CLAUDE.md LICENSE lefthook.yml; do
+    if [ -n "$(git -C "$target" ls-files -- "$dest/$f")" ]; then
+      git -C "$target" rm --quiet -f -- "$dest/$f"
+      strip_files="${strip_files:+$strip_files }$f"
+    fi
+  done
+  if [ -n "$strip_files" ]; then
+    git -C "$target" commit --quiet -m "import: drop $name's per-directory files ($strip_files)
+
+This repository keeps a single AGENTS.md and LICENSE at the root and no per-directory
+CLAUDE.md or hook config; the history keeps the originals."
+  fi
+fi
+
+if [ "$KIND" = "tools" ] && [ -f "$target/$dest/go.mod" ]; then
+  old_module="$(awk '$1 == "module" { print $2; exit }' "$target/$dest/go.mod")"
+  suffix="$(printf '%s\n' "$old_module" | grep -oE '/v[2-9][0-9]*$' || true)"
+  new_module="$MODULE_PREFIX/$dest$suffix"
+  requirements="$(awk '
+    $1 == "require" && $2 == "(" { inblock = 1; next }
+    inblock && $1 == ")" { inblock = 0; next }
+    inblock { print $1, $2; next }
+    $1 == "require" { print $2, $3 }
+  ' "$target/$dest/go.mod")"
+  if [ "$old_module" != "$new_module" ]; then
+    esc="$(re_escape "$old_module")"
+    awk -v new="$new_module" '$1 == "module" && !done { print "module " new; done = 1; next } { print }' \
+      "$target/$dest/go.mod" >"$work/go.mod.new"
+    cp "$work/go.mod.new" "$target/$dest/go.mod"
+    git -C "$target" add -- "$dest/go.mod"
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      sed -E -i "s#${esc}([^A-Za-z0-9._-]|\$)#${new_module}\\1#g" "$target/$f"
+      git -C "$target" add -- "$f"
+    done <<LSEOF
+$(git -C "$target" ls-files -- "$dest/*.go" "$dest/*.md")
+LSEOF
+    git -C "$target" commit --quiet -m "import: module path of $name is now $new_module
+
+The imported go.mod is kept. Its module line changes, and so does the old module path in
+$dest's .go and .md files (was $old_module). Requirements are untouched.
+
+Requirements carried over:
+${requirements:-  (none)}"
+  fi
+fi
+
+if [ "$KIND" = "archive" ]; then
+  cat >"$target/$dest/ARCHIVED.md" <<ARCHEOF
+# Archived: $name
+
+This directory is a frozen copy of the repository \`$name\`. It is archived, not maintained and
+not buildable here: nothing in it is built, tested or updated by this repository, and its
+files (a go.mod included) are exactly as the source left them.
+
+- Source repository: $name
+- Source HEAD: $src_head
+- Source HEAD commit date: $src_head_date
+- Imported: $(date -u +%Y-%m-%d)
+- History: preserved (original commits, authors and dates)
+ARCHEOF
+  git -C "$target" add -- "$dest/ARCHIVED.md"
+  git -C "$target" commit --quiet -m "import: mark $name as archived
+
+Adds $dest/ARCHIVED.md with the source name, its HEAD (${src_head:0:12}) and date."
+fi
+
+echo
+echo "imported $name into $dest/: $src_commits source commits preserved"
+echo "HEAD $(git -C "$target" rev-parse --short HEAD)  ($(git -C "$target" log -1 --format=%s))"
+if [ "$KIND" = "tools" ]; then
+  nested="$(git -C "$target" ls-files "$dest" | grep -E '(^|/)go\.(mod|work)$' | grep -vE '/testdata/' | grep -vx "$dest/go\.mod" || true)"
+  if [ -n "$nested" ]; then
+    echo "warning: nested go.mod or go.work under $dest (scripts/check-layout will fail):" >&2
+    printf '  %s\n' "$nested" >&2
+  fi
+  if [ -f "$target/$dest/go.mod" ] && grep -Eq '^[[:space:]]*replace([[:space:]]|\()' "$target/$dest/go.mod"; then
+    echo "warning: $dest/go.mod has a replace directive (scripts/check-layout will fail)" >&2
+  fi
+  if [ -n "$requirements" ]; then
+    echo "requirements, as the source had them:"
+    printf '  %s\n' "$requirements"
+  fi
+  echo "next: scripts/check-layout; go vet and go test in $dest; add $dest/CHANGELOG.md before scripts/release"
+else
+  echo "next: scripts/check-layout; if the scan was allowlisted, commit scan-public.allow.d/$name.allow with this repository's paths ($name/...)"
+fi
