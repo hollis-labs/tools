@@ -33,7 +33,7 @@ inputs:
   store_pkg_name: store
   store_pkg_path: internal/store
   store_type: Store
-  transport_dirs_regex: ^internal/(api|mcp)/
+  transport_dirs_regex: ^internal/(api|mcp|cli)/
 computed:
   app: caster
   env_prefix: CASTER

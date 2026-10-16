@@ -17,7 +17,7 @@
 # exclusion below or the count inflates.
 #
 # Placeholders (folio inputs): store package NAME `store`, handle type
-# `Store`, transport dirs `^internal/(api|mcp)/`.
+# `Store`, transport dirs `^internal/(api|mcp|cli)/`.
 version: "2"
 
 run:
@@ -52,7 +52,7 @@ linters:
       # forbidigo has no per-path setting: scope the rules by exclusion.
       - text: 'transport-boundary'
         linters: [forbidigo]
-        path-except: '^internal/(api|mcp)/'
+        path-except: '^internal/(api|mcp|cli)/'
       # Only matters when merged into a config that lints tests.
       - text: 'transport-boundary'
         linters: [forbidigo]

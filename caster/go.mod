@@ -5,6 +5,8 @@ go 1.26.6
 require (
 	github.com/hollis-labs/go-apppaths v0.3.0
 	github.com/hollis-labs/go-otel v0.10.0
+	github.com/hollis-labs/libs/security/auth v0.1.0
+	github.com/hollis-labs/libs/security/secrets v0.1.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.60.1
 )

@@ -1,12 +1,12 @@
-// Package cli is caster's command-line transport. It calls only the service
-// layer. Exit codes follow the Hollis helper protocol so caster can stand in as
-// a resolver anywhere one is expected: 0 ok, 2 not found, 3 denied, 1 other.
+// Package cli is caster's command-line transport: parse flags, call the service
+// layer, print. Exit codes follow the Hollis helper protocol so caster can
+// stand in as a resolver anywhere one is expected: 0 ok, 2 not found, 3 denied,
+// 1 error, 64 bad usage or input.
 package cli
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,7 +14,6 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/hollis-labs/caster/internal/resolver"
 	"github.com/hollis-labs/caster/internal/service"
 )
 
@@ -31,7 +30,7 @@ const usage = `caster — content-addressed store and ref resolver
 
   caster put [-n [ns/]name] [-T title] [-t "tags"] [-m mime] [-s source] [file|-]
                                 store text/bytes; prints the ref (caster://… if named, else cas://…)
-  caster get|resolve <ref>      print content (torque://task/CW-…, tesseract://ns/key, caster://ns/name[@rev], cas://sha256/…)
+  caster get|resolve <ref>      print content (torque://task/CW-…, tesseract://item/<id>, caster://ns/name[@rev], cas://sha256/…)
   caster head <ref>             metadata only
   caster snap [-n name] [-t tags] <ref>
                                 materialise any ref and pin its bytes in CAS
@@ -43,44 +42,43 @@ const usage = `caster — content-addressed store and ref resolver
                                 replace resolvable refs in text with their contents
   caster paths                  where data lives
   caster mcp                    serve the tools over MCP stdio (for agents)
+  caster serve [-addr a]        serve the HTTP API (bearer auth; see README)
+  caster token                  path of the API token file (created if missing)
 
 Bare "ns/name", a CW-… task id, or a 64-hex hash are accepted wherever a ref is.
-Exit: 0 ok, 2 not found, 3 denied, 1 error.
+Exit: 0 ok, 2 not found, 3 denied, 1 error, 64 bad input.
 `
 
-// Run executes one command.
+// Run executes one command against the service layer.
 func Run(ctx context.Context, svc *service.Service, args []string, in io.Reader, out, errw io.Writer) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		fmt.Fprint(errw, usage)
 		return ExitUsage
 	}
-	cmd, rest := args[0], args[1:]
 	a := &app{svc: svc, in: in, out: out, err: errw}
-	var code int
+	cmd, rest := args[0], args[1:]
 	switch cmd {
 	case "put":
-		code = a.put(rest)
+		return a.put(ctx, rest)
 	case "get", "resolve":
-		code = a.get(ctx, rest)
+		return a.get(ctx, rest)
 	case "head":
-		code = a.head(ctx, rest)
+		return a.head(ctx, rest)
 	case "snap":
-		code = a.snap(ctx, rest)
+		return a.snap(ctx, rest)
 	case "ls":
-		code = a.ls(rest)
+		return a.ls(ctx, rest)
 	case "log":
-		code = a.log(rest)
+		return a.log(ctx, rest)
 	case "search":
-		code = a.search(rest)
+		return a.search(ctx, rest)
 	case "scan":
-		code = a.scan(ctx, rest)
+		return a.scan(ctx, rest)
 	case "expand":
-		code = a.expand(ctx, rest)
-	default:
-		fmt.Fprintf(errw, "caster: unknown command %q\n\n%s", cmd, usage)
-		return ExitUsage
+		return a.expand(ctx, rest)
 	}
-	return code
+	fmt.Fprintf(errw, "caster: unknown command %q\n\n%s", cmd, usage)
+	return ExitUsage
 }
 
 type app struct {
@@ -91,13 +89,26 @@ type app struct {
 
 func (a *app) fail(err error) int {
 	fmt.Fprintf(a.err, "caster: %v\n", err)
-	switch {
-	case service.IsNotFound(err):
+	switch service.KindOf(err) {
+	case service.KindNotFound:
 		return ExitNotFound
-	case errors.Is(err, resolver.ErrUnavailable):
-		return ExitError
+	case service.KindDenied:
+		return ExitDenied
+	case service.KindInvalid:
+		return ExitUsage
 	}
 	return ExitError
+}
+
+// stateCode maps a resolution state to the helper-protocol exit code.
+func stateCode(state string) int {
+	switch state {
+	case service.StateResolved:
+		return ExitOK
+	case service.StateDenied:
+		return ExitDenied
+	}
+	return ExitNotFound
 }
 
 func (a *app) flags(name string) *flag.FlagSet {
@@ -122,49 +133,58 @@ func (a *app) parse(fs *flag.FlagSet, args []string) ([]string, bool) {
 	return pos, true
 }
 
-func (a *app) reader(pos []string) (io.ReadCloser, error) {
+func (a *app) input(pos []string) (io.ReadCloser, error) {
 	if len(pos) == 0 || pos[0] == "-" {
 		return io.NopCloser(a.in), nil
 	}
 	return os.Open(pos[0])
 }
 
-func (a *app) put(args []string) int {
+func (a *app) text(pos []string) (string, error) {
+	r, err := a.input(pos)
+	if err != nil {
+		return "", err
+	}
+	defer r.Close()
+	b, err := io.ReadAll(r)
+	return string(b), err
+}
+
+func (a *app) one(pos []string, ok bool, usage string) (string, bool) {
+	if !ok || len(pos) != 1 {
+		fmt.Fprintln(a.err, "usage: "+usage)
+		return "", false
+	}
+	return pos[0], true
+}
+
+func (a *app) put(ctx context.Context, args []string) int {
 	fs := a.flags("put")
-	name := fs.String("n", "", "name ([ns/]name)")
-	title := fs.String("T", "", "title")
-	tags := fs.String("t", "", "space separated tags")
-	mime := fs.String("m", "", "mime type")
-	src := fs.String("s", "", "source ref (provenance)")
+	req := service.PutRequest{}
+	fs.StringVar(&req.Name, "n", "", "name ([ns/]name)")
+	fs.StringVar(&req.Title, "T", "", "title")
+	fs.StringVar(&req.Tags, "t", "", "space separated tags")
+	fs.StringVar(&req.Mime, "m", "", "mime type")
+	fs.StringVar(&req.Source, "s", "", "source ref (provenance)")
 	pos, ok := a.parse(fs, args)
 	if !ok {
 		return ExitUsage
 	}
-	r, err := a.reader(pos)
+	r, err := a.input(pos)
 	if err != nil {
 		return a.fail(err)
 	}
 	defer r.Close()
-	res, err := a.svc.Put(service.PutInput{Name: *name, Title: *title, Tags: *tags, Mime: *mime, Source: *src, R: r})
+	req.R = r
+	res, err := a.svc.Put(ctx, req)
 	if err != nil {
 		return a.fail(err)
 	}
 	fmt.Fprintln(a.out, res.Ref)
-	if res.Name != nil {
-		fmt.Fprintf(a.err, "%s  cas://sha256/%s  %d bytes\n", res.Ref, res.Blob.Hash[:12], res.Blob.Size)
+	if req.Name != "" {
+		fmt.Fprintf(a.err, "%s  %s  %d bytes\n", res.Ref, res.CAS[:len("cas://sha256/")+12], res.Size)
 	}
 	return ExitOK
-}
-
-// stateCode maps a resolver state to the helper-protocol exit code.
-func stateCode(state string) int {
-	switch state {
-	case resolver.StateResolved:
-		return ExitOK
-	case resolver.StateDenied:
-		return ExitDenied
-	}
-	return ExitNotFound
 }
 
 func (a *app) get(ctx context.Context, args []string) int {
@@ -172,15 +192,15 @@ func (a *app) get(ctx context.Context, args []string) int {
 		fmt.Fprintln(a.err, "usage: caster get <ref>")
 		return ExitUsage
 	}
-	c, err := a.svc.Get(ctx, args[0])
+	res, err := a.svc.Get(ctx, service.GetRequest{Ref: args[0], MaxBytes: -1})
 	if err != nil {
 		return a.fail(err)
 	}
-	if c.State != resolver.StateResolved {
-		fmt.Fprintf(a.err, "caster: %s: %s\n", c.Ref, c.State)
-		return stateCode(c.State)
+	if res.State != service.StateResolved {
+		fmt.Fprintf(a.err, "caster: %s: %s\n", res.Ref, res.State)
+		return stateCode(res.State)
 	}
-	_, _ = a.out.Write(c.Data)
+	_, _ = a.out.Write(res.Data)
 	return ExitOK
 }
 
@@ -189,97 +209,96 @@ func (a *app) head(ctx context.Context, args []string) int {
 		fmt.Fprintln(a.err, "usage: caster head <ref>")
 		return ExitUsage
 	}
-	m, err := a.svc.Head(ctx, args[0])
+	m, err := a.svc.Head(ctx, service.RefRequest{Ref: args[0]})
 	if err != nil {
 		return a.fail(err)
 	}
-	fmt.Fprintf(a.out, "ref:      %s\nstate:    %s\nfloating: %v\n", m.Ref, m.State, m.Ref.Floating())
-	if m.State == resolver.StateResolved {
-		fmt.Fprintf(a.out, "kind:     %s\ntitle:    %s\nmime:     %s\nsize:     %d\nrevision: %s\nhash:     %s\n", m.Kind, m.Title, m.Mime, m.Size, m.Revision, m.ContentHash)
+	fmt.Fprintf(a.out, "ref:      %s\nstate:    %s\nfloating: %v\n", m.Ref, m.State, m.Floating)
+	if m.State == service.StateResolved {
+		fmt.Fprintf(a.out, "kind:     %s\ntitle:    %s\nmime:     %s\nsize:     %d\nrevision: %s\nhash:     %s\n", m.Kind, m.Title, m.Mime, m.Size, m.Revision, m.SHA256)
 	}
 	return stateCode(m.State)
 }
 
 func (a *app) snap(ctx context.Context, args []string) int {
 	fs := a.flags("snap")
-	name := fs.String("n", "", "also name the snapshot ([ns/]name)")
-	tags := fs.String("t", "", "tags")
+	req := service.SnapRequest{}
+	fs.StringVar(&req.Name, "n", "", "also name the snapshot ([ns/]name)")
+	fs.StringVar(&req.Tags, "t", "", "tags")
 	pos, ok := a.parse(fs, args)
-	if !ok || len(pos) != 1 {
-		fmt.Fprintln(a.err, "usage: caster snap [-n name] [-t tags] <ref>")
+	r, ok := a.one(pos, ok, "caster snap [-n name] [-t tags] <ref>")
+	if !ok {
 		return ExitUsage
 	}
-	res, meta, err := a.svc.Snapshot(ctx, pos[0], *name, *tags)
+	req.Ref = r
+	res, err := a.svc.Snapshot(ctx, req)
 	if err != nil {
-		if meta.State != "" && meta.State != resolver.StateResolved {
-			fmt.Fprintf(a.err, "caster: %v\n", err)
-			return stateCode(meta.State)
-		}
 		return a.fail(err)
 	}
-	fmt.Fprintf(a.out, "cas://sha256/%s\n", res.Blob.Hash)
-	if res.Name != nil {
+	if res.State != service.StateResolved {
+		fmt.Fprintf(a.err, "caster: %s: %s\n", res.Source, res.State)
+		return stateCode(res.State)
+	}
+	fmt.Fprintln(a.out, res.CAS)
+	if res.Ref != "" {
 		fmt.Fprintln(a.out, res.Ref)
 	}
 	return ExitOK
 }
 
-func (a *app) ls(args []string) int {
+func (a *app) ls(ctx context.Context, args []string) int {
 	fs := a.flags("ls")
-	ns := fs.String("ns", "", "namespace")
-	tag := fs.String("t", "", "tag")
+	req := service.ListRequest{}
+	fs.StringVar(&req.NS, "ns", "", "namespace")
+	fs.StringVar(&req.Tag, "t", "", "tag")
 	asJSON := fs.Bool("json", false, "json output")
 	if _, ok := a.parse(fs, args); !ok {
 		return ExitUsage
 	}
-	names, err := a.svc.List(*ns, *tag)
+	res, err := a.svc.List(ctx, req)
 	if err != nil {
 		return a.fail(err)
 	}
 	if *asJSON {
-		_ = json.NewEncoder(a.out).Encode(names)
+		_ = json.NewEncoder(a.out).Encode(res)
 		return ExitOK
 	}
 	tw := tabwriter.NewWriter(a.out, 0, 4, 2, ' ', 0)
-	for _, n := range names {
-		fmt.Fprintf(tw, "%s/%s\t@%d\t%s\t%s\t%s\n", n.NS, n.Name, n.Rev, n.CreatedAt.Local().Format("2006-01-02 15:04"), n.Title, n.Tags)
+	for _, it := range res.Items {
+		fmt.Fprintf(tw, "%s\t@%d\t%s\t%s\t%s\n", strings.TrimPrefix(it.Ref, "caster://"), it.Rev, it.Updated.Local().Format("2006-01-02 15:04"), it.Title, it.Tags)
 	}
 	_ = tw.Flush()
 	return ExitOK
 }
 
-func (a *app) log(args []string) int {
+func (a *app) log(ctx context.Context, args []string) int {
 	if len(args) != 1 {
 		fmt.Fprintln(a.err, "usage: caster log <[ns/]name>")
 		return ExitUsage
 	}
-	h, err := a.svc.History(args[0])
+	res, err := a.svc.Log(ctx, service.LogRequest{Name: args[0]})
 	if err != nil {
 		return a.fail(err)
 	}
-	for _, n := range h {
-		fmt.Fprintf(a.out, "@%d  %s  %s  %s\n", n.Rev, n.CreatedAt.Local().Format("2006-01-02 15:04:05"), n.Hash[:12], n.Title)
+	for _, r := range res.Revisions {
+		fmt.Fprintf(a.out, "@%d  %s  %s  %s\n", r.Rev, r.At.Local().Format("2006-01-02 15:04:05"), r.CAS[len("cas://sha256/"):][:12], r.Title)
 	}
 	return ExitOK
 }
 
-func (a *app) search(args []string) int {
-	if len(args) == 0 {
-		fmt.Fprintln(a.err, "usage: caster search <query>")
-		return ExitUsage
-	}
-	hits, err := a.svc.Search(strings.Join(args, " "), 20)
+func (a *app) search(ctx context.Context, args []string) int {
+	res, err := a.svc.Search(ctx, service.SearchRequest{Query: strings.Join(args, " ")})
 	if err != nil {
 		return a.fail(err)
 	}
-	for _, h := range hits {
-		who := "cas://sha256/" + h.Hash[:12]
+	for _, h := range res.Hits {
+		who := h.CAS
 		if len(h.Names) > 0 {
 			who = strings.Join(h.Names, ", ")
 		}
 		fmt.Fprintf(a.out, "%s\n    %s\n", who, strings.ReplaceAll(h.Snippet, "\n", " "))
 	}
-	if len(hits) == 0 {
+	if len(res.Hits) == 0 {
 		return ExitNotFound
 	}
 	return ExitOK
@@ -292,60 +311,44 @@ func (a *app) scan(ctx context.Context, args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-	r, err := a.reader(pos)
+	text, err := a.text(pos)
 	if err != nil {
 		return a.fail(err)
 	}
-	defer r.Close()
-	text, err := io.ReadAll(r)
+	res, err := a.svc.Scan(ctx, service.ScanRequest{Text: text})
 	if err != nil {
 		return a.fail(err)
 	}
-	type row struct {
-		Ref      string `json:"ref"`
-		Kind     string `json:"kind"`
-		Title    string `json:"title"`
-		Revision string `json:"revision,omitempty"`
-		Floating bool   `json:"floating"`
-	}
-	var rows []row
-	for _, f := range a.svc.Scan(ctx, string(text)) {
-		if f.Err != nil {
-			fmt.Fprintf(a.err, "caster: %s: %v\n", f.Ref, f.Err)
-			continue
-		}
-		if f.Meta.State != resolver.StateResolved { // quiet by default
-			continue
-		}
-		rows = append(rows, row{f.Ref.String(), f.Meta.Kind, f.Meta.Title, f.Meta.Revision, f.Ref.Floating()})
+	for _, p := range res.Problems {
+		fmt.Fprintf(a.err, "caster: %s: %s\n", p.Ref, p.Error)
 	}
 	if *asJSON {
-		_ = json.NewEncoder(a.out).Encode(rows)
+		_ = json.NewEncoder(a.out).Encode(res.Refs)
 		return ExitOK
 	}
-	for _, r := range rows {
-		fmt.Fprintf(a.out, "%s\t%s\t%s\n", r.Ref, r.Kind, r.Title)
+	for _, m := range res.Refs {
+		fmt.Fprintf(a.out, "%s\t%s\t%s\n", m.Ref, m.Kind, m.Title)
 	}
 	return ExitOK
 }
 
 func (a *app) expand(ctx context.Context, args []string) int {
 	fs := a.flags("expand")
-	budget := fs.Int("budget", 0, "max bytes inserted per ref (default 16384)")
+	req := service.ExpandRequest{}
+	fs.IntVar(&req.Budget, "budget", 0, "max bytes inserted per ref (default 16384)")
 	pos, ok := a.parse(fs, args)
 	if !ok {
 		return ExitUsage
 	}
-	r, err := a.reader(pos)
+	text, err := a.text(pos)
 	if err != nil {
 		return a.fail(err)
 	}
-	defer r.Close()
-	text, err := io.ReadAll(r)
+	req.Text = text
+	res, err := a.svc.Expand(ctx, req)
 	if err != nil {
 		return a.fail(err)
 	}
-	out, _ := a.svc.Expand(ctx, string(text), *budget)
-	fmt.Fprint(a.out, out)
+	fmt.Fprint(a.out, res.Text)
 	return ExitOK
 }

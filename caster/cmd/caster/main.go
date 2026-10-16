@@ -93,6 +93,16 @@ func run(ctx context.Context, args []string) (int, error) {
 		fmt.Printf("data   %s\nindex  %s\nblobs  %s\n", layout.DataDir(), st.Path(), st.BlobRoot())
 		return cli.ExitOK, nil
 	}
+	if len(args) >= 1 && args[0] == "serve" {
+		return cli.ExitOK, serve(ctx, svc, layout.ConfigDir(), args[1:])
+	}
+	if len(args) == 1 && args[0] == "token" {
+		if _, err := ensureToken(layout.ConfigDir()); err != nil {
+			return 0, err
+		}
+		fmt.Println(tokenPath(layout.ConfigDir()))
+		return cli.ExitOK, nil
+	}
 	if len(args) == 1 && args[0] == "mcp" {
 		return cli.ExitOK, mcp.Serve(ctx, svc, os.Stdin, os.Stdout, "0.2.0")
 	}

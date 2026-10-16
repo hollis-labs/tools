@@ -9,7 +9,7 @@ cannot see; the parity checklist below covers it.
 
 Module `github.com/hollis-labs/caster`; store handle `store.Store`
 (package name, not import path; store package `internal/store`); transport packages
-`^internal/(api|mcp)/`. The composition root (`cmd/`) may open the store and is outside
+`^internal/(api|mcp|cli)/`. The composition root (`cmd/`) may open the store and is outside
 the scope regex by construction.
 
 ## The service layer and its escape hatch
@@ -167,7 +167,7 @@ cerberus and fragments-engine can be R3 now as a regression guard; tangent R3 af
   `w.Get(2)` is not flagged (checked on golangci-lint v2.11.4 against a synthetic module); a direct call and a
   call through a type alias (`type alias = store.Store`) are flagged. A wrapper type that hides the store this way
   defeats Rule A; Rule B (the import ban) catches it if the wrapper lives in a transport package.
-- **The regex scopes by path.** A transport package outside `^internal/(api|mcp)/` is not checked;
+- **The regex scopes by path.** A transport package outside `^internal/(api|mcp|cli)/` is not checked;
   a new transport directory needs the regex extended.
 - **Not a parity check.** Two transports implementing the same decision differently pass this gate.
 - `run.tests: false`: test files are never checked.

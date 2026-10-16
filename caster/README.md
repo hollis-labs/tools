@@ -39,7 +39,22 @@ MCP-store refs go through a stdio MCP client (`internal/mcpclient`) that launche
 
 ## For agents: `caster mcp`
 
-Stdio MCP server with `caster_put`, `caster_get`, `caster_head`, `caster_snap`, `caster_ls`, `caster_log`, `caster_search`, `caster_scan`, `caster_expand`. Register it as `{"command":"caster","args":["mcp"]}`. Missing refs are outcomes (`state: not_found`), not errors; `caster_get` truncates at 64 KiB by default. No HTTP transport: an unauthenticated loopback HTTP API would let any local process or browser page read and write the store, so it waits on a decision about auth.
+Stdio MCP server with `caster_put`, `caster_get`, `caster_head`, `caster_snap`, `caster_ls`, `caster_log`, `caster_search`, `caster_scan`, `caster_expand`. Register it as `{"command":"caster","args":["mcp"]}`. Missing refs are outcomes (`state: not_found`), not errors; `caster_get` truncates at 64 KiB by default. The stdio server is launched by the operator and is not authenticated (same trust as the CLI).
+
+## HTTP API: `caster serve`
+
+```sh
+caster serve [-addr 127.0.0.1:8991]
+TOKEN=$(cat "$(caster token)")                       # 0600 file, created on first use
+curl -H "Authorization: Bearer $TOKEN" 'localhost:8991/v1/get?ref=CW-20261016-0015'
+curl -H "Authorization: Bearer $TOKEN" -d '{"name":"api/x","content":"hi"}' localhost:8991/v1/put
+```
+
+Routes: `GET /v1/head|get|list|log|search`, `POST /v1/put|snap|scan|expand` (JSON bodies are the service request structs), `GET /health` (open). Auth is `libs/security/auth`: bearer API key (hash of the token file), scopes `caster.read` and `caster.write`, mode `enforce` by default (`HOLLIS_AUTH_CASTER` / `HOLLIS_AUTH` override; `ValidateBind` refuses `off`/`permissive` on non-local listeners), audit events as JSON on stderr. Unmapped routes fail closed. A missing ref is HTTP 404 with a Meta body; a bad ref is 400; an unreachable backend is 502.
+
+## Architecture
+
+`internal/service` is the contract: every operation is `func(ctx, Request) (Result, error)` with JSON-tagged structs, errors classified by `service.Kind`, and the operation→scope table (`ScopeFor`). `internal/cli`, `internal/mcp` and `internal/api` only decode, call the service and encode; `.golangci.transport.yml` enforces that they never touch the store. A new transport (gRPC, a Chimera plugin, Tether tool) is a new package of that shape.
 
 ## Storage
 

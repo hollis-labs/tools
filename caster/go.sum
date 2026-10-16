@@ -29,6 +29,10 @@ github.com/hollis-labs/go-apppaths v0.3.0 h1:Ny1uC3Z3PFkd/Fc9v/BvneWVaRU5uRlTZ09
 github.com/hollis-labs/go-apppaths v0.3.0/go.mod h1:BAf880VPj8p11kZqJie6HfIXwW/1lRpV5LY1cjf2Rpo=
 github.com/hollis-labs/go-otel v0.10.0 h1:5p+JeX2FqTEATnTV0qJ5QLrDtg+rUQjhbHMRNuhCSVY=
 github.com/hollis-labs/go-otel v0.10.0/go.mod h1:cm2TSPhd42xsC3HOdwju83tUBSWmzDWCBsxYAnHM8n4=
+github.com/hollis-labs/libs/security/auth v0.1.0 h1:Bq4pmTr4bnRY7a1bQq2ycuutRlCD4RCh44xPdb0PnBw=
+github.com/hollis-labs/libs/security/auth v0.1.0/go.mod h1:GGJqJuSZwR57ygyml3kPt6Aw2rwPqAzTV2M9CXjTjo8=
+github.com/hollis-labs/libs/security/secrets v0.1.0 h1:/wrYAM5viUnYMpDhvbQmPlTMesqMIVfvfz+GiZ7jMAs=
+github.com/hollis-labs/libs/security/secrets v0.1.0/go.mod h1:Krd1kgmisOVmeN1G/ltaLMva58tIBki9xShsySqd86Y=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
 github.com/kr/pretty v0.3.1/go.mod h1:hoEshYVHaxMs3cyo3Yncou5ZscifuDolrwPKZanG3xk=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
