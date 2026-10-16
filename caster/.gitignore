@@ -28,3 +28,6 @@ Thumbs.db
 # consumers and CI alike
 go.work
 go.work.sum
+
+# Cerberus artifact output
+/bin/
