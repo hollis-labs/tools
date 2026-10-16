@@ -1,0 +1,15 @@
+# Catalog entry: projects/caster.yaml
+# A project of its own so the MCP allowlist (mcp.servers) names caster without
+# changing what any other project's sessions can see. Without an allowlist a launched
+# session did not receive the caster_* tools. Widen the list if the persona needs more.
+id: caster
+name: Caster
+repo_root: ~/dev/hollis-labs/tools/caster
+repo_url: https://github.com/hollis-labs/caster.git
+tracking_root: ~/dev/home-node/workspaces/execution/caster
+boot_fragments: []
+workspace:
+  default_mode: hybrid
+  session_root: /srv/agentcow/tether/workspaces/caster
+mcp:
+  servers: [caster]
