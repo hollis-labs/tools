@@ -53,7 +53,7 @@ func TestShadowLabelsGivePrecision(t *testing.T) {
 		t.Fatalf("bad verdict must be invalid: %v", err)
 	}
 	if _, err := s.Shadow.Label(ctx, LabelRequest{Ref: "caster://n/never-seen", Verdict: "true"}); KindOf(err) != KindNotFound {
-		t.Fatalf("labelling an unseen ref must be not_found: %v", err)
+		t.Fatalf("labeling an unseen ref must be not_found: %v", err)
 	}
 	if r, err := s.Shadow.Label(ctx, LabelRequest{Ref: "n/a", Verdict: "true"}); err != nil || r.Updated != 1 {
 		t.Fatalf("label: %+v %v", r, err)

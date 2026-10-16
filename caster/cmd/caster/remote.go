@@ -26,7 +26,7 @@ func login(ctx context.Context, configDir string, args []string) (int, error) {
 	var pos []string
 	for len(args) > 0 {
 		if err := fs.Parse(args); err != nil {
-			return cli.ExitUsage, nil
+			return cli.ExitUsage, nil //nolint:nilerr // the flag package already printed the problem; the exit code is the outcome
 		}
 		args = fs.Args()
 		if len(args) > 0 {

@@ -43,7 +43,7 @@ func newEnv(t *testing.T) *env {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	der, _ := x509.MarshalPKIXPublicKey(pub)
 	keyFile := filepath.Join(t.TempDir(), "issuer.pub.pem")
-	if err := os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}), 0o600); err != nil {
+	if err = os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	jv, err := auth.NewJWTVerifier(auth.JWTConfig{Issuer: "tether-test", Audience: "caster", BootstrapKeyFile: keyFile})

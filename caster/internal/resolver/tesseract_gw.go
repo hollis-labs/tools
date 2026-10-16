@@ -36,7 +36,7 @@ func (t Tesseract) call(ctx context.Context, tool string, args map[string]any) (
 	case errors.As(err, &te):
 		return nil, te
 	case err != nil:
-		return nil, fmt.Errorf("tesseract: %w: %v", ErrUnavailable, err)
+		return nil, fmt.Errorf("tesseract: %w: %w", ErrUnavailable, err)
 	}
 	return out, nil
 }
@@ -152,7 +152,7 @@ func renderItem(raw json.RawMessage) (data []byte, title, rev string) {
 			pretty, _ := json.MarshalIndent(o.Payload, "", "  ")
 			body = "```json\n" + string(pretty) + "\n```"
 		} else {
-			pretty, _ := json.MarshalIndent(json.RawMessage(raw), "", "  ")
+			pretty, _ := json.MarshalIndent(raw, "", "  ")
 			body = "```json\n" + string(pretty) + "\n```"
 		}
 	}

@@ -182,7 +182,7 @@ func TestProfileHoldsNoSecretAndEnvWins(t *testing.T) {
 	if p, err := client.LoadProfile(dir); p != nil || err != nil {
 		t.Fatalf("no profile yet: %v %v", p, err)
 	}
-	if err := client.SaveProfile(dir, client.Profile{URL: "https://home.example", TokenRef: "keychain://caster/home", DeviceID: "dev_1"}); err != nil {
+	if err := client.SaveProfile(dir, client.Profile{URL: "https://home.example", TokenRef: "keychain://caster/home", DeviceID: "dev_1"}); err != nil { //nolint:gosec // a secrets reference, not a credential
 		t.Fatal(err)
 	}
 	fi, _ := os.Stat(client.ProfilePath(dir))
@@ -198,7 +198,7 @@ func TestProfileHoldsNoSecretAndEnvWins(t *testing.T) {
 	if p, _ := client.Active(dir, env(nil)); p == nil || p.URL != "https://home.example" {
 		t.Fatalf("saved profile should be active: %+v", p)
 	}
-	if p, _ := client.Active(dir, env(map[string]string{"CASTER_REMOTE": "https://other.example", "CASTER_TOKEN_REF": "file://caster/x"})); p.URL != "https://other.example" {
+	if p, _ := client.Active(dir, env(map[string]string{"CASTER_REMOTE": "https://other.example", "CASTER_TOKEN_REF": "file://caster/x"})); p.URL != "https://other.example" { //nolint:gosec // a secrets reference, not a credential
 		t.Fatalf("env must win: %+v", p)
 	}
 	if _, err := client.Active(dir, env(map[string]string{"CASTER_REMOTE": "https://other.example"})); err == nil {

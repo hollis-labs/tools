@@ -24,7 +24,7 @@ const (
 	EffectRemoteWrite = "remote_write"
 )
 
-// Action IDs.
+// ActionSaveHandoff is the ID of the action that saves a ref as a Tesseract workspace draft.
 const ActionSaveHandoff = "save-handoff"
 
 // ActionInfo describes a registered action.
@@ -114,7 +114,7 @@ func (a *Actions) List(ctx context.Context, req ActionsRequest) (ActionsResult, 
 	if err := require(ctx, ScopeRead); err != nil {
 		return ActionsResult{}, err
 	}
-	m, err := a.refs.Head(ctx, RefRequest{Ref: req.Ref})
+	m, err := a.refs.Head(ctx, RefRequest(req))
 	if err != nil {
 		return ActionsResult{}, err
 	}
@@ -194,7 +194,7 @@ func (a *Actions) saveHandoff(ctx context.Context, def ActionInfo, req ActReques
 		res.Plan = fmt.Sprintf("snapshot %s (%d bytes) into %s, then create a workspace draft in %s as agent %s, session %s", req.Ref, len(got.Data), res.Source, c.Namespace, c.AgentID, c.SessionID)
 		return res, nil
 	}
-	if prev, err := a.store.LookupAction(res.Key); err == nil {
+	if prev, perr := a.store.LookupAction(res.Key); perr == nil {
 		res.Status, res.Outcome = StatusReplayed, prev.Outcome
 		return res, nil
 	}

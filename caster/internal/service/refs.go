@@ -18,7 +18,7 @@ type Refs struct {
 	notes *Notes
 }
 
-// Get materialises any ref.
+// Get materializes any ref.
 func (s *Refs) Get(ctx context.Context, req GetRequest) (GetResult, error) {
 	c, err := s.materialize(ctx, req.Ref)
 	if err != nil {
@@ -28,13 +28,13 @@ func (s *Refs) Get(ctx context.Context, req GetRequest) (GetResult, error) {
 	if c.State != StateResolved {
 		return out, nil
 	}
-	data, max := c.Data, req.MaxBytes
-	if max == 0 {
-		max = DefaultMaxBytes
+	data, limit := c.Data, req.MaxBytes
+	if limit == 0 {
+		limit = DefaultMaxBytes
 	}
-	if max > 0 && len(data) > max {
+	if limit > 0 && len(data) > limit {
 		out.Truncated, out.TotalBytes = true, len(data)
-		data = data[:max]
+		data = data[:limit]
 		if utf8.Valid(c.Data) { // do not cut a multi-byte rune in half
 			data = []byte(strings.ToValidUTF8(string(data), ""))
 		}
@@ -53,7 +53,7 @@ func (s *Refs) materialize(ctx context.Context, raw string) (resolver.Content, e
 	if err != nil {
 		return resolver.Content{}, err
 	}
-	if err := require(ctx, readScope(r)); err != nil {
+	if err = require(ctx, readScope(r)); err != nil {
 		return resolver.Content{}, err
 	}
 	c, err := s.reg.Materialize(ctx, r)
@@ -66,7 +66,7 @@ func (s *Refs) Head(ctx context.Context, req RefRequest) (Meta, error) {
 	if err != nil {
 		return Meta{}, err
 	}
-	if err := require(ctx, readScope(r)); err != nil {
+	if err = require(ctx, readScope(r)); err != nil {
 		return Meta{}, err
 	}
 	m, err := s.reg.Resolve(ctx, r)
@@ -76,7 +76,7 @@ func (s *Refs) Head(ctx context.Context, req RefRequest) (Meta, error) {
 	return metaOf(m), nil
 }
 
-// Snapshot materialises a (possibly floating, possibly remote) ref and stores
+// Snapshot materializes a (possibly floating, possibly remote) ref and stores
 // the bytes in CAS, recording where and when they came from. The result is a
 // pinned cas:// ref; with a name it also advances that name.
 func (s *Refs) Snapshot(ctx context.Context, req SnapRequest) (SnapResult, error) {
@@ -149,7 +149,7 @@ func (s *Refs) Scan(ctx context.Context, req ScanRequest) (ScanResult, error) {
 }
 
 // Expand replaces each resolved ref in text with its contents, wrapped in a
-// labelled block. The wrapper marks the content as untrusted data from its
+// labeled block. The wrapper marks the content as untrusted data from its
 // source and records the revision actually used. Unresolved refs are left
 // exactly as written.
 func (s *Refs) Expand(ctx context.Context, req ExpandRequest) (ExpandResult, error) {

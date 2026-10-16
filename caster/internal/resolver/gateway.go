@@ -35,7 +35,10 @@ func CatalogServer(id string) (ToolCaller, error) {
 	if err != nil {
 		return nil, err
 	}
-	b, err := os.ReadFile(filepath.Join(home, ".tether", "catalog", "mcp-servers", id+".yaml"))
+	if id == "" || filepath.Base(id) != id || id == "." || id == ".." {
+		return nil, fmt.Errorf("catalog entry %q: not a server name", id)
+	}
+	b, err := os.ReadFile(filepath.Join(home, ".tether", "catalog", "mcp-servers", id+".yaml")) //nolint:gosec // id is validated above as a bare server name
 	if err != nil {
 		return nil, fmt.Errorf("catalog entry for %q: %w", id, err)
 	}

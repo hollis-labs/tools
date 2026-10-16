@@ -1,6 +1,6 @@
 // Package service is the service layer of caster: the one place business rules
 // live, and the only thing the transports call (internal/cli, internal/mcp,
-// internal/api). It is organised as domain services held by Service, each
+// internal/api). It is organized as domain services held by Service, each
 // method taking a request struct and returning a result struct with JSON tags,
 // so a transport is decode → call → encode. See docs/transport-boundary.md.
 package service

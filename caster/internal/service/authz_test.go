@@ -122,18 +122,18 @@ func TestPairingLifecycle(t *testing.T) {
 		t.Fatalf("grant: %+v %v", g, err)
 	}
 	// Asking for more than the grant covers is refused and does NOT burn the grant.
-	if _, err := s.Access.Exchange(op, ExchangeRequest{Code: g.Code, Scopes: []string{"write"}}); KindOf(err) != KindUnauthenticated {
+	if _, err = s.Access.Exchange(op, ExchangeRequest{Code: g.Code, Scopes: []string{"write"}}); KindOf(err) != KindUnauthenticated {
 		t.Fatalf("widening must be refused: %v", err)
 	}
 	ex, err := s.Access.Exchange(op, ExchangeRequest{Code: g.Code, Scopes: []string{"read"}})
 	if err != nil || !strings.HasPrefix(ex.Token, "cst_") || len(ex.Scopes) != 1 || ex.Scopes[0] != ScopeRead {
 		t.Fatalf("exchange (narrowed): %+v %v", ex, err)
 	}
-	if _, err := s.Access.Exchange(op, ExchangeRequest{Code: g.Code}); KindOf(err) != KindUnauthenticated {
+	if _, err = s.Access.Exchange(op, ExchangeRequest{Code: g.Code}); KindOf(err) != KindUnauthenticated {
 		t.Fatalf("a code works once: %v", err)
 	}
 	for _, bad := range []string{"", "ccg_nope", "cst_" + ex.Token[4:], strings.Repeat("x", 500)} {
-		if _, err := s.Access.Exchange(op, ExchangeRequest{Code: bad}); err == nil || err.Error() != errRefused().Error() {
+		if _, err = s.Access.Exchange(op, ExchangeRequest{Code: bad}); err == nil || err.Error() != errRefused().Error() {
 			t.Fatalf("every failure must look the same, got %v for %q", err, bad)
 		}
 	}
@@ -143,10 +143,10 @@ func TestPairingLifecycle(t *testing.T) {
 		t.Fatalf("verify: %+v %v", p, err)
 	}
 	dev := WithPrincipal(op, p)
-	if _, err := s.Access.Devices(dev, struct{}{}); KindOf(err) != KindDenied {
+	if _, err = s.Access.Devices(dev, struct{}{}); KindOf(err) != KindDenied {
 		t.Fatalf("a read device cannot list devices: %v", err)
 	}
-	if _, err := s.Access.Renew(dev, RenewRequest{Scopes: []string{"write"}}); KindOf(err) != KindDenied {
+	if _, err = s.Access.Renew(dev, RenewRequest{Scopes: []string{"write"}}); KindOf(err) != KindDenied {
 		t.Fatalf("renewal must not widen: %v", err)
 	}
 	now = now.Add(20 * 24 * time.Hour)

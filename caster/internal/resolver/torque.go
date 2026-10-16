@@ -49,9 +49,9 @@ func (t Torque) fetch(ctx context.Context, r ref.Ref) (*torqueTask, Meta, error)
 	}
 	resp, err := c.Do(req)
 	if err != nil {
-		return nil, m, fmt.Errorf("torque: %w: %v", ErrUnavailable, err)
+		return nil, m, fmt.Errorf("torque: %w: %w", ErrUnavailable, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
 		return nil, m, nil

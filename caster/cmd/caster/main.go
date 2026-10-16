@@ -92,9 +92,9 @@ func run(ctx context.Context, args []string) (int, error) {
 			fmt.Printf("remote  %s\ntoken   %s (a secrets reference)\nprofile %s\n", profile.URL, profile.TokenRef, client.ProfilePath(layout.ConfigDir()))
 			return cli.ExitOK, nil
 		}
-		c, err := client.New(profile.URL, client.SecretsTokenSource(profile.TokenRef), profile.AllowHTTP)
-		if err != nil {
-			return 0, err
+		c, cerr := client.New(profile.URL, client.SecretsTokenSource(profile.TokenRef), profile.AllowHTTP)
+		if cerr != nil {
+			return 0, cerr
 		}
 		return dispatch(ctx, c.Service(), args)
 	}
@@ -121,7 +121,7 @@ func run(ctx context.Context, args []string) (int, error) {
 		gw = nil
 	}
 	if gw != nil {
-		defer gw.Close()
+		defer func() { _ = gw.Close() }()
 	}
 	svc := service.New(st,
 		resolver.Torque{BaseURL: os.Getenv("CASTER_TORQUE_URL")},

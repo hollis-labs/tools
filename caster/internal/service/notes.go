@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/hollis-labs/caster/internal/ref"
@@ -28,7 +27,7 @@ func (s *Notes) Put(ctx context.Context, req PutRequest) (PutResult, error) {
 			return PutResult{}, invalid(err)
 		}
 	}
-	var r io.Reader = req.R
+	r := req.R
 	if r == nil {
 		r = strings.NewReader(req.Content)
 	}

@@ -17,7 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // registers the database/sql driver
 )
 
 // ErrNotFound is returned for any missing blob, name or revision.
@@ -124,31 +124,31 @@ func (s *Store) PutBlob(r io.Reader, mime, sourceRef string) (Blob, error) {
 	if err != nil {
 		return Blob{}, err
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	h := sha256.New()
 	head := make([]byte, 0, 512)
 	n, err := io.Copy(io.MultiWriter(tmp, h, &capture{buf: &head}), r)
 	if err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return Blob{}, err
 	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+	if err = tmp.Sync(); err != nil {
+		_ = tmp.Close()
 		return Blob{}, err
 	}
-	if err := tmp.Close(); err != nil {
+	if err = tmp.Close(); err != nil {
 		return Blob{}, err
 	}
 	hash := hex.EncodeToString(h.Sum(nil))
 	dst := s.blobPath(hash)
-	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+	if err = os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 		return Blob{}, err
 	}
-	if _, err := os.Stat(dst); err != nil {
-		if err := os.Chmod(tmp.Name(), 0o400); err != nil {
+	if _, err = os.Stat(dst); err != nil {
+		if err = os.Chmod(tmp.Name(), 0o400); err != nil {
 			return Blob{}, err
 		}
-		if err := os.Rename(tmp.Name(), dst); err != nil {
+		if err = os.Rename(tmp.Name(), dst); err != nil {
 			return Blob{}, err
 		}
 	}
@@ -165,7 +165,7 @@ func (s *Store) PutBlob(r io.Reader, mime, sourceRef string) (Blob, error) {
 		return Blob{}, err
 	}
 	if added, _ := res.RowsAffected(); added > 0 && strings.HasPrefix(mime, "text/") && n <= MaxIndexBytes {
-		if body, err := os.ReadFile(dst); err == nil {
+		if body, err := os.ReadFile(dst); err == nil { //nolint:gosec // dst is the store's own path derived from the content hash
 			_, _ = s.db.Exec(`INSERT INTO blob_fts(hash, body) VALUES(?,?)`, hash, string(body))
 		}
 	}
@@ -286,7 +286,7 @@ func (s *Store) Search(query string, limit int) ([]Hit, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var hits []Hit
 	for rows.Next() {
 		var h Hit
@@ -308,7 +308,7 @@ func (s *Store) Search(query string, limit int) ([]Hit, error) {
 			_ = nr.Scan(&n)
 			hits[i].Names = append(hits[i].Names, n)
 		}
-		nr.Close()
+		_ = nr.Close()
 	}
 	return hits, nil
 }
@@ -318,7 +318,7 @@ func (s *Store) names(q string, args ...any) ([]Name, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Name
 	for rows.Next() {
 		n, err := scanName(rows)

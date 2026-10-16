@@ -47,7 +47,7 @@ func serve(ctx context.Context, svc *service.Service, configDir string, args []s
 	if err != nil {
 		return err
 	}
-	if err := auth.ValidateBind(*addr, mode); err != nil {
+	if err = auth.ValidateBind(*addr, mode); err != nil {
 		return err
 	}
 	token, err := ensureToken(configDir)
@@ -63,9 +63,9 @@ func serve(ctx context.Context, svc *service.Service, configDir string, args []s
 	//   3. the local operator's static key (the token file), full scopes
 	verifiers := []auth.Verifier{svc.Verifier()}
 	if tetherURL := os.Getenv("CASTER_TETHER_URL"); tetherURL != "" || os.Getenv("CASTER_JWT_BOOTSTRAP_KEY") != "" {
-		jv, err := jwtVerifier(tetherURL)
-		if err != nil {
-			return fmt.Errorf("jwt verifier: %w", err)
+		jv, jerr := jwtVerifier(tetherURL)
+		if jerr != nil {
+			return fmt.Errorf("jwt verifier: %w", jerr)
 		}
 		go jv.Run(ctx)
 		verifiers = append(verifiers, jv)
@@ -82,7 +82,7 @@ func serve(ctx context.Context, svc *service.Service, configDir string, args []s
 	}
 	srv := &http.Server{Addr: *addr, Handler: api.Handler(svc, guard), ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout: 60 * time.Second, WriteTimeout: 120 * time.Second}
-	go func() {
+	go func() { //nolint:gosec // shutdown needs a fresh context: ctx is already canceled here
 		<-ctx.Done()
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

@@ -55,14 +55,14 @@ func (t Tesseract) run(ctx context.Context, args ...string) ([]tessRecord, error
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var out, errb bytes.Buffer
-	cmd := exec.CommandContext(ctx, bin, append([]string{"context"}, args...)...)
+	cmd := exec.CommandContext(ctx, bin, append([]string{"context"}, args...)...) //nolint:gosec // bin is the operator-set CASTER_TESSERACT_BIN
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(errb.String())
 		if strings.Contains(msg, "no rows") || strings.Contains(msg, "not found") {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("tesseract: %w: %v %s", ErrUnavailable, err, msg)
+		return nil, fmt.Errorf("tesseract: %w: %w %s", ErrUnavailable, err, msg)
 	}
 	var recs []tessRecord
 	if err := json.Unmarshal(out.Bytes(), &recs); err != nil {
@@ -130,7 +130,7 @@ func (t Tesseract) Materialize(ctx context.Context, r ref.Ref) (Content, error) 
 		}
 	}
 	if payload == "" {
-		pretty, _ := json.MarshalIndent(json.RawMessage(rec.Payload), "", "  ")
+		pretty, _ := json.MarshalIndent(rec.Payload, "", "  ")
 		payload = "```json\n" + string(pretty) + "\n```"
 	}
 	data := []byte(fmt.Sprintf("# %s/%s (rev %d)\n\n- record: %s\n- actor: %s\n- created: %s\n- checksum: %s\n\n%s\n",

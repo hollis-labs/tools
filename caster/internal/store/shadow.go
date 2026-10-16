@@ -40,7 +40,7 @@ func (s *Store) RecordObservation(hash string, gen int, source string, dets []De
 	if err != nil {
 		return Observation{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	o := Observation{Seen: 1, Candidates: len(dets)}
 	for _, d := range dets {
 		if d.State == "resolved" {
@@ -85,7 +85,7 @@ type ShadowTotals struct {
 	Observations, Repeats int
 }
 
-// ShadowReport summarises shadow detections since a time (zero = all).
+// ShadowReport summarizes shadow detections since a time (zero = all).
 func (s *Store) ShadowReport(since time.Time, topN int) (ShadowTotals, []ExtractorStats, []RefCount, error) {
 	cut := ""
 	if !since.IsZero() {
@@ -102,16 +102,16 @@ func (s *Store) ShadowReport(since time.Time, topN int) (ShadowTotals, []Extract
 	if err != nil {
 		return tot, nil, nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var stats []ExtractorStats
 	for rows.Next() {
 		var e ExtractorStats
-		if err := rows.Scan(&e.Extractor, &e.Confidence, &e.Candidates, &e.Resolved, &e.Unresolved, &e.Errors, &e.WouldShow, &e.LabeledTrue, &e.LabeledFalse, &e.DistinctRefs); err != nil {
+		if err = rows.Scan(&e.Extractor, &e.Confidence, &e.Candidates, &e.Resolved, &e.Unresolved, &e.Errors, &e.WouldShow, &e.LabeledTrue, &e.LabeledFalse, &e.DistinctRefs); err != nil {
 			return tot, nil, nil, err
 		}
 		stats = append(stats, e)
 	}
-	if err := rows.Err(); err != nil {
+	if err = rows.Err(); err != nil {
 		return tot, nil, nil, err
 	}
 	rr, err := s.db.Query(`SELECT d.ref, COUNT(*) c FROM detections d JOIN observations o ON o.id=d.observation_id
@@ -119,7 +119,7 @@ func (s *Store) ShadowReport(since time.Time, topN int) (ShadowTotals, []Extract
 	if err != nil {
 		return tot, nil, nil, err
 	}
-	defer rr.Close()
+	defer func() { _ = rr.Close() }()
 	var top []RefCount
 	for rr.Next() {
 		var c RefCount

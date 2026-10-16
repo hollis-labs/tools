@@ -25,7 +25,7 @@ type ToolError struct {
 
 func (e *ToolError) Error() string { return fmt.Sprintf("%s: %s", e.Tool, string(e.Body)) }
 
-// Client talks to one MCP server process. Calls are serialised.
+// Client talks to one MCP server process. Calls are serialized.
 type Client struct {
 	command string
 	args    []string
@@ -53,7 +53,7 @@ type rpcMsg struct {
 }
 
 func (c *Client) start(ctx context.Context) error {
-	cmd := exec.Command(c.command, c.args...)
+	cmd := exec.Command(c.command, c.args...) //nolint:gosec // the command is the operator's own Tether catalog entry or CASTER_TESSERACT_MCP
 	cmd.Env = append(os.Environ(), c.env...)
 	in, err := cmd.StdinPipe()
 	if err != nil {

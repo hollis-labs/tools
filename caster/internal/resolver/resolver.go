@@ -32,10 +32,10 @@ type Meta struct {
 	Mime        string
 	Size        int64
 	Revision    string
-	ContentHash string // sha256 of the materialised bytes, when known
+	ContentHash string // sha256 of the materialized bytes, when known
 }
 
-// Content is a materialised ref.
+// Content is a materialized ref.
 type Content struct {
 	Meta
 	Data []byte

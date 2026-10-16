@@ -166,9 +166,9 @@ func (c *Client) raw(ctx context.Context, method, path string, q url.Values, in 
 	}
 	req.Header.Set("User-Agent", "caster-client")
 	if authed {
-		tok, err := c.token(ctx)
-		if err != nil {
-			return nil, 0, fail(service.KindUnauthenticated, "no usable credential for %s: %v", c.base.Host, err)
+		tok, terr := c.token(ctx)
+		if terr != nil {
+			return nil, 0, fail(service.KindUnauthenticated, "no usable credential for %s: %v", c.base.Host, terr)
 		}
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
@@ -176,7 +176,7 @@ func (c *Client) raw(ctx context.Context, method, path string, q url.Values, in 
 	if err != nil {
 		return nil, 0, fail(service.KindUnavailable, "cannot reach the home node at %s: %v", c.base.Host, errors.Unwrap(err))
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 		return nil, 0, fail(service.KindUnavailable, "the home node redirected (HTTP %d); redirects are not followed because they could carry the token elsewhere", resp.StatusCode)
 	}

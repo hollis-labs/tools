@@ -117,9 +117,9 @@ type ReportRequest struct {
 	Since time.Time `json:"since,omitempty"`
 }
 
-// ExtractorReport is one extractor's measured behaviour. ResolveRate is the
+// ExtractorReport is one extractor's measured behavior. ResolveRate is the
 // fraction of candidates a resolver confirmed. Precision is computed only from
-// human labels (true / (true+false)) and is nil until something is labelled.
+// human labels (true / (true+false)) and is nil until something is labeled.
 type ExtractorReport struct {
 	Extractor    string   `json:"extractor"`
 	Confidence   string   `json:"confidence"`
@@ -188,7 +188,7 @@ type LabelRequest struct {
 	Verdict string `json:"verdict"`
 }
 
-// LabelResult says how many recorded detections were labelled.
+// LabelResult says how many recorded detections were labeled.
 type LabelResult struct {
 	Updated int64 `json:"updated"`
 }

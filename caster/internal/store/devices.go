@@ -53,7 +53,7 @@ func (s *Store) ExchangeGrant(codeHash, deviceID, tokenHash, label string, want 
 	if err != nil {
 		return Device{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var grantID, scopes, glabel string
 	err = tx.QueryRow(`UPDATE grants SET consumed_at=? WHERE code_hash=? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at>?
 	  RETURNING id, scopes, label`, ts(now), codeHash, ts(now)).Scan(&grantID, &scopes, &glabel)
@@ -132,7 +132,7 @@ func (s *Store) Devices() ([]Device, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Device
 	for rows.Next() {
 		d, err := scanDevice(rows)
@@ -163,7 +163,7 @@ func (s *Store) RenewDevice(id string, narrow []string, expires, now time.Time) 
 	if err != nil {
 		return Device{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	d, err := scanDevice(tx.QueryRow(`SELECT id,label,scopes,created_at,expires_at,COALESCE(last_used_at,''),revoked_at IS NOT NULL FROM devices WHERE id=?`, id))
 	if err != nil {
 		return Device{}, err

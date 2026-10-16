@@ -37,7 +37,7 @@ const usage = `caster — content-addressed store and ref resolver
   caster get|resolve <ref>      print content (torque://task/CW-…, tesseract://item/<id>, caster://ns/name[@rev], cas://sha256/…)
   caster head <ref>             metadata only
   caster snap [-n name] [-t tags] <ref>
-                                materialise any ref and pin its bytes in CAS
+                                materialize any ref and pin its bytes in CAS
   caster ls [-ns ns] [-t tag] [-json]
   caster log <[ns/]name>        revision history of a name
   caster search <fts query>
@@ -183,7 +183,7 @@ func (a *app) text(pos []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	b, err := io.ReadAll(r)
 	return string(b), err
 }
@@ -212,7 +212,7 @@ func (a *app) put(ctx context.Context, args []string) int {
 	if err != nil {
 		return a.fail(err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	req.R = r
 	res, err := a.svc.Notes.Put(ctx, req)
 	if err != nil {
@@ -513,7 +513,7 @@ func (a *app) shadow(ctx context.Context, args []string) int {
 		if err != nil {
 			return a.fail(err)
 		}
-		fmt.Fprintf(a.out, "labelled %d detections\n", res.Updated)
+		fmt.Fprintf(a.out, "labeled %d detections\n", res.Updated)
 	default:
 		fmt.Fprintf(a.err, "caster shadow: unknown subcommand %q\n", sub)
 		return ExitUsage

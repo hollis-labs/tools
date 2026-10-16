@@ -48,8 +48,8 @@ func Handler(svc *service.Service, guard *auth.Guard) http.Handler {
 	})
 	mux.HandleFunc("GET /v1/get", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		max, _ := strconv.Atoi(q.Get("max_bytes"))
-		res, err := svc.Refs.Get(r.Context(), service.GetRequest{Ref: q.Get("ref"), MaxBytes: max})
+		maxBytes, _ := strconv.Atoi(q.Get("max_bytes"))
+		res, err := svc.Refs.Get(r.Context(), service.GetRequest{Ref: q.Get("ref"), MaxBytes: maxBytes})
 		if err == nil && res.State == service.StateResolved && q.Get("raw") == "1" {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8") // never the stored mime: stored text must not render as HTML
 			w.Header().Set("X-Caster-Ref", res.Ref)
