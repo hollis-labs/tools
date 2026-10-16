@@ -44,13 +44,13 @@ func Handler(svc *service.Service, guard *auth.Guard) http.Handler {
 		write(w, http.StatusOK, map[string]string{"status": "ok", "auth": status})
 	})
 	mux.HandleFunc("GET /v1/head", func(w http.ResponseWriter, r *http.Request) {
-		res, err := svc.Head(r.Context(), service.RefRequest{Ref: r.URL.Query().Get("ref")})
+		res, err := svc.Refs.Head(r.Context(), service.RefRequest{Ref: r.URL.Query().Get("ref")})
 		respond(w, res.State, res, err)
 	})
 	mux.HandleFunc("GET /v1/get", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		max, _ := strconv.Atoi(q.Get("max_bytes"))
-		res, err := svc.Get(r.Context(), service.GetRequest{Ref: q.Get("ref"), MaxBytes: max})
+		res, err := svc.Refs.Get(r.Context(), service.GetRequest{Ref: q.Get("ref"), MaxBytes: max})
 		if err == nil && res.State == service.StateResolved && q.Get("raw") == "1" {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8") // never the stored mime: stored text must not render as HTML
 			w.Header().Set("X-Caster-Ref", res.Ref)
@@ -62,23 +62,23 @@ func Handler(svc *service.Service, guard *auth.Guard) http.Handler {
 	})
 	mux.HandleFunc("GET /v1/list", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		res, err := svc.List(r.Context(), service.ListRequest{NS: q.Get("ns"), Tag: q.Get("tag")})
+		res, err := svc.Notes.List(r.Context(), service.ListRequest{NS: q.Get("ns"), Tag: q.Get("tag")})
 		respond(w, "", res, err)
 	})
 	mux.HandleFunc("GET /v1/log", func(w http.ResponseWriter, r *http.Request) {
-		res, err := svc.Log(r.Context(), service.LogRequest{Name: r.URL.Query().Get("name")})
+		res, err := svc.Notes.Log(r.Context(), service.LogRequest{Name: r.URL.Query().Get("name")})
 		respond(w, "", res, err)
 	})
 	mux.HandleFunc("GET /v1/search", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		limit, _ := strconv.Atoi(q.Get("limit"))
-		res, err := svc.Search(r.Context(), service.SearchRequest{Query: q.Get("q"), Limit: limit})
+		res, err := svc.Notes.Search(r.Context(), service.SearchRequest{Query: q.Get("q"), Limit: limit})
 		respond(w, "", res, err)
 	})
-	mux.HandleFunc("POST /v1/put", post(svc.Put, func(service.PutResult) string { return "" }))
-	mux.HandleFunc("POST /v1/snap", post(svc.Snapshot, func(r service.SnapResult) string { return r.State }))
-	mux.HandleFunc("POST /v1/scan", post(svc.Scan, func(service.ScanResult) string { return "" }))
-	mux.HandleFunc("POST /v1/expand", post(svc.Expand, func(service.ExpandResult) string { return "" }))
+	mux.HandleFunc("POST /v1/put", post(svc.Notes.Put, func(service.PutResult) string { return "" }))
+	mux.HandleFunc("POST /v1/snap", post(svc.Refs.Snapshot, func(r service.SnapResult) string { return r.State }))
+	mux.HandleFunc("POST /v1/scan", post(svc.Refs.Scan, func(service.ScanResult) string { return "" }))
+	mux.HandleFunc("POST /v1/expand", post(svc.Refs.Expand, func(service.ExpandResult) string { return "" }))
 	if guard == nil {
 		return mux
 	}

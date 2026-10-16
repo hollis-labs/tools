@@ -176,7 +176,7 @@ func (a *app) put(ctx context.Context, args []string) int {
 	}
 	defer r.Close()
 	req.R = r
-	res, err := a.svc.Put(ctx, req)
+	res, err := a.svc.Notes.Put(ctx, req)
 	if err != nil {
 		return a.fail(err)
 	}
@@ -192,7 +192,7 @@ func (a *app) get(ctx context.Context, args []string) int {
 		fmt.Fprintln(a.err, "usage: caster get <ref>")
 		return ExitUsage
 	}
-	res, err := a.svc.Get(ctx, service.GetRequest{Ref: args[0], MaxBytes: -1})
+	res, err := a.svc.Refs.Get(ctx, service.GetRequest{Ref: args[0], MaxBytes: -1})
 	if err != nil {
 		return a.fail(err)
 	}
@@ -209,7 +209,7 @@ func (a *app) head(ctx context.Context, args []string) int {
 		fmt.Fprintln(a.err, "usage: caster head <ref>")
 		return ExitUsage
 	}
-	m, err := a.svc.Head(ctx, service.RefRequest{Ref: args[0]})
+	m, err := a.svc.Refs.Head(ctx, service.RefRequest{Ref: args[0]})
 	if err != nil {
 		return a.fail(err)
 	}
@@ -231,7 +231,7 @@ func (a *app) snap(ctx context.Context, args []string) int {
 		return ExitUsage
 	}
 	req.Ref = r
-	res, err := a.svc.Snapshot(ctx, req)
+	res, err := a.svc.Refs.Snapshot(ctx, req)
 	if err != nil {
 		return a.fail(err)
 	}
@@ -255,7 +255,7 @@ func (a *app) ls(ctx context.Context, args []string) int {
 	if _, ok := a.parse(fs, args); !ok {
 		return ExitUsage
 	}
-	res, err := a.svc.List(ctx, req)
+	res, err := a.svc.Notes.List(ctx, req)
 	if err != nil {
 		return a.fail(err)
 	}
@@ -276,7 +276,7 @@ func (a *app) log(ctx context.Context, args []string) int {
 		fmt.Fprintln(a.err, "usage: caster log <[ns/]name>")
 		return ExitUsage
 	}
-	res, err := a.svc.Log(ctx, service.LogRequest{Name: args[0]})
+	res, err := a.svc.Notes.Log(ctx, service.LogRequest{Name: args[0]})
 	if err != nil {
 		return a.fail(err)
 	}
@@ -287,7 +287,7 @@ func (a *app) log(ctx context.Context, args []string) int {
 }
 
 func (a *app) search(ctx context.Context, args []string) int {
-	res, err := a.svc.Search(ctx, service.SearchRequest{Query: strings.Join(args, " ")})
+	res, err := a.svc.Notes.Search(ctx, service.SearchRequest{Query: strings.Join(args, " ")})
 	if err != nil {
 		return a.fail(err)
 	}
@@ -315,7 +315,7 @@ func (a *app) scan(ctx context.Context, args []string) int {
 	if err != nil {
 		return a.fail(err)
 	}
-	res, err := a.svc.Scan(ctx, service.ScanRequest{Text: text})
+	res, err := a.svc.Refs.Scan(ctx, service.ScanRequest{Text: text})
 	if err != nil {
 		return a.fail(err)
 	}
@@ -345,7 +345,7 @@ func (a *app) expand(ctx context.Context, args []string) int {
 		return a.fail(err)
 	}
 	req.Text = text
-	res, err := a.svc.Expand(ctx, req)
+	res, err := a.svc.Refs.Expand(ctx, req)
 	if err != nil {
 		return a.fail(err)
 	}
