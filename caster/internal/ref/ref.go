@@ -5,7 +5,8 @@
 //	caster://<ns>/<name>[@<rev>]    named scratchpad/draft/note (floating, or pinned with @rev)
 //	torque://task/<CW-id>           a Torque task
 //	tesseract://<ns>/<key>[@<rev>]  a Tesseract context record
-//	tesseract://item/<record_id>    a Tesseract record by id
+//	tesseract://item/<id>           a current Tesseract item (floating); revision/<id> is an exact revision (pinned)
+//	tesseract://<domain>/<ns>/<key> memory|knowledge|event|workspace|context by namespace and key
 package ref
 
 import (
@@ -110,4 +111,9 @@ func (r Ref) String() string {
 func (r Ref) Name() string { return r.Auth + "/" + r.Path }
 
 // Floating reports whether the ref follows the current revision.
-func (r Ref) Floating() bool { return r.Scheme != SchemeCAS && r.Rev == 0 }
+func (r Ref) Floating() bool {
+	if r.Scheme == SchemeCAS || (r.Scheme == SchemeTesseract && r.Auth == "revision") {
+		return false
+	}
+	return r.Rev == 0
+}

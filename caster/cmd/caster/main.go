@@ -16,6 +16,7 @@ import (
 	hotel "github.com/hollis-labs/go-otel"
 
 	"github.com/hollis-labs/caster/internal/cli"
+	"github.com/hollis-labs/caster/internal/mcp"
 	"github.com/hollis-labs/caster/internal/resolver"
 	"github.com/hollis-labs/caster/internal/service"
 	"github.com/hollis-labs/caster/internal/store"
@@ -72,13 +73,28 @@ func run(ctx context.Context, args []string) (int, error) {
 
 	// The service layer is the only thing handed to the transports; they never
 	// receive st. Remote resolvers are configured here, at the composition root.
+	var gw resolver.ToolCaller
+	if cmdline := os.Getenv("CASTER_TESSERACT_MCP"); cmdline != "" {
+		gw, err = resolver.CommandServer(cmdline)
+	} else {
+		gw, err = resolver.CatalogServer("tesseract") // nil on error: MCP-store refs report unavailable
+	}
+	if err != nil {
+		gw = nil
+	}
+	if gw != nil {
+		defer gw.Close()
+	}
 	svc := service.New(st,
 		resolver.Torque{BaseURL: os.Getenv("CASTER_TORQUE_URL")},
-		resolver.Tesseract{Bin: os.Getenv("CASTER_TESSERACT_BIN")},
+		resolver.Tesseract{Bin: os.Getenv("CASTER_TESSERACT_BIN"), Gateway: gw},
 	)
 	if len(args) == 1 && args[0] == "paths" {
 		fmt.Printf("data   %s\nindex  %s\nblobs  %s\n", layout.DataDir(), st.Path(), st.BlobRoot())
 		return cli.ExitOK, nil
+	}
+	if len(args) == 1 && args[0] == "mcp" {
+		return cli.ExitOK, mcp.Serve(ctx, svc, os.Stdin, os.Stdout, "0.2.0")
 	}
 	return cli.Run(ctx, svc, args, os.Stdin, os.Stdout, os.Stderr), nil
 }

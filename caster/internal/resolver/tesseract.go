@@ -15,7 +15,23 @@ import (
 // Tesseract resolves tesseract://<ns>/<key> and tesseract://item/<record_id>
 // through the tesseract CLI's context store. The CLI reaches only `context`
 // records; memory, knowledge and event items live in another store (see README).
-type Tesseract struct{ Bin string }
+//
+// Refs that name an MCP-store object go through Gateway (the hub's Tesseract):
+// tesseract://item/<ulid>, tesseract://revision/<ulid>, and
+// tesseract://<domain>/<namespace…>/<key> for domain memory, knowledge, event,
+// workspace or context. Any other first segment is a legacy local-CLI
+// namespace/key. Resolve uses tesseract_ref_resolve, which reads no content and
+// records no use; only Materialize reads (and so reinforces) the item.
+type Tesseract struct {
+	Bin     string
+	Gateway ToolCaller // nil = MCP-store refs report unavailable
+}
+
+var mcpDomains = map[string]bool{"memory": true, "knowledge": true, "event": true, "workspace": true, "context": true}
+
+func (t Tesseract) viaGateway(r ref.Ref) bool {
+	return r.Auth == "item" || r.Auth == "revision" || mcpDomains[r.Auth]
+}
 
 // Schemes implements Resolver.
 func (Tesseract) Schemes() []string { return []string{ref.SchemeTesseract} }
@@ -59,7 +75,7 @@ func (t Tesseract) find(ctx context.Context, r ref.Ref) (*tessRecord, error) {
 	if r.Rev > 0 {
 		return nil, fmt.Errorf("tesseract: pinned revisions (@N) are not supported by the CLI backend yet")
 	}
-	if r.Auth == "item" {
+	if r.Auth == "item" { // unreachable via Resolve (item goes to the gateway); kept for the CLI-only fallback
 		recs, err := t.run(ctx, "view", "-selector", "{}", "-limit", "500", "-include-payload")
 		if err != nil {
 			return nil, err
@@ -88,6 +104,9 @@ func (t Tesseract) meta(r ref.Ref, rec *tessRecord) Meta {
 
 // Resolve implements Resolver.
 func (t Tesseract) Resolve(ctx context.Context, r ref.Ref) (Meta, error) {
+	if t.viaGateway(r) {
+		return t.gwResolve(ctx, r)
+	}
 	rec, err := t.find(ctx, r)
 	return t.meta(r, rec), err
 }
@@ -95,6 +114,9 @@ func (t Tesseract) Resolve(ctx context.Context, r ref.Ref) (Meta, error) {
 // Materialize implements Resolver: the record as markdown. ContentHash is the
 // record's own checksum, so a snapshot can be tied back to the exact revision.
 func (t Tesseract) Materialize(ctx context.Context, r ref.Ref) (Content, error) {
+	if t.viaGateway(r) {
+		return t.gwMaterialize(ctx, r)
+	}
 	rec, err := t.find(ctx, r)
 	m := t.meta(r, rec)
 	if err != nil || rec == nil {

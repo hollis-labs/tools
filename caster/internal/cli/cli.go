@@ -42,6 +42,7 @@ const usage = `caster — content-addressed store and ref resolver
   caster expand [-budget n] [file|-]
                                 replace resolvable refs in text with their contents
   caster paths                  where data lives
+  caster mcp                    serve the tools over MCP stdio (for agents)
 
 Bare "ns/name", a CW-… task id, or a 64-hex hash are accepted wherever a ref is.
 Exit: 0 ok, 2 not found, 3 denied, 1 error.
