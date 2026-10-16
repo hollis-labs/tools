@@ -62,6 +62,18 @@ func tools(svc *service.Service) []tool {
 		{"caster_snap", "Materialise any ref and pin its bytes in CAS with provenance; optionally also name the snapshot. Use to freeze a floating ref (a Torque task, a Tesseract item) at this moment. Returns a pinned cas:// ref.",
 			schema([]string{"ref"}, map[string]string{"ref": refHelp, "name": "Optional [ns/]name to also record the snapshot under.", "tags": "Optional tags."}),
 			bind(svc.Refs.Snapshot)},
+		{"caster_actions", "List the actions that apply to a ref (e.g. save-handoff) and the context each needs bound. Metadata only.",
+			schema([]string{"ref"}, map[string]string{"ref": refHelp}),
+			bind(svc.Actions.List)},
+		{"caster_act", "Run a registered action on a ref. save-handoff snapshots the ref into CAS and creates a Tesseract WORKSPACE DRAFT (a write to another system; replaceable, promoted only after review) in the given namespace, with provenance. Needs context: namespace ({scope}/{id}/workspace/{purpose}, never user/*), session_id, agent_id. Idempotent per content and session. Use dry_run to see the plan without storing or writing.",
+			map[string]any{"type": "object", "required": []string{"action", "ref", "context"}, "additionalProperties": false, "properties": map[string]any{
+				"action":  map[string]any{"type": "string", "description": "Action id, e.g. save-handoff."},
+				"ref":     map[string]any{"type": "string", "description": refHelp},
+				"dry_run": map[string]any{"type": "boolean", "description": "Plan only: store and write nothing."},
+				"context": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{
+					"namespace": map[string]any{"type": "string"}, "session_id": map[string]any{"type": "string"},
+					"agent_id": map[string]any{"type": "string"}, "workstream_id": map[string]any{"type": "string"}}}}},
+			bind(svc.Actions.Run)},
 		{"caster_ls", "List named items (latest revision each), optionally by namespace or tag.",
 			schema(nil, map[string]string{"ns": "Namespace filter.", "tag": "Tag filter."}),
 			bind(svc.Notes.List)},

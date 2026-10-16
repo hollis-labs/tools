@@ -40,6 +40,10 @@ const usage = `caster — content-addressed store and ref resolver
   caster scan [-json] [file|-]  find refs in text; only ones that resolve are reported
   caster expand [-budget n] [file|-]
                                 replace resolvable refs in text with their contents
+  caster actions <ref>          actions that apply to a ref
+  caster act [-ns namespace] [-session id] [-agent id] [-workstream id] [-dry-run] <action> <ref>
+                                run an action, e.g. save-handoff (context defaults from
+                                CASTER_NAMESPACE, CASTER_SESSION_ID, CASTER_AGENT_ID, CASTER_WORKSTREAM_ID)
   caster paths                  where data lives
   caster mcp                    serve the tools over MCP stdio (for agents)
   caster serve [-addr a]        serve the HTTP API (bearer auth; see README)
@@ -76,6 +80,10 @@ func Run(ctx context.Context, svc *service.Service, args []string, in io.Reader,
 		return a.scan(ctx, rest)
 	case "expand":
 		return a.expand(ctx, rest)
+	case "actions":
+		return a.actions(ctx, rest)
+	case "act":
+		return a.act(ctx, rest)
 	}
 	fmt.Fprintf(errw, "caster: unknown command %q\n\n%s", cmd, usage)
 	return ExitUsage
@@ -350,5 +358,57 @@ func (a *app) expand(ctx context.Context, args []string) int {
 		return a.fail(err)
 	}
 	fmt.Fprint(a.out, res.Text)
+	return ExitOK
+}
+
+func (a *app) actions(ctx context.Context, args []string) int {
+	if len(args) != 1 {
+		fmt.Fprintln(a.err, "usage: caster actions <ref>")
+		return ExitUsage
+	}
+	res, err := a.svc.Actions.List(ctx, service.ActionsRequest{Ref: args[0]})
+	if err != nil {
+		return a.fail(err)
+	}
+	if res.State != service.StateResolved {
+		fmt.Fprintf(a.err, "caster: %s: %s\n", res.Ref, res.State)
+		return stateCode(res.State)
+	}
+	for _, ac := range res.Actions {
+		fmt.Fprintf(a.out, "%s\t%s\t%s\tneeds: %s\n", ac.ID, ac.Effect, ac.Label, strings.Join(ac.Needs, ", "))
+	}
+	return ExitOK
+}
+
+func (a *app) act(ctx context.Context, args []string) int {
+	fs := a.flags("act")
+	req := service.ActRequest{Context: service.ActionContext{
+		Namespace: os.Getenv("CASTER_NAMESPACE"), SessionID: os.Getenv("CASTER_SESSION_ID"),
+		AgentID: os.Getenv("CASTER_AGENT_ID"), WorkstreamID: os.Getenv("CASTER_WORKSTREAM_ID")}}
+	fs.StringVar(&req.Context.Namespace, "ns", req.Context.Namespace, "Tesseract workspace namespace")
+	fs.StringVar(&req.Context.SessionID, "session", req.Context.SessionID, "authoring session id")
+	fs.StringVar(&req.Context.AgentID, "agent", req.Context.AgentID, "authoring agent id")
+	fs.StringVar(&req.Context.WorkstreamID, "workstream", req.Context.WorkstreamID, "workstream id")
+	fs.BoolVar(&req.DryRun, "dry-run", false, "plan only: store and write nothing")
+	pos, ok := a.parse(fs, args)
+	if !ok || len(pos) != 2 {
+		fmt.Fprintln(a.err, "usage: caster act [flags] <action> <ref>")
+		return ExitUsage
+	}
+	req.Action, req.Ref = pos[0], pos[1]
+	res, err := a.svc.Actions.Run(ctx, req)
+	if err != nil {
+		return a.fail(err)
+	}
+	if res.State != service.StateResolved {
+		fmt.Fprintf(a.err, "caster: %s: %s\n", req.Ref, res.State)
+		return stateCode(res.State)
+	}
+	if res.Plan != "" {
+		fmt.Fprintf(a.out, "dry run: %s\nkey: %s\n", res.Plan, res.Key)
+		return ExitOK
+	}
+	fmt.Fprintln(a.out, res.Outcome)
+	fmt.Fprintf(a.err, "%s %s  source %s  key %s\n", res.Action, res.Status, res.Source, res.Key)
 	return ExitOK
 }

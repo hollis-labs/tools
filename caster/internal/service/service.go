@@ -14,10 +14,12 @@ import (
 const DefaultNS = "scratch"
 
 // Service is the root of the service layer. Transports call the domain
-// services: Notes (stored text), Refs (resolve, fetch, snapshot, detect).
+// services: Notes (stored text), Refs (resolve, fetch, snapshot, detect),
+// Actions (registered operations on refs).
 type Service struct {
-	Notes *Notes
-	Refs  *Refs
+	Notes   *Notes
+	Refs    *Refs
+	Actions *Actions
 
 	// store is the underlying store. It is not exported so every caller funnels
 	// through the domain services where business rules apply; Store() is the
@@ -36,9 +38,17 @@ func (s *Service) Store() *store.Store { return s.store }
 func New(st *store.Store, extra ...resolver.Resolver) *Service {
 	rs := append([]resolver.Resolver{resolver.Local{Store: st}}, extra...)
 	notes := &Notes{store: st}
+	refs := &Refs{reg: resolver.NewRegistry(rs...), notes: notes}
+	var w WorkspaceWriter
+	for _, r := range extra {
+		if ww, ok := r.(WorkspaceWriter); ok {
+			w = ww
+		}
+	}
 	return &Service{
-		Notes: notes,
-		Refs:  &Refs{reg: resolver.NewRegistry(rs...), notes: notes},
-		store: st,
+		Notes:   notes,
+		Refs:    refs,
+		Actions: &Actions{store: st, refs: refs, writer: w},
+		store:   st,
 	}
 }

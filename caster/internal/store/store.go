@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS name_revs(
   ns TEXT NOT NULL, name TEXT NOT NULL, rev INTEGER NOT NULL, hash TEXT NOT NULL,
   title TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
   PRIMARY KEY(ns, name, rev));
+CREATE TABLE IF NOT EXISTS action_log(
+  idem_key TEXT PRIMARY KEY, action TEXT NOT NULL, source_ref TEXT NOT NULL,
+  outcome_ref TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE VIRTUAL TABLE IF NOT EXISTS blob_fts USING fts5(hash UNINDEXED, body);
 `
 
@@ -321,4 +324,34 @@ func scanName(sc scanner) (Name, error) {
 	}
 	n.CreatedAt, _ = time.Parse(time.RFC3339Nano, ts)
 	return n, err
+}
+
+// ActionRecord is the recorded outcome of an action run, keyed for idempotency.
+type ActionRecord struct {
+	Key, Action, Source, Outcome string
+	At                           time.Time
+}
+
+// RecordAction stores an outcome. The first record for a key wins; a second
+// call with the same key returns the stored one.
+func (s *Store) RecordAction(r ActionRecord) (ActionRecord, error) {
+	_, err := s.db.Exec(`INSERT OR IGNORE INTO action_log(idem_key,action,source_ref,outcome_ref,created_at) VALUES(?,?,?,?,?)`,
+		r.Key, r.Action, r.Source, r.Outcome, time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return ActionRecord{}, err
+	}
+	return s.LookupAction(r.Key)
+}
+
+// LookupAction returns the recorded outcome for key.
+func (s *Store) LookupAction(key string) (ActionRecord, error) {
+	var r ActionRecord
+	var ts string
+	err := s.db.QueryRow(`SELECT idem_key,action,source_ref,outcome_ref,created_at FROM action_log WHERE idem_key=?`, key).
+		Scan(&r.Key, &r.Action, &r.Source, &r.Outcome, &ts)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ActionRecord{}, ErrNotFound
+	}
+	r.At, _ = time.Parse(time.RFC3339Nano, ts)
+	return r, err
 }

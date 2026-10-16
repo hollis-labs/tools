@@ -26,6 +26,8 @@ func Scopes() *auth.ScopeTable {
 		Route("GET", "/v1/list", service.ScopeFor(service.OpList)).
 		Route("GET", "/v1/log", service.ScopeFor(service.OpLog)).
 		Route("GET", "/v1/search", service.ScopeFor(service.OpSearch)).
+		Route("GET", "/v1/actions", service.ScopeFor(service.OpActions)).
+		Route("POST", "/v1/act", service.ScopeFor(service.OpAct)).
 		Route("POST", "/v1/scan", service.ScopeFor(service.OpScan)).
 		Route("POST", "/v1/expand", service.ScopeFor(service.OpExpand)).
 		Route("POST", "/v1/put", service.ScopeFor(service.OpPut)).
@@ -75,6 +77,11 @@ func Handler(svc *service.Service, guard *auth.Guard) http.Handler {
 		res, err := svc.Notes.Search(r.Context(), service.SearchRequest{Query: q.Get("q"), Limit: limit})
 		respond(w, "", res, err)
 	})
+	mux.HandleFunc("GET /v1/actions", func(w http.ResponseWriter, r *http.Request) {
+		res, err := svc.Actions.List(r.Context(), service.ActionsRequest{Ref: r.URL.Query().Get("ref")})
+		respond(w, res.State, res, err)
+	})
+	mux.HandleFunc("POST /v1/act", post(svc.Actions.Run, func(r service.ActResult) string { return r.State }))
 	mux.HandleFunc("POST /v1/put", post(svc.Notes.Put, func(service.PutResult) string { return "" }))
 	mux.HandleFunc("POST /v1/snap", post(svc.Refs.Snapshot, func(r service.SnapResult) string { return r.State }))
 	mux.HandleFunc("POST /v1/scan", post(svc.Refs.Scan, func(service.ScanResult) string { return "" }))

@@ -41,6 +41,19 @@ MCP-store refs go through a stdio MCP client (`internal/mcpclient`) that launche
 
 Stdio MCP server with `caster_put`, `caster_get`, `caster_head`, `caster_snap`, `caster_ls`, `caster_log`, `caster_search`, `caster_scan`, `caster_expand`. Register it as `{"command":"caster","args":["mcp"]}`. Missing refs are outcomes (`state: not_found`), not errors; `caster_get` truncates at 64 KiB by default. The stdio server is launched by the operator and is not authenticated (same trust as the CLI).
 
+## Actions: `caster actions`, `caster act`
+
+An action is a registered operation on a ref whose parameters bind from ambient context instead of being typed. One exists so far:
+
+```sh
+export CASTER_NAMESPACE=project/<id>/workspace/handoffs CASTER_SESSION_ID=<session> CASTER_AGENT_ID=<agent>
+caster actions caster://handoffs/today          # what applies, and what context it needs
+caster act save-handoff caster://handoffs/today -dry-run
+caster act save-handoff caster://handoffs/today  # -> tesseract://item/<id>
+```
+
+`save-handoff` pins the source in CAS, then creates a Tesseract **workspace draft** (replaceable, promoted only after review) with provenance (`source_ref`, `snapshot`, `sha256`) in the item's `data`. It is a remote write, reported as such. The idempotency key is content hash + session, so a retry or double click replays the original item instead of creating another; the first run is recorded in the local `action_log`. Namespaces must look like `{scope}/{id}/workspace/{purpose}` and may not be in `user/`. A source that does not resolve causes no write. Over MCP the same thing is `caster_actions` / `caster_act` (with `dry_run`); over HTTP `GET /v1/actions`, `POST /v1/act` (scope `caster.write`).
+
 ## HTTP API: `caster serve`
 
 ```sh
@@ -54,7 +67,7 @@ Routes: `GET /v1/head|get|list|log|search`, `POST /v1/put|snap|scan|expand` (JSO
 
 ## Architecture
 
-`internal/service` is the contract: every operation is `func(ctx, Request) (Result, error)` with JSON-tagged structs, errors classified by `service.Kind`, and the operation→scope table (`ScopeFor`). `internal/cli`, `internal/mcp` and `internal/api` only decode, call the service and encode; `.golangci.transport.yml` enforces that they never touch the store. A new transport (gRPC, a Chimera plugin, Tether tool) is a new package of that shape.
+`internal/service` is the contract, organised as domain services on `Service` (`Notes`, `Refs`, `Actions`): every operation is `func(ctx, Request) (Result, error)` with JSON-tagged structs, errors classified by `service.Kind`, and the operation→scope table (`ScopeFor`). `internal/cli`, `internal/mcp` and `internal/api` only decode, call the service and encode; `.golangci.transport.yml` enforces that they never touch the store. A new transport (gRPC, a Chimera plugin, Tether tool) is a new package of that shape.
 
 ## Storage
 
@@ -63,5 +76,7 @@ go-apppaths layout (`caster paths`): blobs under `blobs/sha256/ab/cdef…` (writ
 ## Known limits (spike)
 
 - Tesseract via the gateway needs the hub reachable; unreachable reports an error (exit 1), not not-found. `@rev` is unsupported (use `revision/<id>`). `materialize` calls `tesseract_get`, which reinforces the item's activation, as any read does.
+- Workspace items have no revision id, so a materialised workspace item reports an empty revision.
+- Actions: one so far (`save-handoff`). Binding context comes from flags/env/args; nothing reads it from a Tether session yet. Promotion of drafts stays a separate, reviewed step.
 - No GC/pin/quota, no auth or namespace permissions (single local user), no remote put, no HTTP/MCP transport yet. Whole-file CAS, no chunking.
 - Torque and Tesseract content is rendered as markdown by caster; the brief's `summary`/`preview` modes are not implemented.
