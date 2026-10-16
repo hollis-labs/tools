@@ -1,0 +1,94 @@
+folio_version: "0.1"
+generated_at: 2026-10-16T07:57:03.680197449Z
+generator: folio/0.1.0
+presets:
+  - id: go-baseline
+    version: 0.1.0
+    source: bundled
+    resolved_path: bundled:presets/go-baseline
+  - id: go-service-app
+    version: 0.2.0
+    source: bundled
+    resolved_path: bundled:presets/go-service-app
+inputs:
+  agents_boundaries: |-
+    - Transports (the packages matched by `transport_dirs_regex` in `.golangci.transport.yml`) call the service layer, never `store.Store` methods or raw SQL; the gate is `.golangci.transport.yml`, its ceiling `.github/quality/transport-baseline.txt` only decreases.
+    - TODO(author): what a competent agent will get wrong here — invariants, the test that guards each by name, what must never happen.
+  agents_start_here: |-
+    - `.golangci.transport.yml` — the transport-boundary gate; `docs/transport-boundary.md` says how to run and ratchet it.
+    - `cmd/caster/main.go` — the composition root: resolves paths (go-apppaths), gates telemetry (go-otel), opens the store and builds the service layer; the only place that opens the store.
+    - `internal/service/service.go` — the service layer: unexported store, `Store()` escape hatch, `New(store)`.
+    - Run `go mod tidy` once after generating: `go.sum` is not rendered.
+    - `.github/workflows/check.yml` — the full CI gate.
+  app_name: caster
+  copyright_holder: Hollis Labs
+  description: Local content-addressed store and ref resolver for scratchpads, drafts, notes, Torque tasks and Tesseract objects
+  github_owner: hollis-labs
+  go_packages: ./...
+  go_toolchain: ""
+  go_version: 1.26.6
+  legacy_names: ""
+  otel_env_var: ""
+  repo_name: caster
+  store_pkg_name: store
+  store_pkg_path: internal/store
+  store_type: Store
+  transport_dirs_regex: ^internal/(api|mcp)/
+computed:
+  app: caster
+  env_prefix: CASTER
+  legacy_args: ""
+  module_path: github.com/hollis-labs/caster
+  otel_var: CASTER_OTEL_ENABLED
+  year: "2026"
+files:
+  .github/quality/transport-baseline.txt:
+    preset: go-service-app
+    digest_at_gen: sha256:9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+  .github/workflows/check.yml:
+    preset: go-baseline
+    digest_at_gen: sha256:4c780e44205b3f7aaa0ccc15c6b652cf5ddca5f2e57d2847db12d0625571eea8
+  .gitignore:
+    preset: go-baseline
+    digest_at_gen: sha256:4a587de479cb2645ab2094d664761a053fb9c1344ba7f904a020b9e73b3e9f63
+  .golangci.transport.yml:
+    preset: go-service-app
+    digest_at_gen: sha256:b4126670a26fdf53fe1c4c624d4f7ee0a138c81dba95bf959100a8f67c33f3b0
+  .golangci.yml:
+    preset: go-baseline
+    digest_at_gen: sha256:0270341a4bf62ff9147e1f6a3804817f265b1db5f1b64317f70c0f00d31839cb
+  AGENTS.md:
+    preset: go-baseline
+    digest_at_gen: sha256:8d836d5ed37a1e20f704dde788b431f97a6cb137837c31ee7a433f1f1801b787
+  CHANGELOG.md:
+    preset: go-baseline
+    digest_at_gen: sha256:1f83c98e2d546ce92d4082ee464fb50a4176bc7dc6c88021d179c2abf3fd7901
+  LICENSE:
+    preset: go-baseline
+    digest_at_gen: sha256:29fde794587339581b8d68aa7753337b321da45cbe49cf5a0be907db7e67e7d8
+  cmd/caster/main.go:
+    preset: go-service-app
+    digest_at_gen: sha256:f9200f894f5626f499727795ddec9bc6eb36f344197820354434f16f9c287538
+  docs/transport-boundary.md:
+    preset: go-service-app
+    digest_at_gen: sha256:7407c23a024fa28cdbed895e9cf338e3c74235e4c4d5655c02256a34f9a6587d
+  go.mod:
+    preset: go-service-app
+    digest_at_gen: sha256:e0d4e82047173981fb83f66bfad019eef1fb8f1343b03f6dbc59923f584072a3
+  internal/service/service.go:
+    preset: go-service-app
+    digest_at_gen: sha256:1d1c09c0531a23c697d3cea9a08230b71615c8efa2874a201dd9767cea9e7859
+  internal/store/store.go:
+    preset: go-service-app
+    digest_at_gen: sha256:07466992e18a867b7f132bee318d807941fb896487fe93e7206344281a7d144e
+  lefthook.yml:
+    preset: go-baseline
+    digest_at_gen: sha256:3c829519885e2f797a35d1e0a22d5bbb887793359a450bd4765cc65ce09623ac
+sync_history:
+  - at: 2026-10-16T07:57:03.680197449Z
+    operation: init
+    presets:
+      - id: go-baseline
+        version: 0.1.0
+      - id: go-service-app
+        version: 0.2.0
