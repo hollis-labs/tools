@@ -49,11 +49,23 @@ type Run struct {
 	Request       string // JSON of the execution parameters (timeout, env passthrough, retries)
 	ApprovedBy    string // principal that approved a pending run
 	ApprovedAt    time.Time
-	Approval      string // "", auto, tty, flag, none
-	State         string
-	CreatedAt     time.Time
-	EndedAt       time.Time
-	Attempts      []Attempt
+	// Liveness of the process executing the run, so a crash that leaves a run
+	// "running" can be detected and the orphaned process group cleaned up.
+	HeartbeatAt time.Time
+	OwnerPID    int
+	OwnerStart  int64 // owner's process start time (clock ticks), guards against pid reuse
+	PGID        int
+	PGIDStart   int64
+	// FailureClass/FailureMessage are the structured terminal failure of a run
+	// that did not simply exit non-zero: internal_error, orphaned, sandbox_failed.
+	FailureClass   string
+	FailureMessage string
+	PanicRef       string
+	Approval       string // "", auto, tty, flag, none
+	State          string
+	CreatedAt      time.Time
+	EndedAt        time.Time
+	Attempts       []Attempt
 }
 
 // Attempt is one execution of a run; a retry is a new linked attempt.
@@ -78,9 +90,10 @@ type Attempt struct {
 
 // Filter narrows ListRuns.
 type Filter struct {
-	Session string
-	State   string
-	Limit   int
+	Principal string // only runs submitted by this principal
+	Session   string
+	State     string
+	Limit     int
 }
 
 // Store is the store handle.
@@ -123,13 +136,18 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
 	// Columns added after the first release; the error for an existing column is expected.
-	for _, col := range []string{"sandbox", "request", "approved_by", "approved_at"} {
-		if _, err := db.Exec(`ALTER TABLE runs ADD COLUMN ` + col + ` TEXT NOT NULL DEFAULT ''`); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+	for _, col := range []string{
+		"sandbox TEXT NOT NULL DEFAULT ''", "request TEXT NOT NULL DEFAULT ''", "approved_by TEXT NOT NULL DEFAULT ''", "approved_at TEXT NOT NULL DEFAULT ''",
+		"heartbeat_at TEXT NOT NULL DEFAULT ''", "owner_pid INTEGER NOT NULL DEFAULT 0", "owner_start INTEGER NOT NULL DEFAULT 0",
+		"pgid INTEGER NOT NULL DEFAULT 0", "pgid_start INTEGER NOT NULL DEFAULT 0",
+		"failure_class TEXT NOT NULL DEFAULT ''", "failure_message TEXT NOT NULL DEFAULT ''", "panic_ref TEXT NOT NULL DEFAULT ''",
+	} {
+		if _, err := db.Exec(`ALTER TABLE runs ADD COLUMN ` + col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			_ = db.Close()
 			return nil, fmt.Errorf("migrate: %w", err)
 		}
 	}
-	if _, err := db.Exec(tokenSchema); err != nil {
+	if _, err := db.Exec(tokenSchema + panicSchema); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("init token schema: %w", err)
 	}
@@ -188,16 +206,17 @@ func orJSON(s string) string {
 	return s
 }
 
-const runCols = `id,session,parent,principal,host,cwd,command,parsed,effect,policy_verdict,policy_reasons,policy_mode,approval,state,created_at,ended_at,sandbox,request,approved_by,approved_at`
+const runCols = `id,session,parent,principal,host,cwd,command,parsed,effect,policy_verdict,policy_reasons,policy_mode,approval,state,created_at,ended_at,sandbox,request,approved_by,approved_at,heartbeat_at,owner_pid,owner_start,pgid,pgid_start,failure_class,failure_message,panic_ref`
 
 func scanRun(sc interface{ Scan(...any) error }) (*Run, error) {
 	var r Run
-	var created, ended, approvedAt string
+	var created, ended, approvedAt, heartbeat string
 	if err := sc.Scan(&r.ID, &r.Session, &r.Parent, &r.Principal, &r.Host, &r.Cwd, &r.Command, &r.Parsed, &r.Effect,
-		&r.PolicyVerdict, &r.PolicyReasons, &r.PolicyMode, &r.Approval, &r.State, &created, &ended, &r.Sandbox, &r.Request, &r.ApprovedBy, &approvedAt); err != nil {
+		&r.PolicyVerdict, &r.PolicyReasons, &r.PolicyMode, &r.Approval, &r.State, &created, &ended, &r.Sandbox, &r.Request, &r.ApprovedBy, &approvedAt, &heartbeat, &r.OwnerPID, &r.OwnerStart, &r.PGID, &r.PGIDStart,
+		&r.FailureClass, &r.FailureMessage, &r.PanicRef); err != nil {
 		return nil, err
 	}
-	r.CreatedAt, r.EndedAt, r.ApprovedAt = parseTS(created), parseTS(ended), parseTS(approvedAt)
+	r.CreatedAt, r.EndedAt, r.ApprovedAt, r.HeartbeatAt = parseTS(created), parseTS(ended), parseTS(approvedAt), parseTS(heartbeat)
 	return &r, nil
 }
 
@@ -267,6 +286,10 @@ func (s *Store) ListRuns(f Filter) ([]*Run, error) {
 	if f.Session != "" {
 		q += ` AND session=?`
 		args = append(args, f.Session)
+	}
+	if f.Principal != "" {
+		q += ` AND principal=?`
+		args = append(args, f.Principal)
 	}
 	if f.State != "" {
 		q += ` AND state=?`

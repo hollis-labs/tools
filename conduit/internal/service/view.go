@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/conduit/internal/policy"
+	"github.com/hollis-labs/conduit/internal/redact"
 	"github.com/hollis-labs/conduit/internal/store"
 )
 
@@ -38,6 +39,12 @@ type RunView struct {
 	StderrSize int64           `json:"stderr_bytes,omitempty"`
 	Truncated  bool            `json:"output_truncated,omitempty"`
 	Redactions int             `json:"redactions,omitempty"`
+	// FailureClass/FailureMessage/PanicRef describe a run that failed for a reason
+	// other than the command's own exit status (internal_error, orphaned). The
+	// message never carries panic text: look the ref up with `conduit panics show`.
+	FailureClass   string `json:"failure_class,omitempty"`
+	FailureMessage string `json:"failure_message,omitempty"`
+	PanicRef       string `json:"panic_ref,omitempty"`
 	// OutputTrust marks stdout and stderr as data produced by the command, not
 	// instructions for whoever reads them.
 	OutputTrust string `json:"output_trust,omitempty"`
@@ -57,11 +64,16 @@ func ShortID(id string) string {
 // View summarizes a run. maxBytes bounds each output stream (0 = no output).
 func (s *Service) View(ctx context.Context, r *store.Run, maxBytes int) *RunView {
 	v := &RunView{
-		ID: r.ID, Short: ShortID(r.ID), State: r.State, Command: r.Command, Cwd: r.Cwd, Principal: r.Principal,
+		ID: r.ID, Short: ShortID(r.ID), State: r.State, Command: redact.Text(r.Command, 8192), Cwd: r.Cwd, Principal: r.Principal,
 		Host: r.Host, Session: r.Session, Verdict: r.PolicyVerdict, Effect: r.Effect, Sandbox: r.Sandbox,
 		Approval: r.Approval, ApprovedBy: r.ApprovedBy, Attempts: len(r.Attempts),
 	}
 	_ = json.Unmarshal([]byte(r.PolicyReasons), &v.Reasons)
+	for i := range v.Reasons { // command text can hold secrets typed inline; views leave the machine
+		v.Reasons[i].Segment = redact.Text(v.Reasons[i].Segment, 2048)
+		v.Reasons[i].Why = redact.Text(v.Reasons[i].Why, 2048)
+	}
+	v.FailureClass, v.FailureMessage, v.PanicRef = r.FailureClass, r.FailureMessage, r.PanicRef
 	switch r.State {
 	case store.StatePending:
 		v.Hint = fmt.Sprintf("awaiting operator approval: `conduit approve %s` (expires %s after submission)", v.Short, s.approvalTTL)
@@ -69,6 +81,12 @@ func (s *Service) View(ctx context.Context, r *store.Run, maxBytes int) *RunView
 		v.Hint = "denied; this command will not run"
 	case store.StateExpired:
 		v.Hint = "approval window passed; submit again"
+	}
+	switch r.FailureClass {
+	case "internal_error":
+		v.Hint = "conduit hit an internal error running this; the operator can look up " + r.PanicRef + " (conduit panics show)"
+	case "orphaned":
+		v.Hint = "the process that was running this exited before it finished; the command was stopped"
 	}
 	if n := len(r.Attempts); n > 0 {
 		a := r.Attempts[n-1]

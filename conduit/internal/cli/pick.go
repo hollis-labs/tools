@@ -12,6 +12,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/hollis-labs/conduit/internal/fuzzy"
+	"github.com/hollis-labs/conduit/internal/safe"
 	"github.com/hollis-labs/conduit/internal/service"
 )
 
@@ -127,11 +128,13 @@ func (c *cmd) interactive(p *picker) (string, bool, error) {
 // paging sequences are recognized; other control bytes are ignored.
 func readKeys(r io.Reader) <-chan key {
 	out := make(chan key)
-	go func() {
+	// Both goroutines are contained: a panic closes the channel (the picker then
+	// cancels and restores the terminal) instead of killing the process mid-draw.
+	safe.Go("picker keys", func() {
 		defer close(out)
 		br := bufio.NewReader(r)
 		bytes := make(chan byte)
-		go func() {
+		safe.Go("picker reader", func() {
 			defer close(bytes)
 			for {
 				b, err := br.ReadByte()
@@ -140,7 +143,7 @@ func readKeys(r io.Reader) <-chan key {
 				}
 				bytes <- b
 			}
-		}()
+		}, nil)
 		for b := range bytes {
 			switch {
 			case b == 0x1b:
@@ -213,7 +216,7 @@ func readKeys(r io.Reader) <-chan key {
 				}
 			}
 		}
-	}()
+	}, nil)
 	return out
 }
 

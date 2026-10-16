@@ -263,6 +263,7 @@ func (c *cmd) mcpCmd(args []string) int {
 	} else if !strings.Contains(p, ":") {
 		p = "mcp:" + p
 	}
+	c.svc.StartReaper(c.ctx, 30*time.Second, func(f string, a ...any) { fmt.Fprintf(c.err, f+"\n", a...) })
 	if err := mcp.Serve(c.ctx, c.svc, p, c.in, c.out, Version); err != nil {
 		return c.fail("mcp: %v", err)
 	}
@@ -304,8 +305,63 @@ func (c *cmd) serve(args []string) int {
 	if toks, _ := c.svc.Tokens(); len(toks) == 0 {
 		fmt.Fprintln(c.err, "conduit: no tokens yet: `conduit token create -name <n> -scope exec.run,exec.read`")
 	}
+	c.svc.StartReaper(c.ctx, 30*time.Second, func(f string, a ...any) { fmt.Fprintf(c.err, f+"\n", a...) })
 	if err := api.Serve(c.ctx, ln, h); err != nil {
 		return c.fail("%v", err)
 	}
 	return ExitOK
+}
+
+func (c *cmd) reap(args []string) int {
+	fs := flag.NewFlagSet("reap", flag.ContinueOnError)
+	fs.SetOutput(c.err)
+	stale := fs.Duration("stale", 30*time.Second, "treat a running run as orphaned after this long without a heartbeat (and no live owner)")
+	if err := fs.Parse(args); err != nil {
+		return ExitError
+	}
+	if *stale < time.Second {
+		return c.fail("reap: -stale must be at least 1s")
+	}
+	rep, err := c.svc.ReapStale(time.Now(), *stale)
+	if err != nil {
+		return c.fail("reap: %v", err)
+	}
+	fmt.Fprintln(c.out, rep)
+	return ExitOK
+}
+
+func (c *cmd) panics(args []string) int {
+	if len(args) > 0 && args[0] == "show" {
+		if len(args) != 2 {
+			return c.fail("panics show: want a ref")
+		}
+		p, err := c.svc.PanicByRef(args[1])
+		if err != nil {
+			fmt.Fprintf(c.err, "conduit: %v\n", err)
+			return exitFor(err)
+		}
+		fmt.Fprintf(c.out, "ref    %s\nat     %s\nwhere  %s\nrun    %s\nvalue  %s\n\nstack (redacted):\n%s\n",
+			p.Ref, p.At.Local().Format(time.RFC3339), visible(p.Where), dash(p.RunID), block(p.Value, "       "), visible(p.Stack))
+		return ExitOK
+	}
+	fs := flag.NewFlagSet("panics", flag.ContinueOnError)
+	fs.SetOutput(c.err)
+	n := fs.Int("n", 20, "how many")
+	if err := fs.Parse(args); err != nil {
+		return ExitError
+	}
+	ps, err := c.svc.Panics(*n)
+	if err != nil {
+		return c.fail("%v", err)
+	}
+	if len(ps) == 0 {
+		fmt.Fprintln(c.out, "no recovered panics")
+		return ExitOK
+	}
+	tw := tabwriter.NewWriter(c.out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "REF\tWHEN\tWHERE\tRUN\tVALUE")
+	for _, p := range ps {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", p.Ref, p.At.Local().Format("01-02 15:04:05"), oneLineSafe(p.Where, 30), dash(shortID(p.RunID)), oneLineSafe(p.Value, 60))
+	}
+	return flushOK(tw)
 }

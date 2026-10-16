@@ -17,6 +17,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/hollis-labs/conduit/internal/safe"
 )
 
 // DefaultMaxCapture bounds each captured stream; the rest is counted, not kept.
@@ -37,6 +39,9 @@ type Spec struct {
 	Protect    []string  // control-plane paths the protect profile makes read-only
 	Stdout     io.Writer // optional live tee
 	Stderr     io.Writer // optional live tee
+	// OnStart is called with the pid (also the process group id) as soon as the
+	// command has started, so a crash of the owner can be cleaned up later.
+	OnStart func(pid int)
 }
 
 // Result is what happened.
@@ -76,21 +81,49 @@ func (c *capture) Write(p []byte) (int, error) {
 		c.buf.Write(p[:min(room, len(p))])
 	}
 	if c.tee != nil {
-		c.tee.Write(p) //nolint:errcheck // a closed terminal must not fail the run
+		c.teeWrite(p)
 	}
 	return len(p), nil
 }
 
+// teeWrite copies to the live writer. os/exec calls Write from its own copying
+// goroutine, where a panic would kill the whole process and cannot be recovered
+// by the caller, so a failing or panicking writer is contained here and the tee
+// is switched off; the run and its captured output carry on.
+func (c *capture) teeWrite(p []byte) {
+	defer func() {
+		if v := recover(); v != nil {
+			_ = safe.Capture("cmdrun live output writer", v)
+			c.tee = nil
+		}
+	}()
+	if _, err := c.tee.Write(p); err != nil {
+		c.tee = nil // a closed terminal must not fail the run
+	}
+}
+
 // Run executes the spec and always returns a Result; the error is reserved for
 // a failure of the wrapper itself, not of the command.
-func Run(ctx context.Context, sp Spec) (*Result, error) {
+func Run(ctx context.Context, sp Spec) (res *Result, err error) {
+	var cmd *exec.Cmd
+	// If anything in here panics after the command has started, the process
+	// group must not outlive us: kill it, then report the panic as a wrapper error.
+	defer func() {
+		if v := recover(); v != nil {
+			if cmd != nil && cmd.Process != nil {
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				go func() { _ = cmd.Wait() }()
+			}
+			res, err = nil, safe.Capture("cmdrun.Run", v)
+		}
+	}()
 	limit := sp.MaxCapture
 	if limit <= 0 {
 		limit = DefaultMaxCapture
 	}
 	env, scrubbed := ScrubEnv(sp.Env, sp.PassEnv)
 
-	cmd := exec.Command("/bin/bash", "-c", sp.Command) //nolint:gosec // running the caller's command is this package's job; policy decides before it is called
+	cmd = exec.Command("/bin/bash", "-c", sp.Command) //nolint:gosec // running the caller's command is this package's job; policy decides before it is called
 	cmd.Dir = sp.Dir
 	cmd.Env = env
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -99,7 +132,7 @@ func Run(ctx context.Context, sp Spec) (*Result, error) {
 	cmd.Stdout, cmd.Stderr = out, errc
 	cmd.Stdin = nil
 
-	res := &Result{ScrubbedEnv: scrubbed, Started: time.Now(), ExitCode: -1}
+	res = &Result{ScrubbedEnv: scrubbed, Started: time.Now(), ExitCode: -1}
 	if sp.Sandbox != "" && sp.Sandbox != SandboxNone {
 		ws := sp.Dir
 		if ws == "" {
@@ -122,8 +155,19 @@ func Run(ctx context.Context, sp Spec) (*Result, error) {
 		return res, nil
 	}
 
+	if sp.OnStart != nil {
+		func() {
+			defer func() {
+				if v := recover(); v != nil {
+					_ = safe.Capture("cmdrun OnStart", v)
+				}
+			}()
+			sp.OnStart(cmd.Process.Pid)
+		}()
+	}
+
 	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	safe.Go("cmdrun wait", func() { done <- cmd.Wait() }, func(pe *safe.PanicError) { done <- pe })
 
 	var timeout <-chan time.Time
 	if sp.Timeout > 0 {

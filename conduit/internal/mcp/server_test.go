@@ -244,3 +244,67 @@ func TestAgentCannotCancelAnotherPrincipalsRun(t *testing.T) {
 		t.Errorf("state %s", r.State)
 	}
 }
+
+type getPanics struct{ blob.Store }
+
+func (getPanics) Get(context.Context, string) ([]byte, error) {
+	panic("blob read bug, token=sk-abcdefghijklmnopqrstuvwxyz")
+}
+
+func TestToolPanicIsAnErrorWithARefAndTheServerKeepsServing(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "c.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	blobReal, _ := blob.NewLocal(filepath.Join(t.TempDir(), "b"))
+	good := service.New(st, service.WithBlobs(blobReal))
+	run, err := good.ExecAndWait(service.As(context.Background(), "mcp:agent"), service.ExecRequest{Command: "echo hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := newClient(t, service.New(st, service.WithBlobs(getPanics{blobReal})))
+	e, isErr := c.call("exec_output", map[string]any{"run": run.ID})
+	if !isErr || e["code"] != "internal" {
+		t.Fatalf("%v", e)
+	}
+	msg := e["message"].(string)
+	if !strings.Contains(msg, "ref pnc_") || strings.Contains(msg, "sk-") || strings.Contains(msg, "blob read bug") {
+		t.Errorf("tool error must carry a ref and no panic text: %q", msg)
+	}
+	// the connection is still alive and serving
+	res, isErr := c.call("exec_check", map[string]any{"command": "echo still-here"})
+	if isErr || res["decision"].(map[string]any)["verdict"] != "allow" {
+		t.Fatalf("server did not survive the panic: %v", res)
+	}
+}
+
+func TestAgentSeesOnlyItsOwnRuns(t *testing.T) {
+	svc := newSvc(t)
+	c := newClient(t, svc)
+	other, err := svc.ExecAndWait(service.As(context.Background(), "user:someone"), service.ExecRequest{Command: "echo not-for-the-agent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mine, _ := c.call("exec_run", map[string]any{"command": "echo mine"})
+
+	for _, tool := range []string{"exec_get", "exec_wait", "exec_output", "exec_cancel"} {
+		if e, isErr := c.call(tool, map[string]any{"run": other.ID}); !isErr || (e["code"] != "not_found" && e["code"] != "forbidden") {
+			t.Errorf("%s on another principal's run: %v", tool, e)
+		}
+	}
+	list, _ := c.call("exec_list", map[string]any{})
+	runs := list["runs"].([]any)
+	if len(runs) != 1 || runs[0].(map[string]any)["id"] != mine["id"] {
+		t.Fatalf("exec_list leaked or lost runs: %v", list)
+	}
+}
+
+func TestViewsRedactSecretsTypedIntoACommand(t *testing.T) {
+	c := newClient(t, newSvc(t))
+	res, _ := c.call("exec_run", map[string]any{"command": "echo hi # DB_PASSWORD=hunter2hunter2 sk-abcdefghijklmnopqrstuvwxyz"})
+	cmd := res["command"].(string)
+	if strings.Contains(cmd, "hunter2") || strings.Contains(cmd, "sk-abcdefghijklmnop") {
+		t.Errorf("secret echoed back in the command field: %q", cmd)
+	}
+}

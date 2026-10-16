@@ -20,3 +20,8 @@ refuses a tag whose CHANGELOG has no heading for it.
 - Fuzzy history picker and embedded shell integration.
 - Approval flow with expiry and self-approval refusal; named runbooks with validated, per-word-quoted parameters.
 - MCP stdio server (no approval tool) and a scoped, token-authenticated HTTP API.
+- Terminal-safe rendering of everything submitted text can reach (approval preview, listings, picker, recall).
+- `internal/safe`: panics contained at every boundary (goroutines, HTTP, MCP, CLI, parser, policy, executor) with refs, persisted redacted records, `conduit panics`, exit 70; parser and policy fail closed on a panic.
+- Run liveness (heartbeat, owner and process-group identity by pid + start time), `conduit reap`, daemon reaper, graceful shutdown drain.
+- `exec.read.own` scope; own-only visibility for MCP agents; secrets redacted in command text in views.
+- Classifier hardened after independent review: compound redirects, path-qualified commands, env prefixes, strict wrapper options, flag-driven exec; `FuzzParse` and `FuzzDecide`.

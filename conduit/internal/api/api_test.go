@@ -10,11 +10,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/hollis-labs/conduit/internal/blob"
 	"github.com/hollis-labs/conduit/internal/runbook"
+	"github.com/hollis-labs/conduit/internal/safe"
 	"github.com/hollis-labs/conduit/internal/service"
 	"github.com/hollis-labs/conduit/internal/store"
 )
@@ -349,5 +351,141 @@ func TestRunbookDirIsHonouredOverHTTP(t *testing.T) {
 	// a caller-supplied dir is still validated for a runbook
 	if code, _ := e.do("POST", "/v1/exec", e.agent, map[string]any{"runbook": "here", "dir": "/etc"}); code != 400 {
 		t.Errorf("caller dir outside roots accepted for a runbook: %d", code)
+	}
+}
+
+// getPanics wraps a real blob store but panics on read, so a run can be recorded
+// normally and the panic happens inside an HTTP handler.
+type getPanics struct{ blob.Store }
+
+func (getPanics) Get(context.Context, string) ([]byte, error) {
+	panic("blob read bug, token=sk-abcdefghijklmnopqrstuvwxyz")
+}
+
+type collect struct {
+	mu   sync.Mutex
+	recs []safe.Record
+}
+
+func (c *collect) Report(r safe.Record) { c.mu.Lock(); c.recs = append(c.recs, r); c.mu.Unlock() }
+func (c *collect) n() int               { c.mu.Lock(); defer c.mu.Unlock(); return len(c.recs) }
+
+func TestHandlerPanicBecomesA500WithARefAndTheServerSurvives(t *testing.T) {
+	rep := &collect{}
+	safe.SetReporter(rep)
+	t.Cleanup(func() { safe.SetReporter(nopReporter{}) })
+	st, err := store.Open(filepath.Join(t.TempDir(), "c.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	blobReal, _ := blob.NewLocal(filepath.Join(t.TempDir(), "b"))
+	svc := service.New(st, service.WithBlobs(blobReal))
+	e := setupWith(t, svc, "a-")
+	_, m := e.do("POST", "/v1/exec", e.agent, map[string]any{"command": "echo hi", "max_bytes": 1})
+	id := m["id"].(string)
+
+	svcPanicky := service.New(st, service.WithBlobs(getPanics{blobReal}))
+	e2 := setupWith(t, svcPanicky, "b-")
+	code, body := e2.do("GET", "/v1/runs/"+id+"/output", e2.reader, nil)
+	if code != 500 || errCode(body) != "internal" {
+		t.Fatalf("%d %v", code, body)
+	}
+	msg := body["error"].(map[string]any)["message"].(string)
+	ref, _ := body["error"].(map[string]any)["ref"].(string)
+	if !strings.HasPrefix(ref, "pnc_") || !strings.Contains(msg, ref) || strings.Contains(msg, "sk-") || strings.Contains(msg, "blob read bug") {
+		t.Fatalf("response must carry the ref and no panic text: %v", body)
+	}
+	if rep.n() == 0 {
+		t.Error("the panic was not reported")
+	}
+	// the very next request is served normally
+	if code, _ := e2.do("GET", "/healthz", "", nil); code != 200 {
+		t.Errorf("server did not survive: %d", code)
+	}
+	if code, _ := e2.do("GET", "/v1/runs", e2.reader, nil); code != 200 {
+		t.Errorf("authenticated route broken after a panic: %d", code)
+	}
+}
+
+type nopReporter struct{}
+
+func (nopReporter) Report(safe.Record) {}
+
+// setupWith builds an env around an existing service (shared store).
+func setupWith(t *testing.T, svc *service.Service, prefix string) *env {
+	t.Helper()
+	root := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	h, err := New(ctx, svc, Config{AllowDirs: []string{root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	mk := func(name string, scopes ...string) string {
+		sec, _, err := svc.CreateToken(prefix+name, scopes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sec
+	}
+	return &env{t: t, svc: svc, ts: ts, root: root,
+		agent: mk("agent", service.ScopeRun, service.ScopeRead), oper: mk("oper", service.ScopeApprove, service.ScopeRead), reader: mk("reader", service.ScopeRead)}
+}
+
+func TestReadScopesOwnVersusAll(t *testing.T) {
+	e := setup(t)
+	own, _, _ := e.svc.CreateToken("own-only", []string{service.ScopeReadOwn})
+	runner, _, _ := e.svc.CreateToken("runner", []string{service.ScopeRun}) // exec.run implies reading its own runs
+	_, mine := e.do("POST", "/v1/exec", runner, map[string]any{"command": "echo mine"})
+	_, theirs := e.do("POST", "/v1/exec", e.agent, map[string]any{"command": "echo theirs"})
+
+	// the runner sees its own run, and only that
+	if code, m := e.do("GET", "/v1/runs/"+mine["id"].(string), runner, nil); code != 200 || m["id"] != mine["id"] {
+		t.Fatalf("own run: %d %v", code, m)
+	}
+	_, list := e.do("GET", "/v1/runs", runner, nil)
+	runs := list["runs"].([]any)
+	if len(runs) != 1 || runs[0].(map[string]any)["id"] != mine["id"] {
+		t.Fatalf("list leaked other principals' runs: %v", list)
+	}
+	// another principal's run is 404, not 403: its existence is not revealed
+	id := theirs["id"].(string)
+	for _, path := range []string{"/v1/runs/" + id, "/v1/runs/" + id + "/output"} {
+		if code, m := e.do("GET", path, runner, nil); code != 404 {
+			t.Errorf("%s: %d %v", path, code, m)
+		}
+	}
+	// a token with only read.own and no runs of its own sees nothing
+	if _, l := e.do("GET", "/v1/runs", own, nil); len(l["runs"].([]any)) != 0 {
+		t.Errorf("%v", l)
+	}
+	// exec.read still sees everything
+	if _, l := e.do("GET", "/v1/runs", e.reader, nil); len(l["runs"].([]any)) != 2 {
+		t.Errorf("exec.read should see all: %v", l)
+	}
+	if code, _ := e.do("GET", "/v1/runs/"+id+"/output", e.reader, nil); code != 200 {
+		t.Errorf("exec.read output: %d", code)
+	}
+	// but read.own alone cannot run or approve
+	if code, _ := e.do("POST", "/v1/exec", own, map[string]any{"command": "echo x"}); code != 403 {
+		t.Errorf("read.own ran a command: %d", code)
+	}
+}
+
+func TestReadOwnScopeSyntax(t *testing.T) {
+	e := setup(t)
+	if _, _, err := e.svc.CreateToken("ok1", []string{"exec.read.own"}); err != nil {
+		t.Error(err)
+	}
+	if _, _, err := e.svc.CreateToken("ok2", []string{"exec.read.own:" + e.svc.Host()}); err != nil {
+		t.Error(err)
+	}
+	for _, bad := range []string{"exec.read.owner", "exec.read.own.x", "exec.reads.own", "exec.read.own exec.admin"} {
+		if _, _, err := e.svc.CreateToken("bad", []string{bad}); err == nil {
+			t.Errorf("accepted %q", bad)
+		}
 	}
 }

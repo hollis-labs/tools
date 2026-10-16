@@ -122,3 +122,28 @@ func TestClassifyTailOnly(t *testing.T) {
 		t.Errorf("got %s", c)
 	}
 }
+
+type panicWriter struct{}
+
+func (panicWriter) Write([]byte) (int, error) { panic("live writer exploded") }
+
+// os/exec calls Write from its own goroutine; an uncontained panic there would
+// kill the whole process. The run must carry on and capture output regardless.
+func TestPanickingLiveWriterDoesNotKillTheRun(t *testing.T) {
+	r, err := Run(context.Background(), Spec{Command: `echo one; sleep 0.1; echo two`, Env: os.Environ(), Stdout: panicWriter{}})
+	if err != nil || !r.OK() || string(r.Stdout) != "one\ntwo\n" {
+		t.Fatalf("%v %+v", err, r)
+	}
+}
+
+func TestOnStartReceivesGroupLeaderAndItsPanicIsContained(t *testing.T) {
+	var got int
+	r, err := Run(context.Background(), Spec{Command: `true`, Env: os.Environ(), OnStart: func(pid int) { got = pid }})
+	if err != nil || !r.OK() || got <= 1 {
+		t.Fatalf("pid %d, %v, %+v", got, err, r)
+	}
+	r, err = Run(context.Background(), Spec{Command: `echo still-ran`, Env: os.Environ(), OnStart: func(int) { panic("callback bug") }})
+	if err != nil || string(r.Stdout) != "still-ran\n" {
+		t.Fatalf("a panicking OnStart must not stop the command: %v %+v", err, r)
+	}
+}

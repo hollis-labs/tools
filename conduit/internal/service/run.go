@@ -15,7 +15,9 @@ import (
 	"github.com/hollis-labs/conduit/internal/cmdparse"
 	"github.com/hollis-labs/conduit/internal/cmdrun"
 	"github.com/hollis-labs/conduit/internal/policy"
+	"github.com/hollis-labs/conduit/internal/proc"
 	"github.com/hollis-labs/conduit/internal/runbook"
+	"github.com/hollis-labs/conduit/internal/safe"
 	"github.com/hollis-labs/conduit/internal/store"
 )
 
@@ -103,7 +105,15 @@ func (s *Service) Parse(cmd string) *cmdparse.Parsed { return cmdparse.Parse(cmd
 // Check is a policy dry run: parse and decide, record nothing.
 func (s *Service) Check(cmd string) (*cmdparse.Parsed, policy.Decision) {
 	p := cmdparse.Parse(cmd)
-	return p, s.policy.Decide(p)
+	var d policy.Decision
+	if err := safe.Call("policy.Decide", func() error { d = s.decide(p); return nil }); err != nil {
+		// A policy that cannot evaluate must not say yes, and must not say ask
+		// either: nobody can review what the policy failed to understand.
+		ref, _ := safe.Ref(err)
+		return p, policy.Decision{Verdict: policy.Deny, Effect: p.Effect, Reasons: []policy.Reason{{
+			Verdict: policy.Deny, Rule: "internal-error", Why: "policy evaluation failed (ref " + ref + ")"}}}
+	}
+	return p, d
 }
 
 // Submit records a run and decides it. The returned run is in one of:
@@ -312,7 +322,9 @@ func (s *Service) Start(runID string, opts ExecOpts) error {
 	if run.State != store.StateApproved {
 		return fmt.Errorf("%w (state %s)", ErrNotRunnable, run.State)
 	}
-	go func() { _, _ = s.Execute(s.base, runID, opts) }()
+	safe.Go("start run "+runID, func() { _, _ = s.Execute(s.base, runID, opts) }, func(pe *safe.PanicError) {
+		s.failInternal(runID, pe) // Execute contains its own panics; this is the last line
+	})
 	return nil
 }
 
@@ -349,7 +361,34 @@ func (s *Service) Cancel(ctx context.Context, idFrag string, admin bool) (*store
 // Execute runs an approved run: claim it (approved to running, atomically, so a
 // run executes at most once), run with linked retry attempts for transient
 // failures of read-only commands, classify, redact and store the output.
-func (s *Service) Execute(ctx context.Context, runID string, opts ExecOpts) (*store.Run, error) {
+func (s *Service) Execute(ctx context.Context, runID string, opts ExecOpts) (run *store.Run, err error) {
+	s.execs.Add(1)
+	defer s.execs.Done()
+	defer func() {
+		if v := recover(); v != nil {
+			// Whatever panicked, the run must not stay "running" and the caller
+			// must get the stored record and a ref, never the panic.
+			pe := safe.CaptureFor("execute run "+runID, runID, v)
+			s.failInternal(runID, pe)
+			run, _ = s.store.GetRun(runID)
+			err = pe
+		}
+	}()
+	return s.execute(ctx, runID, opts)
+}
+
+// failInternal ends a run that hit a bug in conduit itself. It only acts on a
+// run that is still running or approved, so it cannot overwrite a real outcome.
+func (s *Service) failInternal(runID string, pe *safe.PanicError) {
+	msg := "internal error while executing this command; see panic ref"
+	for _, from := range []string{store.StateRunning, store.StateApproved} {
+		if moved, err := s.store.Fail(runID, from, "internal_error", msg, pe.Rec.Ref, time.Now()); err == nil && moved {
+			return
+		}
+	}
+}
+
+func (s *Service) execute(ctx context.Context, runID string, opts ExecOpts) (*store.Run, error) {
 	run, err := s.store.GetRun(runID)
 	if err != nil {
 		return nil, err
@@ -368,7 +407,9 @@ func (s *Service) Execute(ctx context.Context, runID string, opts ExecOpts) (*st
 			return full, ErrDenied
 		}
 	}
-	moved, err := s.store.Transition(runID, store.StateApproved, store.StateRunning)
+	self := os.Getpid()
+	selfStart, _ := proc.StartTime(self)
+	moved, err := s.store.MarkRunning(runID, self, selfStart, time.Now())
 	if err != nil {
 		return nil, err
 	}
@@ -390,6 +431,23 @@ func (s *Service) Execute(ctx context.Context, runID string, opts ExecOpts) (*st
 		s.mu.Unlock()
 	}()
 
+	// Prove liveness while the command runs, so a crash that leaves this run
+	// "running" can be recognized by the reaper.
+	stopBeat := make(chan struct{})
+	defer close(stopBeat)
+	safe.Go("heartbeat "+runID, func() {
+		t := time.NewTicker(s.heartbeatEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-stopBeat:
+				return
+			case <-t.C:
+				_ = s.store.Heartbeat(runID, time.Now())
+			}
+		}
+	}, nil)
+
 	idempotent := cmdparse.Effect(run.Effect) == cmdparse.EffectRead || cmdparse.Effect(run.Effect) == cmdparse.EffectNone
 	retries := 0
 	if idempotent {
@@ -400,6 +458,10 @@ func (s *Service) Execute(ctx context.Context, runID string, opts ExecOpts) (*st
 		res, err := cmdrun.Run(ctx, cmdrun.Spec{
 			Command: run.Command, Dir: run.Cwd, Timeout: ep.Timeout, Env: s.env, PassEnv: ep.PassEnv,
 			Sandbox: run.Sandbox, Protect: s.protect, Stdout: opts.Stdout, Stderr: opts.Stderr,
+			OnStart: func(pid int) {
+				start, _ := proc.StartTime(pid)
+				_ = s.store.SetProcess(runID, pid, start)
+			},
 		})
 		if err != nil {
 			return s.finish(run, store.StateFailed, err)

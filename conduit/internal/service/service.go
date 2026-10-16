@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/conduit/internal/blob"
+	"github.com/hollis-labs/conduit/internal/cmdparse"
 	"github.com/hollis-labs/conduit/internal/policy"
 	"github.com/hollis-labs/conduit/internal/runbook"
 	"github.com/hollis-labs/conduit/internal/store"
@@ -39,6 +40,12 @@ type Service struct {
 	mu       sync.Mutex
 	running  map[string]context.CancelFunc
 	canceled map[string]bool
+
+	execs          sync.WaitGroup // executions in flight, drained by Shutdown
+	heartbeatEvery time.Duration
+	staleAfter     time.Duration
+	// decide is the policy entry; a field so tests can make it misbehave.
+	decide func(*cmdparse.Parsed) policy.Decision
 }
 
 // Option configures a Service.
@@ -70,6 +77,12 @@ func WithMaxActive(n int) Option { return func(s *Service) { s.maxActive = n } }
 // to stop them (a daemon's shutdown).
 func WithBaseContext(ctx context.Context) Option { return func(s *Service) { s.base = ctx } }
 
+// WithLiveness sets how often a running command's owner proves it is alive and
+// how long without a heartbeat before the reaper treats the run as orphaned.
+func WithLiveness(every, staleAfter time.Duration) Option {
+	return func(s *Service) { s.heartbeatEvery, s.staleAfter = every, staleAfter }
+}
+
 // WithEnv sets the base environment commands start from (before scrubbing).
 func WithEnv(env []string) Option { return func(s *Service) { s.env = env } }
 
@@ -81,7 +94,8 @@ func (s *Service) Store() *store.Store { return s.store }
 // New constructs a Service wired to the provided store.
 func New(st *store.Store, opts ...Option) *Service {
 	s := &Service{store: st, policy: policy.Baseline(), env: os.Environ(), approvalTTL: 15 * time.Minute, maxActive: 50,
-		base: context.Background(), running: map[string]context.CancelFunc{}, canceled: map[string]bool{}}
+		base: context.Background(), running: map[string]context.CancelFunc{}, canceled: map[string]bool{},
+		heartbeatEvery: 5 * time.Second, staleAfter: 30 * time.Second}
 	if u, err := user.Current(); err == nil {
 		s.principal = "user:" + u.Username
 	}
@@ -89,5 +103,18 @@ func New(st *store.Store, opts ...Option) *Service {
 	for _, o := range opts {
 		o(s)
 	}
+	s.decide = func(p *cmdparse.Parsed) policy.Decision { return s.policy.Decide(p) }
 	return s
+}
+
+// Shutdown waits, up to d, for executions in flight to finish recording. Call it
+// after canceling the base context (which stops the commands) and before closing
+// the store, so a stopping daemon does not leave runs half-written.
+func (s *Service) Shutdown(d time.Duration) {
+	done := make(chan struct{})
+	go func() { s.execs.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(d):
+	}
 }

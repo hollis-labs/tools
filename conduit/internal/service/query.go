@@ -95,3 +95,38 @@ func (s *Service) History(limit int, extra []string) ([]HistoryItem, error) {
 	}
 	return out, nil
 }
+
+// GetFor returns a run if the viewer may see it: everything for a viewer with
+// all=true, otherwise only runs the viewer submitted. A run someone else owns is
+// reported as not found, so its existence is not revealed.
+func (s *Service) GetFor(idFrag, viewer string, all bool) (*store.Run, error) {
+	run, err := s.Get(idFrag)
+	if err != nil {
+		return nil, err
+	}
+	if !all && run.Principal != viewer {
+		return nil, store.ErrNotFound
+	}
+	return run, nil
+}
+
+// ListFor lists runs visible to the viewer.
+func (s *Service) ListFor(viewer string, all bool, session, state string, limit int) ([]*store.Run, error) {
+	f := store.Filter{Session: session, State: state, Limit: limit}
+	if !all {
+		f.Principal = viewer
+		if viewer == "" {
+			return nil, nil
+		}
+	}
+	return s.store.ListRuns(f)
+}
+
+// RecallFor is Recall limited to runs the viewer may see.
+func (s *Service) RecallFor(ctx context.Context, idFrag, stream string, attempt int, viewer string, all bool) ([]byte, error) {
+	run, err := s.GetFor(idFrag, viewer, all)
+	if err != nil {
+		return nil, err
+	}
+	return s.Recall(ctx, run.ID, stream, attempt)
+}

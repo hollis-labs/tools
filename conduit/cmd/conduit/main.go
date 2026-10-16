@@ -21,6 +21,7 @@ import (
 	"github.com/hollis-labs/conduit/internal/cli"
 	"github.com/hollis-labs/conduit/internal/policy"
 	"github.com/hollis-labs/conduit/internal/runbook"
+	"github.com/hollis-labs/conduit/internal/safe"
 	"github.com/hollis-labs/conduit/internal/service"
 	"github.com/hollis-labs/conduit/internal/store"
 )
@@ -44,7 +45,7 @@ const (
 )
 
 func main() {
-	code, err := run(context.Background())
+	code, err := runGuarded(context.Background())
 	if err != nil {
 		log.Printf("conduit: %v", err)
 		if code == 0 {
@@ -109,8 +110,14 @@ func run(ctx context.Context) (int, error) {
 
 	// The service layer is the only thing handed to the transports; they never
 	// receive st.
+	logf := func(format string, a ...any) { fmt.Fprintf(os.Stderr, format+"\n", a...) }
 	svc := service.New(st, service.WithBlobs(blobs), service.WithPolicy(pol), service.WithRunbooks(rbs), service.WithBaseContext(ctx),
 		service.WithProtect(layout.DataDir(), layout.ConfigDir()))
+
+	// From here on a recovered panic is logged and persisted: remote callers only
+	// ever see its ref, and `conduit panics show <ref>` has the detail.
+	safe.SetReporter(panicReporter{svc: svc, logf: logf})
+	defer svc.Shutdown(5 * time.Second) // runs before the store closes; lets stopped runs finish recording
 
 	describe := func() string {
 		return fmt.Sprintf("data    %s\ndb      %s\nconfig  %s\npolicy  %s\nrunbooks %s\noutput  %s", layout.DataDir(), layout.MainDB(), layout.ConfigDir(), policyPath, runbookPath, blobs.Name())

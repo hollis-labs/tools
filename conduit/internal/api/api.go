@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/conduit/internal/runbook"
+	"github.com/hollis-labs/conduit/internal/safe"
 	"github.com/hollis-labs/conduit/internal/service"
 	"github.com/hollis-labs/conduit/internal/store"
 )
@@ -81,9 +82,13 @@ func New(ctx context.Context, svc *service.Service, cfg Config) (http.Handler, e
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				for _, p := range s.owners() {
-					_, _ = svc.StartApproved(p)
-				}
+				// contained per tick: a panic in one pass must not end the loop
+				_ = safe.Call("api start-approved", func() error {
+					for _, p := range s.owners() {
+						_, _ = svc.StartApproved(p)
+					}
+					return nil
+				})
 			}
 		}
 	}()
@@ -92,17 +97,17 @@ func New(ctx context.Context, svc *service.Service, cfg Config) (http.Handler, e
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, 200, map[string]any{"ok": true, "host": s.host})
 	})
-	mux.Handle("POST /v1/check", s.auth(service.ScopeRead, s.check))
+	mux.Handle("POST /v1/check", s.auth(service.ScopeReadOwn, s.check))
 	mux.Handle("POST /v1/exec", s.auth(service.ScopeRun, s.exec))
-	mux.Handle("GET /v1/runs", s.auth(service.ScopeRead, s.list))
-	mux.Handle("GET /v1/runs/{id}", s.auth(service.ScopeRead, s.get))
-	mux.Handle("GET /v1/runs/{id}/output", s.auth(service.ScopeRead, s.output))
+	mux.Handle("GET /v1/runs", s.auth(service.ScopeReadOwn, s.list))
+	mux.Handle("GET /v1/runs/{id}", s.auth(service.ScopeReadOwn, s.get))
+	mux.Handle("GET /v1/runs/{id}/output", s.auth(service.ScopeReadOwn, s.output))
 	mux.Handle("POST /v1/runs/{id}/cancel", s.auth(service.ScopeRun, s.cancel))
 	mux.Handle("GET /v1/approvals", s.auth(service.ScopeApprove, s.pending))
 	mux.Handle("POST /v1/runs/{id}/approve", s.auth(service.ScopeApprove, s.approve))
 	mux.Handle("POST /v1/runs/{id}/reject", s.auth(service.ScopeApprove, s.reject))
-	mux.Handle("GET /v1/runbooks", s.auth(service.ScopeRead, s.runbooks))
-	return mux, nil
+	mux.Handle("GET /v1/runbooks", s.auth(service.ScopeReadOwn, s.runbooks))
+	return recoverMW(mux), nil
 }
 
 // owners are the principals whose approved runs this daemon starts: every token
@@ -220,6 +225,10 @@ func writeErr(w http.ResponseWriter, code int, kind, msg string) {
 }
 
 func fail(w http.ResponseWriter, err error) {
+	if ref, ok := safe.Ref(err); ok {
+		writeJSON(w, 500, map[string]any{"error": map[string]any{"code": "internal", "message": "internal error (ref " + ref + ")", "ref": ref}})
+		return
+	}
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeErr(w, 404, "not_found", err.Error())
@@ -308,11 +317,11 @@ func (s *server) exec(w http.ResponseWriter, r *http.Request, _ *service.Princip
 	writeJSON(w, code, v)
 }
 
-func (s *server) list(w http.ResponseWriter, r *http.Request, _ *service.Principal) {
+func (s *server) list(w http.ResponseWriter, r *http.Request, p *service.Principal) {
 	q := r.URL.Query()
 	limit := 20
 	fmt.Sscanf(q.Get("limit"), "%d", &limit) //nolint:errcheck // a bad limit keeps the default
-	runs, err := s.svc.List(q.Get("session"), q.Get("state"), min(max(limit, 1), 200))
+	runs, err := s.svc.ListFor(p.ID(), p.SeesAll(s.host), q.Get("session"), q.Get("state"), min(max(limit, 1), 200))
 	if err != nil {
 		fail(w, err)
 		return
@@ -324,8 +333,8 @@ func (s *server) list(w http.ResponseWriter, r *http.Request, _ *service.Princip
 	writeJSON(w, 200, map[string]any{"runs": out})
 }
 
-func (s *server) get(w http.ResponseWriter, r *http.Request, _ *service.Principal) {
-	run, err := s.svc.Get(r.PathValue("id"))
+func (s *server) get(w http.ResponseWriter, r *http.Request, p *service.Principal) {
+	run, err := s.svc.GetFor(r.PathValue("id"), p.ID(), p.SeesAll(s.host))
 	if err != nil {
 		fail(w, err)
 		return
@@ -335,13 +344,13 @@ func (s *server) get(w http.ResponseWriter, r *http.Request, _ *service.Principa
 	writeJSON(w, 200, s.svc.View(r.Context(), run, service.ClampBytes(n)))
 }
 
-func (s *server) output(w http.ResponseWriter, r *http.Request, _ *service.Principal) {
+func (s *server) output(w http.ResponseWriter, r *http.Request, p *service.Principal) {
 	q := r.URL.Query()
 	attempt, off, n := 0, 0, 0
 	fmt.Sscanf(q.Get("attempt"), "%d", &attempt) //nolint:errcheck // absent means the last attempt
 	fmt.Sscanf(q.Get("offset"), "%d", &off)      //nolint:errcheck // absent means 0
 	fmt.Sscanf(q.Get("max_bytes"), "%d", &n)     //nolint:errcheck // absent means default
-	b, err := s.svc.Recall(r.Context(), r.PathValue("id"), q.Get("stream"), attempt)
+	b, err := s.svc.RecallFor(r.Context(), r.PathValue("id"), q.Get("stream"), attempt, p.ID(), p.SeesAll(s.host))
 	if err != nil {
 		fail(w, err)
 		return

@@ -36,6 +36,21 @@ An agent can submit and read; it cannot approve. A command that needs approval c
 `pending` and does not run until an operator approves it (CLI, or an API token with `exec.approve`
 that is not the submitter). Output is returned labelled untrusted.
 
+## When things go wrong
+
+```sh
+conduit reap [-stale 30s]       # after a crash: fail orphaned runs and stop their process groups
+conduit panics                  # internal errors conduit recovered from
+conduit panics show pnc_ab12cd  # the redacted detail behind a ref
+```
+
+A bug in conduit never takes the daemon down and never shows up as raw panic text to a caller: the
+caller gets `internal error (ref pnc_...)`, the operator gets the record. The CLI exits 70 on an internal
+error. `conduit serve` and `conduit mcp` reap orphans on start and every 30s.
+
+Token scopes: `exec.read` (all runs), `exec.read.own` (only your own; `exec.run` implies it), `exec.run`,
+`exec.approve`, `exec.admin`; any can be bound to a host with `:host`.
+
 ## Config (`conduit paths`)
 
 `policy.yaml`:

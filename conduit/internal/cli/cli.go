@@ -12,6 +12,7 @@ import (
 
 	"mvdan.cc/sh/v3/syntax"
 
+	"github.com/hollis-labs/conduit/internal/safe"
 	"github.com/hollis-labs/conduit/internal/service"
 	"github.com/hollis-labs/conduit/internal/store"
 )
@@ -25,6 +26,8 @@ const (
 	ExitNotFound = 2
 	ExitDenied   = 3
 	ExitAsk      = 4 // check: needs approval; run: approval required and not given
+	// ExitInternal is EX_SOFTWARE: conduit itself failed (a recovered panic).
+	ExitInternal = 70
 )
 
 const usage = `conduit — governed command runtime
@@ -51,6 +54,9 @@ const usage = `conduit — governed command runtime
                               HTTP API for "run this on this host" (bearer tokens, scoped)
   conduit mcp [-principal name]
                               MCP tools on stdio for agents (no approval tool, by design)
+  conduit reap [-stale 30s]       clean up after a crash: fail orphaned runs, stop their process groups
+  conduit panics [-n 20] | show <ref>
+                              internal errors conduit recovered from (a ref is all a remote caller sees)
   conduit paths                 where data lives
 
 <run> is an id, or any unique prefix or suffix of one.
@@ -64,6 +70,17 @@ func Main(ctx context.Context, svc *service.Service, args []string, in *os.File,
 		return ExitOK
 	}
 	c := &cmd{ctx: ctx, svc: svc, in: in, out: stdout, err: stderr, paths: paths}
+	var code int
+	err := safe.Call("cli "+args[0], func() error { code = c.dispatch(args); return nil })
+	if ref, ok := safe.Ref(err); ok {
+		fmt.Fprintf(stderr, "conduit: internal error (ref %s). This is a bug in conduit, not in your command.\n         Details: conduit panics show %s\n", ref, ref)
+		return ExitInternal
+	}
+	return code
+}
+
+func (c *cmd) dispatch(args []string) int {
+	stdout, stderr := c.out, c.err
 	var code int
 	switch args[0] {
 	case "run":
@@ -98,8 +115,12 @@ func Main(ctx context.Context, svc *service.Service, args []string, in *os.File,
 		code = c.mcpCmd(args[1:])
 	case "serve":
 		code = c.serve(args[1:])
+	case "panics":
+		code = c.panics(args[1:])
+	case "reap":
+		code = c.reap(args[1:])
 	case "paths":
-		fmt.Fprintln(stdout, paths())
+		fmt.Fprintln(stdout, c.paths())
 	default:
 		fmt.Fprintf(stderr, "conduit: unknown command %q\n\n%s", args[0], usage)
 		return ExitError

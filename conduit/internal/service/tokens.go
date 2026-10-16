@@ -17,13 +17,14 @@ import (
 // Scopes. A scope may carry a host suffix (exec.run:worker-1) or :* ; exec.admin
 // covers every other scope.
 const (
-	ScopeRead    = "exec.read"
+	ScopeRead    = "exec.read"     // see every principal's runs and output
+	ScopeReadOwn = "exec.read.own" // see only runs this principal submitted (exec.run implies it)
 	ScopeRun     = "exec.run"
 	ScopeApprove = "exec.approve"
 	ScopeAdmin   = "exec.admin"
 )
 
-var knownScopes = []string{ScopeRead, ScopeRun, ScopeApprove, ScopeAdmin} // for messages
+var knownScopes = []string{ScopeRead, ScopeReadOwn, ScopeRun, ScopeApprove, ScopeAdmin} // for messages
 
 // ErrUnauthenticated is returned for a missing, unknown or revoked token.
 var ErrUnauthenticated = errors.New("unauthenticated")
@@ -40,6 +41,15 @@ func (p *Principal) ID() string { return "token:" + p.Name }
 
 // Can reports whether the principal holds scope want for this host.
 func (p *Principal) Can(want, host string) bool {
+	if p.holds(want, host) {
+		return true
+	}
+	// Seeing your own runs is implied by seeing everyone's, and by being allowed
+	// to submit at all (you must be able to poll what you started).
+	return want == ScopeReadOwn && (p.holds(ScopeRead, host) || p.holds(ScopeRun, host))
+}
+
+func (p *Principal) holds(want, host string) bool {
 	for _, s := range p.Scopes {
 		if s == ScopeAdmin || s == want || s == want+":*" || (host != "" && s == want+":"+host) {
 			return true
@@ -47,6 +57,9 @@ func (p *Principal) Can(want, host string) bool {
 	}
 	return false
 }
+
+// SeesAll reports whether the principal may read other principals' runs.
+func (p *Principal) SeesAll(host string) bool { return p.holds(ScopeRead, host) }
 
 // Host is the name of the machine this service runs commands on.
 func (s *Service) Host() string { return s.host }
@@ -57,7 +70,7 @@ func hashToken(secret string) string {
 }
 
 // scopeRe is the whole scope string, so a value cannot smuggle a second scope in after a space.
-var scopeRe = regexp.MustCompile(`^exec\.(read|run|approve|admin)(:[A-Za-z0-9._*-]+)?$`)
+var scopeRe = regexp.MustCompile(`^exec\.(read(\.own)?|run|approve|admin)(:[A-Za-z0-9._*-]+)?$`)
 
 func validScope(sc string) bool { return scopeRe.MatchString(sc) }
 

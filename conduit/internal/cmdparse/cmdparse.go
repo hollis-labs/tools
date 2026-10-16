@@ -11,11 +11,14 @@
 package cmdparse
 
 import (
+	"fmt"
 	"path"
 	"strings"
 
 	"mvdan.cc/sh/v3/expand"
 	"mvdan.cc/sh/v3/syntax"
+
+	"github.com/hollis-labs/conduit/internal/safe"
 )
 
 // MaxDepth caps nested unwrapping (sh -c inside ssh inside xargs ...) and the
@@ -101,16 +104,30 @@ func (s *Segment) risk(r string) {
 type Parsed struct {
 	Raw      string    `json:"raw"`
 	Segments []Segment `json:"segments"`
-	Effect   Effect    `json:"effect"`           // max over segments
-	Opaque   bool      `json:"opaque,omitempty"` // any segment opaque, or the parse failed
-	Err      string    `json:"err,omitempty"`    // parse error; Segments is empty
+	Effect   Effect    `json:"effect"`             // max over segments
+	Opaque   bool      `json:"opaque,omitempty"`   // any segment opaque, or the parse failed
+	Err      string    `json:"err,omitempty"`      // parse error; Segments is empty
+	Internal bool      `json:"internal,omitempty"` // the parser itself failed (a bug), not the input
 }
 
-// Parse parses a command string. It never returns an error: a failure is
-// recorded in Parsed.Err and makes the result Opaque.
+// parseImpl is the parser entry; a variable so tests can make it misbehave.
+var parseImpl = parseAt
+
+// Parse parses a command string. It never returns an error and never panics: a
+// failure, including a panic inside the parser, is recorded in Parsed.Err and
+// makes the result Opaque, which policy treats as needing a human.
 func Parse(src string) *Parsed {
 	p := &Parsed{Raw: src, Effect: EffectNone}
-	segs, err := parseAt(src, 0, "")
+	var segs []Segment
+	err := safe.Call("cmdparse.Parse", func() error {
+		var e error
+		segs, e = parseImpl(src, 0, "")
+		return e
+	})
+	if ref, panicked := safe.Ref(err); panicked {
+		p.Internal = true
+		err = fmt.Errorf("internal parser error (ref %s)", ref)
+	}
 	if err != nil {
 		p.Err = err.Error()
 		p.Opaque = true
