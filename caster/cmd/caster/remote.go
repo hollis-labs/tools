@@ -45,6 +45,9 @@ func login(ctx context.Context, configDir string, args []string) (int, error) {
 	}
 	ex, err := c.Service().Access.Exchange(ctx, service.ExchangeRequest{Code: code, Label: *label})
 	if err != nil {
+		if service.KindOf(err) == service.KindUnauthenticated {
+			return cli.ExitDenied, fmt.Errorf("%w\n  A code works once, lasts 5 minutes by default, and must be exact: %d characters here, starting ccg_.\n  Every kind of mistake (typo, stray space, truncation, reuse, expiry) gets this same answer on purpose.\n  Avoid copy/paste by pairing in one step:\n    caster login %s \"$(ssh <home> '/path/to/caster pair -scope read,write,resolve -label <this machine> 2>/dev/null')\"", err, len(code), url)
+		}
 		return cli.ExitDenied, err
 	}
 	stored, err := client.StoreToken(ctx, *name, *ref, ex.Token)

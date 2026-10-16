@@ -8,8 +8,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -86,7 +88,7 @@ func Handler(svc *service.Service, guard *auth.Guard) http.Handler {
 	})
 	mux.HandleFunc("POST /v1/act", post(svc.Actions.Run, func(r service.ActResult) string { return r.State }))
 	mux.HandleFunc("POST "+exchangePath, limited(newBucket(10, 6*time.Second), 4<<10,
-		post(svc.Access.Exchange, func(service.ExchangeResult) string { return "" })))
+		post(loggedExchange(svc.Access.Exchange), func(service.ExchangeResult) string { return "" })))
 	mux.HandleFunc("POST /v1/renew", post(svc.Access.Renew, func(service.DeviceInfo) string { return "" }))
 	mux.HandleFunc("GET /v1/whoami", func(w http.ResponseWriter, r *http.Request) {
 		res, err := svc.Access.Whoami(r.Context(), struct{}{})
@@ -203,11 +205,29 @@ func (b *bucket) allow() bool {
 func limited(b *bucket, maxBody int64, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !b.allow() {
+			slog.Info("pair_exchange", "outcome", "rate_limited")
 			w.Header().Set("Retry-After", "6")
 			fail(w, http.StatusTooManyRequests, "rate_limited", "too many attempts")
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 		next(w, r)
+	}
+}
+
+// loggedExchange records every exchange attempt so a refused pairing can be
+// diagnosed: the outcome and the SHAPE of what was presented (length, prefix,
+// stray whitespace), never the code. Refusals are deliberately uniform to the
+// caller, so without this the server cannot tell a typo from a replay.
+func loggedExchange(fn func(context.Context, service.ExchangeRequest) (service.ExchangeResult, error)) func(context.Context, service.ExchangeRequest) (service.ExchangeResult, error) {
+	return func(ctx context.Context, q service.ExchangeRequest) (service.ExchangeResult, error) {
+		res, err := fn(ctx, q)
+		outcome := "paired"
+		if err != nil {
+			outcome = "refused"
+		}
+		slog.Info("pair_exchange", "outcome", outcome, "code_len", len(q.Code),
+			"prefix_ok", strings.HasPrefix(q.Code, "ccg_"), "stray_whitespace", q.Code != strings.TrimSpace(q.Code), "device", res.DeviceID)
+		return res, err
 	}
 }

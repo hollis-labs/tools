@@ -55,6 +55,7 @@ func serve(ctx context.Context, svc *service.Service, configDir string, args []s
 		return fmt.Errorf("api token: %w", err)
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	slog.SetDefault(logger) // handlers log pairing attempts through the default logger
 
 	// Identity sources, tried in order; the first that accepts a token wins.
 	//   1. paired device tokens (cst_…): caster-native pairing, `caster pair`

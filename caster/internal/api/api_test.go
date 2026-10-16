@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -206,5 +207,27 @@ func TestExchangeIsRateLimited(t *testing.T) {
 	}
 	if !limited {
 		t.Fatal("guessing codes must hit the rate limit")
+	}
+}
+
+func TestExchangeAttemptsAreLoggedWithoutTheCode(t *testing.T) {
+	var buf strings.Builder
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(old)
+
+	e := newEnv(t)
+	g, err := e.svc.Access.CreateGrant(service.AsLocalOperator(t.Context()), service.PairRequest{Scopes: []string{"read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.do(t, "POST", exchangePath, "", `{"code":"`+g.Code+` "}`) // trailing space: refused
+	e.do(t, "POST", exchangePath, "", `{"code":"`+g.Code+`"}`)  // exact: paired
+	out := buf.String()
+	if strings.Contains(out, g.Code) || strings.Contains(out, g.Code[4:20]) {
+		t.Fatalf("the code must never be logged:\n%s", out)
+	}
+	if !strings.Contains(out, "outcome=refused") || !strings.Contains(out, "stray_whitespace=true") || !strings.Contains(out, "outcome=paired") {
+		t.Fatalf("attempts must be diagnosable from the log:\n%s", out)
 	}
 }
