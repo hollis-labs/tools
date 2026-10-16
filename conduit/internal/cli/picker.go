@@ -158,23 +158,31 @@ func (p *picker) view(width int, color bool) []string {
 		it := p.items[r.Index]
 		meta := metaFor(it)
 		avail := width - 2 - utf8.RuneCountInString(meta) - 2
-		cmdText, cut := clip(it.Command, avail)
 		hl := map[int]bool{}
 		for _, ps := range r.Pos {
 			hl[ps] = true
 		}
+		// Draw each original rune through visible(), so history text cannot move
+		// the cursor or repaint the screen, while highlight positions still refer
+		// to the runes the matcher saw.
 		var b strings.Builder
-		for ci, ch := range []rune(cmdText) {
-			s := string(ch)
-			if hl[ci] {
-				s = style(ansiBold+ansiGreen, s)
+		drawn, cut := 0, false
+		for ci, ch := range []rune(strings.ReplaceAll(it.Command, "\n", "⏎")) {
+			cell := visible(string(ch))
+			if drawn+utf8.RuneCountInString(cell) > max(avail-1, 1) && ci < utf8.RuneCountInString(it.Command)-1 {
+				cut = true
+				break
 			}
-			b.WriteString(s)
+			if hl[ci] {
+				cell = style(ansiBold+ansiGreen, cell)
+			}
+			b.WriteString(cell)
+			drawn += utf8.RuneCountInString(visible(string(ch)))
 		}
 		if cut {
 			b.WriteString("…")
 		}
-		pad := max(avail-utf8.RuneCountInString(cmdText)-btoi(cut), 0)
+		pad := max(avail-drawn-btoi(cut), 0)
 		line := b.String() + strings.Repeat(" ", pad) + "  " + style(ansiDim, meta)
 		if i == p.sel {
 			line = style(ansiRev, "▌") + line
@@ -210,17 +218,4 @@ func metaFor(it service.HistoryItem) string {
 		s += " " + it.Effect
 	}
 	return s
-}
-
-// clip shortens s to at most n runes (single line). Newlines show as ⏎.
-func clip(s string, n int) (string, bool) {
-	s = strings.ReplaceAll(s, "\n", "⏎")
-	if n < 1 {
-		return "", len(s) > 0
-	}
-	r := []rune(s)
-	if len(r) <= n {
-		return s, false
-	}
-	return string(r[:n-1]), true
 }

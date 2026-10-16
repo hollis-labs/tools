@@ -32,7 +32,7 @@ func (c *cmd) pending() int {
 	tw := tabwriter.NewWriter(c.out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tAGE\tFROM\tEFFECT\tSANDBOX\tCOMMAND")
 	for _, r := range runs {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", shortID(r.ID), time.Since(r.CreatedAt).Round(time.Second), r.Principal, r.Effect, dash(r.Sandbox), oneLine(r.Command, 70))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", shortID(r.ID), time.Since(r.CreatedAt).Round(time.Second), r.Principal, r.Effect, dash(r.Sandbox), oneLineSafe(r.Command, 70))
 	}
 	return flushOK(tw)
 }
@@ -107,11 +107,11 @@ func exitForApproval(err error) int {
 func renderPending(r *store.Run) string {
 	d := decisionOf(r)
 	var b strings.Builder
-	fmt.Fprintf(&b, "run      %s  from %s on %s\ncommand  %s\ncwd      %s\neffect   %s   sandbox %s\n", shortID(r.ID), r.Principal, r.Host, r.Command, r.Cwd, d.Effect, dash(r.Sandbox))
+	fmt.Fprintf(&b, "run      %s  from %s on %s\ncommand  %s\ncwd      %s\neffect   %s   sandbox %s\n", shortID(r.ID), visible(r.Principal), visible(r.Host), block(r.Command, "         "), visible(r.Cwd), d.Effect, dash(r.Sandbox))
 	for _, rs := range d.Reasons {
-		fmt.Fprintf(&b, "  - [%s] %s: %s\n", rs.Verdict, rs.Rule, rs.Why)
+		fmt.Fprintf(&b, "  - [%s] %s: %s\n", rs.Verdict, visible(rs.Rule), oneLineSafe(rs.Why, 200))
 		if rs.Segment != "" && rs.Segment != r.Command {
-			fmt.Fprintf(&b, "      in: %s\n", rs.Segment)
+			fmt.Fprintf(&b, "      in: %s\n", oneLineSafe(rs.Segment, 200))
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")

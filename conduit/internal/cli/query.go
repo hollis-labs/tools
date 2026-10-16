@@ -68,7 +68,7 @@ func (c *cmd) parse(args []string) int {
 		if s.Opaque {
 			notes = append(notes, "OPAQUE")
 		}
-		fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\t%s\n", dash(s.Op), s.Depth, dash(s.Bin), dash(s.Sub), s.Effect, strings.Join(notes, " "), s.Raw)
+		fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\t%s\n", dash(s.Op), s.Depth, visible(dash(s.Bin)), visible(dash(s.Sub)), s.Effect, visible(strings.Join(notes, " ")), oneLineSafe(s.Raw, 120))
 	}
 	_ = tw.Flush()
 	fmt.Fprintf(c.out, "\neffect: %s  opaque: %v\n", p.Effect, p.Opaque)
@@ -117,9 +117,9 @@ func renderPreviewDecision(command string, d policy.Decision) string {
 	}
 	b.WriteString(")\n")
 	for _, r := range d.Reasons {
-		fmt.Fprintf(&b, "  [%s] %s: %s\n", r.Verdict, r.Rule, r.Why)
+		fmt.Fprintf(&b, "  [%s] %s: %s\n", r.Verdict, visible(r.Rule), oneLineSafe(r.Why, 200))
 		if r.Segment != "" && r.Segment != command {
-			fmt.Fprintf(&b, "      in: %s\n", r.Segment)
+			fmt.Fprintf(&b, "      in: %s\n", oneLineSafe(r.Segment, 200))
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
@@ -149,10 +149,7 @@ func (c *cmd) ls(args []string) int {
 		if k := len(r.Attempts); k > 0 {
 			exit = fmt.Sprint(r.Attempts[k-1].ExitCode)
 		}
-		cmdline := strings.ReplaceAll(r.Command, "\n", " ⏎ ")
-		if len(cmdline) > 60 {
-			cmdline = cmdline[:57] + "..."
-		}
+		cmdline := oneLineSafe(r.Command, 60)
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", shortID(r.ID), r.CreatedAt.Local().Format("01-02 15:04:05"), r.State, exit, r.Effect, r.PolicyVerdict, cmdline)
 	}
 	return flushOK(tw)
@@ -182,10 +179,10 @@ func (c *cmd) show(args []string) int {
 		return c.json(r)
 	}
 	fmt.Fprintf(c.out, "run       %s\nstate     %s\ncommand   %s\ncwd       %s\nprincipal %s@%s\nsession   %s\ncreated   %s\n",
-		r.ID, r.State, r.Command, r.Cwd, r.Principal, r.Host, dash(r.Session), r.CreatedAt.Local().Format(time.RFC3339))
+		r.ID, r.State, block(r.Command, "          "), visible(r.Cwd), visible(r.Principal), visible(r.Host), visible(dash(r.Session)), r.CreatedAt.Local().Format(time.RFC3339))
 	fmt.Fprintf(c.out, "policy    %s (%s mode), effect %s, approval %s, sandbox %s\n", r.PolicyVerdict, r.PolicyMode, r.Effect, dash(r.Approval), dash(r.Sandbox))
 	for _, rs := range decisionOf(r).Reasons {
-		fmt.Fprintf(c.out, "          [%s] %s: %s\n", rs.Verdict, rs.Rule, rs.Why)
+		fmt.Fprintf(c.out, "          [%s] %s: %s\n", rs.Verdict, visible(rs.Rule), oneLineSafe(rs.Why, 200))
 	}
 	for _, a := range r.Attempts {
 		link := ""
@@ -216,6 +213,7 @@ func (c *cmd) recall(args []string) int {
 	fs.SetOutput(c.err)
 	errStream := fs.Bool("stderr", false, "print stderr instead of stdout")
 	attempt := fs.Int("attempt", 0, "attempt number (default: the last)")
+	raw := fs.Bool("raw", false, "write the stored bytes unchanged even to a terminal")
 	if err := fs.Parse(args); err != nil {
 		return ExitError
 	}
@@ -230,6 +228,9 @@ func (c *cmd) recall(args []string) int {
 	if err != nil {
 		fmt.Fprintf(c.err, "conduit: %v\n", err)
 		return exitFor(err)
+	}
+	if !*raw && c.isTerminal() {
+		b = []byte(visible(string(b)))
 	}
 	_, _ = c.out.Write(b)
 	return ExitOK

@@ -93,14 +93,14 @@ func (c *cmd) approver(yes bool) service.Approver {
 
 func renderPreview(p service.Preview) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "command  %s\neffect   %s\nverdict  %s\n", p.Command, p.Decision.Effect, strings.ToUpper(string(p.Decision.Verdict)))
+	fmt.Fprintf(&b, "command  %s\neffect   %s\nverdict  %s\n", block(p.Command, "         "), p.Decision.Effect, strings.ToUpper(string(p.Decision.Verdict)))
 	for _, r := range p.Decision.Reasons {
 		if r.Verdict == "allow" && r.Segment == "" {
 			continue
 		}
-		fmt.Fprintf(&b, "  - [%s] %s: %s\n", r.Verdict, r.Rule, r.Why)
+		fmt.Fprintf(&b, "  - [%s] %s: %s\n", r.Verdict, visible(r.Rule), oneLineSafe(r.Why, 200))
 		if r.Segment != "" && r.Segment != p.Command {
-			fmt.Fprintf(&b, "      in: %s\n", r.Segment)
+			fmt.Fprintf(&b, "      in: %s\n", oneLineSafe(r.Segment, 200))
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
@@ -113,7 +113,7 @@ func (c *cmd) footer(run *store.Run, err error) {
 		if err != nil && strings.Contains(err.Error(), "policy") {
 			why = "denied by policy"
 		}
-		fmt.Fprintf(c.err, "conduit: %s — %s (run %s)\n", run.Command, why, run.ID)
+		fmt.Fprintf(c.err, "conduit: %s — %s (run %s)\n", oneLineSafe(run.Command, 200), why, run.ID)
 		var preview []string
 		for _, l := range strings.Split(renderPreview(service.Preview{Command: run.Command, Decision: decisionOf(run)}), "\n")[1:] {
 			preview = append(preview, "  "+l)
