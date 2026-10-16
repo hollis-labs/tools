@@ -56,7 +56,7 @@ const usage = `caster — content-addressed store and ref resolver
                                 record whether a detected ref was a true or false positive
   caster whoami                 who the service takes you for: identity, scopes, expiry
   caster renew                  extend this device's token another 30 days (remote mode)
-  caster pair [-scope read,resolve,…] [-ttl 5m] [-label l] [-token-file path]
+  caster pair [-scope read,resolve,…] [-ttl 5m] [-label l] [-token-file path] [-link base-url]
                                 one-use pairing code for a client (local terminal only); with
                                 -token-file, redeem it here and save the device token to that file
   caster devices                paired devices
@@ -530,6 +530,7 @@ func (a *app) pair(ctx context.Context, args []string) int {
 	fs.DurationVar(&ttl, "ttl", 0, "how long the code lives (default 5m, max 1h)")
 	fs.StringVar(&req.Label, "label", "", "device label")
 	tokenFile := fs.String("token-file", "", "redeem the code here and write the device token to this file (0600)")
+	link := fs.String("link", "", "print a browser link that opens the pairing dialog on this base URL (e.g. http://localhost:8991)")
 	if _, ok := a.parse(fs, args); !ok {
 		return ExitUsage
 	}
@@ -539,7 +540,12 @@ func (a *app) pair(ctx context.Context, args []string) int {
 		return a.fail(err)
 	}
 	if *tokenFile == "" {
-		fmt.Fprintln(a.out, g.Code)
+		if *link != "" {
+			// The code rides in the URL fragment, which browsers never send to the server.
+			fmt.Fprintf(a.out, "%s/#pair=%s\n", strings.TrimRight(*link, "/"), g.Code)
+		} else {
+			fmt.Fprintln(a.out, g.Code)
+		}
 		fmt.Fprintf(a.err, "grant %s  scopes %s  expires %s\nThe code is shown once. Redeem it with POST /v1/pair/exchange {\"code\":…} before it expires.\n",
 			g.GrantID, strings.Join(g.Scopes, ","), g.ExpiresAt.Local().Format(time.RFC3339))
 		return ExitOK

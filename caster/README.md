@@ -81,6 +81,16 @@ curl -H "Authorization: Bearer $TOKEN" -d '{"name":"api/x","content":"hi"}' loca
 
 Routes: `GET /v1/head|get|list|log|search|actions|devices|report`, `POST /v1/put|snap|scan|expand|act|observe|label|renew|devices/revoke|pair/exchange`, `GET /health` (JSON bodies are the service request structs). A missing ref is HTTP 404 with a Meta body; a bad ref is 400; no identity is 401; a missing scope is 403; an unreachable backend is 502. Serve on loopback and reach it over an SSH forward or Tailscale Serve (the ADR 0062 pattern); `-addr` on another interface is allowed only in enforce mode.
 
+## Browser UI
+
+`caster serve` also serves a small UI at `/` (the same port you forward): list and search notes, view them rendered as markdown, edit and save (each save is a new revision), and browse history. It is another thin wrapper: it calls the same `/v1` routes as the CLI and MCP.
+
+Pair a browser with a link instead of copying a code:
+
+    caster pair -scope read,write,resolve -label browser -link http://localhost:8991
+
+Open the printed URL; a pairing dialog appears with the code filled in. The code is in the URL fragment, which the browser never sends to the server, and it is removed from the address bar on load. The resulting device token lives in `sessionStorage`, so it is gone when the tab closes; pair again next time. Stored text is rendered with DOM calls (no HTML), links are limited to `http(s)` and `caster://`, and a strict CSP keeps the page to its own origin. The shell itself is served without a token and carries no data.
+
 ## Running the home node (home-node)
 
 Cerberus owns the process: `caster.cerberus.yaml` defines `caster-uat`, an `os_service` (systemd user unit via `supervisor: auto`, lingering on, so it survives logout and reboot) running the repo-built artifact `./bin/caster serve -addr 127.0.0.1:8991`. Check it with `cerberus resource status caster-uat`; after changing source run `cerberus resource deploy caster-uat --ack` (a plain `go install` does not update the service). The service and the `caster` CLI on that machine share one store under `~/.local/share/caster`, so `caster put` there is immediately visible to remote clients.

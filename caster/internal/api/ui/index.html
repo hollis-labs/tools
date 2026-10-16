@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caster</title>
+<link rel="stylesheet" href="/ui/app.css">
+</head>
+<body>
+<header>
+  <strong>caster</strong>
+  <input id="q" type="search" placeholder="Search notes…" autocomplete="off">
+  <button id="new">New</button>
+  <span id="who" class="muted"></span>
+  <button id="signout" hidden>Sign out</button>
+</header>
+<main>
+  <nav id="list" aria-label="Notes"></nav>
+  <section id="doc">
+    <p class="muted">Pick a note, or create one.</p>
+  </section>
+</main>
+
+<dialog id="pair">
+  <form method="dialog" id="pairform">
+    <h2>Pair this browser</h2>
+    <p class="muted">Paste a pairing code from <code>caster pair</code>. The device token is kept for this tab only and is gone when you close it.</p>
+    <label>Code <input id="code" autocomplete="off" spellcheck="false" placeholder="ccg_…"></label>
+    <label>Label <input id="label" autocomplete="off" value="browser"></label>
+    <p id="pairerr" class="err" role="alert"></p>
+    <menu><button id="pairgo" value="go">Pair</button></menu>
+  </form>
+</dialog>
+<script src="/ui/app.js"></script>
+</body>
+</html>

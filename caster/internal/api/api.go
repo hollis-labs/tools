@@ -22,10 +22,11 @@ import (
 
 const maxBody = 8 << 20
 
-// OpenPaths are the routes reachable without a bearer token. Everything else
+// OpenPaths are the routes reachable without a bearer token (including the
+// static UI shell, which carries no data). Everything else
 // is authenticated by the guard middleware; what an identity may DO is decided
 // by the service layer, not here.
-func OpenPaths(path string) bool { return path == "/health" || path == exchangePath }
+func OpenPaths(path string) bool { return path == "/health" || path == exchangePath || isUIPath(path) }
 
 const exchangePath = "/v1/pair/exchange"
 
@@ -33,6 +34,7 @@ const exchangePath = "/v1/pair/exchange"
 // passes one.
 func Handler(svc *service.Service, guard *auth.Guard) http.Handler {
 	mux := http.NewServeMux()
+	mountUI(mux)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		status := "auth=none"
 		if guard != nil {
