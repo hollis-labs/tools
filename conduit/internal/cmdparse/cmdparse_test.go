@@ -213,3 +213,20 @@ func TestWrappingNeverLessSevere(t *testing.T) {
 		}
 	}
 }
+
+// A wrapper with nothing to wrap is just a command; it must not read as opaque.
+func TestBareWrapperIsTheCommandNotOpaque(t *testing.T) {
+	for _, in := range []string{"env", "env -i", "env A=1", "env | grep PATH"} {
+		p := Parse(in)
+		if p.Opaque || p.Segments[0].Bin != "env" || p.Segments[0].Effect != EffectRead {
+			t.Errorf("%q: %+v", in, p.Segments[0])
+		}
+	}
+	// but a wrapper that DOES wrap still peels, and sudo with nothing still needs a human
+	if s := Parse("env A=1 ls").Segments[0]; s.Bin != "ls" || len(s.Wrappers) != 1 {
+		t.Errorf("%+v", s)
+	}
+	if v := Parse("sudo"); v.Effect == EffectRead || v.Effect == EffectNone {
+		t.Errorf("bare sudo must not be rated read: %v", v.Effect)
+	}
+}

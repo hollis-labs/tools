@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hollis-labs/conduit/internal/safe"
+	"github.com/hollis-labs/libs/core/panics"
 )
 
 // DefaultMaxCapture bounds each captured stream; the rest is counted, not kept.
@@ -93,7 +93,7 @@ func (c *capture) Write(p []byte) (int, error) {
 func (c *capture) teeWrite(p []byte) {
 	defer func() {
 		if v := recover(); v != nil {
-			_ = safe.Capture("cmdrun live output writer", v)
+			_ = panics.Capture("cmdrun live output writer", v)
 			c.tee = nil
 		}
 	}()
@@ -114,7 +114,7 @@ func Run(ctx context.Context, sp Spec) (res *Result, err error) {
 				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 				go func() { _ = cmd.Wait() }()
 			}
-			res, err = nil, safe.Capture("cmdrun.Run", v)
+			res, err = nil, panics.Capture("cmdrun.Run", v)
 		}
 	}()
 	limit := sp.MaxCapture
@@ -159,7 +159,7 @@ func Run(ctx context.Context, sp Spec) (res *Result, err error) {
 		func() {
 			defer func() {
 				if v := recover(); v != nil {
-					_ = safe.Capture("cmdrun OnStart", v)
+					_ = panics.Capture("cmdrun OnStart", v)
 				}
 			}()
 			sp.OnStart(cmd.Process.Pid)
@@ -167,7 +167,7 @@ func Run(ctx context.Context, sp Spec) (res *Result, err error) {
 	}
 
 	done := make(chan error, 1)
-	safe.Go("cmdrun wait", func() { done <- cmd.Wait() }, func(pe *safe.PanicError) { done <- pe })
+	panics.Go("cmdrun wait", func() { done <- cmd.Wait() }, func(pe *panics.Error) { done <- pe })
 
 	var timeout <-chan time.Time
 	if sp.Timeout > 0 {

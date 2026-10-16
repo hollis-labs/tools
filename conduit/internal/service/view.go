@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/hollis-labs/conduit/internal/policy"
-	"github.com/hollis-labs/conduit/internal/redact"
 	"github.com/hollis-labs/conduit/internal/store"
 )
 
@@ -64,14 +63,14 @@ func ShortID(id string) string {
 // View summarizes a run. maxBytes bounds each output stream (0 = no output).
 func (s *Service) View(ctx context.Context, r *store.Run, maxBytes int) *RunView {
 	v := &RunView{
-		ID: r.ID, Short: ShortID(r.ID), State: r.State, Command: redact.Text(r.Command, 8192), Cwd: r.Cwd, Principal: r.Principal,
+		ID: r.ID, Short: ShortID(r.ID), State: r.State, Command: s.text(r.Command, 8192), Cwd: r.Cwd, Principal: r.Principal,
 		Host: r.Host, Session: r.Session, Verdict: r.PolicyVerdict, Effect: r.Effect, Sandbox: r.Sandbox,
 		Approval: r.Approval, ApprovedBy: r.ApprovedBy, Attempts: len(r.Attempts),
 	}
 	_ = json.Unmarshal([]byte(r.PolicyReasons), &v.Reasons)
 	for i := range v.Reasons { // command text can hold secrets typed inline; views leave the machine
-		v.Reasons[i].Segment = redact.Text(v.Reasons[i].Segment, 2048)
-		v.Reasons[i].Why = redact.Text(v.Reasons[i].Why, 2048)
+		v.Reasons[i].Segment = s.text(v.Reasons[i].Segment, 2048)
+		v.Reasons[i].Why = s.text(v.Reasons[i].Why, 2048)
 	}
 	v.FailureClass, v.FailureMessage, v.PanicRef = r.FailureClass, r.FailureMessage, r.PanicRef
 	switch r.State {

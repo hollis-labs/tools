@@ -12,8 +12,8 @@ import (
 	"golang.org/x/term"
 
 	"github.com/hollis-labs/conduit/internal/fuzzy"
-	"github.com/hollis-labs/conduit/internal/safe"
 	"github.com/hollis-labs/conduit/internal/service"
+	"github.com/hollis-labs/libs/core/panics"
 )
 
 func (c *cmd) pick(args []string) int {
@@ -130,11 +130,11 @@ func readKeys(r io.Reader) <-chan key {
 	out := make(chan key)
 	// Both goroutines are contained: a panic closes the channel (the picker then
 	// cancels and restores the terminal) instead of killing the process mid-draw.
-	safe.Go("picker keys", func() {
+	panics.Go("picker keys", func() {
 		defer close(out)
 		br := bufio.NewReader(r)
 		bytes := make(chan byte)
-		safe.Go("picker reader", func() {
+		panics.Go("picker reader", func() {
 			defer close(bytes)
 			for {
 				b, err := br.ReadByte()

@@ -17,8 +17,8 @@ import (
 	"github.com/hollis-labs/conduit/internal/policy"
 	"github.com/hollis-labs/conduit/internal/proc"
 	"github.com/hollis-labs/conduit/internal/runbook"
-	"github.com/hollis-labs/conduit/internal/safe"
 	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/libs/core/panics"
 )
 
 // Errors a transport maps to exit codes or status codes.
@@ -109,10 +109,10 @@ func (s *Service) Parse(cmd string) *cmdparse.Parsed { return cmdparse.Parse(cmd
 func (s *Service) Check(cmd string) (*cmdparse.Parsed, policy.Decision) {
 	p := cmdparse.Parse(cmd)
 	var d policy.Decision
-	if err := safe.Call("policy.Decide", func() error { d = s.decide(p); return nil }); err != nil {
+	if err := panics.Call("policy.Decide", func() error { d = s.decide(p); return nil }); err != nil {
 		// A policy that cannot evaluate must not say yes, and must not say ask
 		// either: nobody can review what the policy failed to understand.
-		ref, _ := safe.Ref(err)
+		ref, _ := panics.Ref(err)
 		return p, policy.Decision{Verdict: policy.Deny, Effect: p.Effect, Reasons: []policy.Reason{{
 			Verdict: policy.Deny, Rule: "internal-error", Why: "policy evaluation failed (ref " + ref + ")"}}}
 	}
@@ -328,7 +328,7 @@ func (s *Service) Start(runID string, opts ExecOpts) error {
 	if run.State != store.StateApproved {
 		return fmt.Errorf("%w (state %s)", ErrNotRunnable, run.State)
 	}
-	safe.Go("start run "+runID, func() { _, _ = s.Execute(s.base, runID, opts) }, func(pe *safe.PanicError) {
+	panics.Go("start run "+runID, func() { _, _ = s.Execute(s.base, runID, opts) }, func(pe *panics.Error) {
 		s.failInternal(runID, pe) // Execute contains its own panics; this is the last line
 	})
 	return nil
@@ -374,7 +374,7 @@ func (s *Service) Execute(ctx context.Context, runID string, opts ExecOpts) (run
 		if v := recover(); v != nil {
 			// Whatever panicked, the run must not stay "running" and the caller
 			// must get the stored record and a ref, never the panic.
-			pe := safe.CaptureFor("execute run "+runID, runID, v)
+			pe := panics.Capture("execute run "+runID, v, panics.With("run", runID))
 			s.failInternal(runID, pe)
 			run, _ = s.store.GetRun(runID)
 			err = pe
@@ -385,7 +385,7 @@ func (s *Service) Execute(ctx context.Context, runID string, opts ExecOpts) (run
 
 // failInternal ends a run that hit a bug in conduit itself. It only acts on a
 // run that is still running or approved, so it cannot overwrite a real outcome.
-func (s *Service) failInternal(runID string, pe *safe.PanicError) {
+func (s *Service) failInternal(runID string, pe *panics.Error) {
 	msg := "internal error while executing this command; see panic ref"
 	for _, from := range []string{store.StateRunning, store.StateApproved} {
 		if moved, err := s.store.Fail(runID, from, "internal_error", msg, pe.Rec.Ref, time.Now()); err == nil && moved {
@@ -441,7 +441,7 @@ func (s *Service) execute(ctx context.Context, runID string, opts ExecOpts) (*st
 	// "running" can be recognized by the reaper.
 	stopBeat := make(chan struct{})
 	defer close(stopBeat)
-	safe.Go("heartbeat "+runID, func() {
+	panics.Go("heartbeat "+runID, func() {
 		t := time.NewTicker(s.heartbeatEvery)
 		defer t.Stop()
 		for {
@@ -513,8 +513,9 @@ func (s *Service) finish(run *store.Run, state string, cause error) (*store.Run,
 }
 
 func (s *Service) recordAttempt(ctx context.Context, runID string, n, retryOf int, res *cmdrun.Result) (*store.Attempt, error) {
-	out, nOut := cmdrun.Redact(res.Stdout)
-	errb, nErr := cmdrun.Redact(res.Stderr)
+	outS, nOut := s.redactor.TextCount(string(res.Stdout))
+	errS, nErr := s.redactor.TextCount(string(res.Stderr))
+	out, errb := []byte(outS), []byte(errS)
 	a := &store.Attempt{
 		RunID: runID, N: n, RetryOf: retryOf, Started: res.Started, Ended: res.Ended,
 		ExitCode: res.ExitCode, Signal: res.Signal, Class: cmdrun.Classify(res), StartErr: res.StartErr,

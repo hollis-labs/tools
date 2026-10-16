@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/hollis-labs/conduit/internal/proc"
-	"github.com/hollis-labs/conduit/internal/safe"
 	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/libs/core/panics"
 )
 
 // ReapReport says what a reap did.
@@ -111,7 +111,7 @@ func (s *Service) StartReaper(ctx context.Context, every time.Duration, logf fun
 			logf("conduit: reaper: %s", rep)
 		}
 	}
-	safe.Go("reaper", func() {
+	panics.Go("reaper", func() {
 		run()
 		t := time.NewTicker(every)
 		defer t.Stop()
@@ -121,7 +121,7 @@ func (s *Service) StartReaper(ctx context.Context, every time.Duration, logf fun
 				return
 			case <-t.C:
 				// each pass is contained, so one panic does not end the loop
-				_ = safe.Call("reaper pass", func() error { run(); return nil })
+				_ = panics.Call("reaper pass", func() error { run(); return nil })
 			}
 		}
 	}, nil)
@@ -162,6 +162,6 @@ func (s *Service) PanicByRef(ref string) (*PanicRecord, error) {
 
 // RecordPanic persists a recovered panic (the composition root's reporter calls
 // this). Value and Stack are already redacted and bounded by package safe.
-func (s *Service) RecordPanic(r safe.Record) error {
-	return s.store.RecordPanic(store.PanicRow{Ref: r.Ref, At: r.At, Where: r.Where, Value: r.Value, Stack: r.Stack, RunID: r.RunID})
+func (s *Service) RecordPanic(r panics.Record) error {
+	return s.store.RecordPanic(store.PanicRow{Ref: r.Ref, At: r.At, Where: r.Where, Value: r.Value, Stack: r.Stack, RunID: r.Attrs["run"]})
 }

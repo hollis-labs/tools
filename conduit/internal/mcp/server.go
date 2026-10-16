@@ -19,9 +19,9 @@ import (
 	"time"
 
 	"github.com/hollis-labs/conduit/internal/runbook"
-	"github.com/hollis-labs/conduit/internal/safe"
 	"github.com/hollis-labs/conduit/internal/service"
 	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/libs/core/panics"
 )
 
 type tool struct {
@@ -68,7 +68,7 @@ func (e *toolError) Error() string { return e.msg }
 
 func kindOf(err error) string {
 	var te *toolError
-	var pe *safe.PanicError
+	var pe *panics.Error
 	switch {
 	case errors.As(err, &pe):
 		return "internal"
@@ -266,7 +266,7 @@ func Serve(ctx context.Context, svc *service.Service, principal string, opts Opt
 
 	tickCtx, stop := context.WithCancel(ctx)
 	defer stop()
-	safe.Go("mcp ticker", func() {
+	panics.Go("mcp ticker", func() {
 		t := time.NewTicker(time.Second)
 		defer t.Stop()
 		for {
@@ -274,7 +274,7 @@ func Serve(ctx context.Context, svc *service.Service, principal string, opts Opt
 			case <-tickCtx.Done():
 				return
 			case <-t.C:
-				_ = safe.Call("mcp start-approved", func() error { _, err := svc.StartApproved(principal); return err })
+				_ = panics.Call("mcp start-approved", func() error { _, err := svc.StartApproved(principal); return err })
 			}
 		}
 	}, nil)
@@ -342,11 +342,11 @@ func Serve(ctx context.Context, svc *service.Service, principal string, opts Opt
 			id, name, args := req.ID, p.Name, p.Arguments
 			sem <- struct{}{}
 			calls.Add(1)
-			safe.Go("mcp call "+name, func() {
+			panics.Go("mcp call "+name, func() {
 				defer calls.Done()
 				defer func() { <-sem }()
 				reply(id, call(ctx, ts, name, args), nil)
-			}, func(pe *safe.PanicError) {
+			}, func(pe *panics.Error) {
 				reply(id, nil, map[string]any{"code": -32603, "message": pe.Error()})
 			})
 		default:
@@ -366,7 +366,7 @@ func call(ctx context.Context, ts []tool, name string, raw json.RawMessage) map[
 			continue
 		}
 		var res any
-		err := safe.Call("mcp tool "+name, func() error {
+		err := panics.Call("mcp tool "+name, func() error {
 			var e error
 			res, e = t.run(ctx, raw)
 			return e

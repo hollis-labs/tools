@@ -1,7 +1,6 @@
 package cmdrun
 
 import (
-	"bytes"
 	"context"
 	"os"
 	"strings"
@@ -79,23 +78,6 @@ func TestEnvScrubbed(t *testing.T) {
 	}
 	if len(r.ScrubbedEnv) != 4 {
 		t.Errorf("scrubbed %v", r.ScrubbedEnv)
-	}
-}
-
-func TestRedact(t *testing.T) {
-	in := []byte("token=ghp_" + strings.Repeat("a", 36) + "\nAWS AKIAABCDEFGHIJKLMNOP\nAuthorization: Bearer abcdefghijklmnop1234\nDB_PASSWORD=hunter22\nnothing here\n")
-	out, n := Redact(in)
-	s := string(out)
-	for _, bad := range []string{"ghp_", "AKIAABCDEFGHIJKLMNOP", "abcdefghijklmnop1234", "hunter22"} {
-		if strings.Contains(s, bad) {
-			t.Errorf("%q survived: %s", bad, s)
-		}
-	}
-	if n < 4 || !strings.Contains(s, "nothing here") {
-		t.Errorf("n=%d out=%s", n, s)
-	}
-	if o2, _ := Redact(bytes.Clone(out)); string(o2) != s {
-		t.Errorf("redaction not idempotent")
 	}
 }
 

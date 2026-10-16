@@ -67,7 +67,7 @@ func TestFormerBypassesNeedApproval(t *testing.T) {
 // Over-blocking is a failure too: ordinary read-only work must stay frictionless.
 func TestOrdinaryReadsStayAllowed(t *testing.T) {
 	for _, cmd := range []string{
-		`ls -la`, `git status`, `git log --oneline -5`, `git diff`, `git -C /tmp status`, `git branch --list`, `git branch -a`,
+		`env`, `env | grep PATH`, `ls -la`, `git status`, `git log --oneline -5`, `git diff`, `git -C /tmp status`, `git branch --list`, `git branch -a`,
 		`git config user.name`, `git config --get user.email`, `git remote -v`, `git remote show origin`, `git reflog`,
 		`cat f | grep x | wc -l`, `sed -n '1,10p' f`, `sed 's/a/b/' f`, `sed -n '/foo/p' f`, `sed '$d' f`,
 		`awk '{print $1}' f`, `awk -F, '{print $2, $3}' f`, `find . -name '*.go'`, `find . -type f -mtime -1`,

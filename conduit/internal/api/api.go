@@ -17,9 +17,10 @@ import (
 	"time"
 
 	"github.com/hollis-labs/conduit/internal/runbook"
-	"github.com/hollis-labs/conduit/internal/safe"
 	"github.com/hollis-labs/conduit/internal/service"
 	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/libs/core/panics"
+	"github.com/hollis-labs/libs/core/panics/httpguard"
 )
 
 const maxBody = 1 << 20
@@ -73,7 +74,7 @@ func New(ctx context.Context, svc *service.Service, cfg Config) (http.Handler, e
 				return
 			case <-t.C:
 				// contained per tick: a panic in one pass must not end the loop
-				_ = safe.Call("api start-approved", func() error {
+				_ = panics.Call("api start-approved", func() error {
 					for _, p := range s.owners() {
 						_, _ = svc.StartApproved(p)
 					}
@@ -97,7 +98,7 @@ func New(ctx context.Context, svc *service.Service, cfg Config) (http.Handler, e
 	mux.Handle("POST /v1/runs/{id}/approve", s.auth(service.ScopeApprove, s.approve))
 	mux.Handle("POST /v1/runs/{id}/reject", s.auth(service.ScopeApprove, s.reject))
 	mux.Handle("GET /v1/runbooks", s.auth(service.ScopeReadOwn, s.runbooks))
-	return recoverMW(mux), nil
+	return httpguard.Handler(mux), nil
 }
 
 // owners are the principals whose approved runs this daemon starts: every token
@@ -215,7 +216,7 @@ func writeErr(w http.ResponseWriter, code int, kind, msg string) {
 }
 
 func fail(w http.ResponseWriter, err error) {
-	if ref, ok := safe.Ref(err); ok {
+	if ref, ok := panics.Ref(err); ok {
 		writeJSON(w, 500, map[string]any{"error": map[string]any{"code": "internal", "message": "internal error (ref " + ref + ")", "ref": ref}})
 		return
 	}

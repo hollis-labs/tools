@@ -16,9 +16,10 @@ import (
 
 	"github.com/hollis-labs/conduit/internal/blob"
 	"github.com/hollis-labs/conduit/internal/runbook"
-	"github.com/hollis-labs/conduit/internal/safe"
 	"github.com/hollis-labs/conduit/internal/service"
 	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/libs/core/panics"
+	"github.com/hollis-labs/libs/security/redact"
 )
 
 // every request on a fresh connection, so per-address logic cannot hide behind a reused port
@@ -364,16 +365,16 @@ func (getPanics) Get(context.Context, string) ([]byte, error) {
 
 type collect struct {
 	mu   sync.Mutex
-	recs []safe.Record
+	recs []panics.Record
 }
 
-func (c *collect) Report(r safe.Record) { c.mu.Lock(); c.recs = append(c.recs, r); c.mu.Unlock() }
-func (c *collect) n() int               { c.mu.Lock(); defer c.mu.Unlock(); return len(c.recs) }
+func (c *collect) Report(r panics.Record) { c.mu.Lock(); c.recs = append(c.recs, r); c.mu.Unlock() }
+func (c *collect) n() int                 { c.mu.Lock(); defer c.mu.Unlock(); return len(c.recs) }
 
 func TestHandlerPanicBecomesA500WithARefAndTheServerSurvives(t *testing.T) {
 	rep := &collect{}
-	safe.SetReporter(rep)
-	t.Cleanup(func() { safe.SetReporter(nopReporter{}) })
+	panics.SetDefault(panics.Config{Reporter: rep, Redact: redact.Default().Text})
+	t.Cleanup(func() { panics.SetDefault(panics.Config{Reporter: nopReporter{}}) })
 	st, err := store.Open(filepath.Join(t.TempDir(), "c.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -410,7 +411,7 @@ func TestHandlerPanicBecomesA500WithARefAndTheServerSurvives(t *testing.T) {
 
 type nopReporter struct{}
 
-func (nopReporter) Report(safe.Record) {}
+func (nopReporter) Report(panics.Record) {}
 
 // setupWith builds an env around an existing service (shared store).
 func setupWith(t *testing.T, svc *service.Service, prefix string) *env {

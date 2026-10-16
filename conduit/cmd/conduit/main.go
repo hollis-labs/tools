@@ -21,9 +21,10 @@ import (
 	"github.com/hollis-labs/conduit/internal/cli"
 	"github.com/hollis-labs/conduit/internal/policy"
 	"github.com/hollis-labs/conduit/internal/runbook"
-	"github.com/hollis-labs/conduit/internal/safe"
 	"github.com/hollis-labs/conduit/internal/service"
 	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/libs/core/panics"
+	"github.com/hollis-labs/libs/security/redact"
 )
 
 const (
@@ -110,13 +111,14 @@ func run(ctx context.Context) (int, error) {
 
 	// The service layer is the only thing handed to the transports; they never
 	// receive st.
+	rd := redact.Default()
 	logf := func(format string, a ...any) { fmt.Fprintf(os.Stderr, format+"\n", a...) }
 	svc := service.New(st, service.WithBlobs(blobs), service.WithPolicy(pol), service.WithRunbooks(rbs), service.WithBaseContext(ctx),
-		service.WithProtect(layout.DataDir(), layout.ConfigDir()))
+		service.WithProtect(layout.DataDir(), layout.ConfigDir()), service.WithRedactor(rd))
 
 	// From here on a recovered panic is logged and persisted: remote callers only
 	// ever see its ref, and `conduit panics show <ref>` has the detail.
-	safe.SetReporter(panicReporter{svc: svc, logf: logf})
+	panics.SetDefault(panics.Config{Reporter: panicReporter{svc: svc, logf: logf}, Redact: rd.Text})
 	defer svc.Shutdown(5 * time.Second) // runs before the store closes; lets stopped runs finish recording
 
 	describe := func() string {

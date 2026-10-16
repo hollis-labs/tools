@@ -1,6 +1,6 @@
 module github.com/hollis-labs/conduit
 
-go 1.26.6
+go 1.26.9
 
 require (
 	github.com/hollis-labs/go-apppaths v0.3.0
@@ -22,6 +22,8 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
 	github.com/hollis-labs/go-safefs v0.1.0 // indirect
+	github.com/hollis-labs/libs/core/panics v0.0.0-20261016122407-57788006f023 // indirect
+	github.com/hollis-labs/libs/security/redact v0.0.0-20261016122407-57788006f023 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect

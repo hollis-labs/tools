@@ -35,6 +35,10 @@ github.com/hollis-labs/go-safefs v0.1.0 h1:DOlOS/0OnLKgUXON9YiPTzZZyYhqogNUo9RoY
 github.com/hollis-labs/go-safefs v0.1.0/go.mod h1:cy6lXh6KhPuIoQ9hGQSL+sd4N1dhJ1hE3sSCMXNB6JA=
 github.com/hollis-labs/go-sandbox v0.6.0 h1:W//Xikb5ipFl/8aJIbCTqtmwSwsPKw+7Za/+BqOcQUM=
 github.com/hollis-labs/go-sandbox v0.6.0/go.mod h1:cZVYQKfEze0jFkt7iyvvUTAc7M+7tppRxpq/h8VYUYg=
+github.com/hollis-labs/libs/core/panics v0.0.0-20261016122407-57788006f023 h1:8Cyg4LY1W0XDNS6yeUeNFDvSopW6L+xnoA+6YhMxU9M=
+github.com/hollis-labs/libs/core/panics v0.0.0-20261016122407-57788006f023/go.mod h1:KugNEagpx3eqC72FOyQrrTcIzGD+hJb+EXkSV6jP4jU=
+github.com/hollis-labs/libs/security/redact v0.0.0-20261016122407-57788006f023 h1:oIrlj2QMvCbbtcWNoeYfI4QLdtfssCK4SJjpIsUK7KM=
+github.com/hollis-labs/libs/security/redact v0.0.0-20261016122407-57788006f023/go.mod h1:WkIIK5n9hIoPY9Sm9yvPkmDYL1r93Obe1v4CsNmKU40=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
 github.com/kr/pretty v0.3.1/go.mod h1:hoEshYVHaxMs3cyo3Yncou5ZscifuDolrwPKZanG3xk=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=

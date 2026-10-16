@@ -12,9 +12,9 @@ import (
 
 	"mvdan.cc/sh/v3/syntax"
 
-	"github.com/hollis-labs/conduit/internal/safe"
 	"github.com/hollis-labs/conduit/internal/service"
 	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/libs/core/panics"
 )
 
 // Exit codes. A run exits with the command's own code; these cover conduit's
@@ -72,8 +72,8 @@ func Main(ctx context.Context, svc *service.Service, args []string, in *os.File,
 	}
 	c := &cmd{ctx: ctx, svc: svc, in: in, out: stdout, err: stderr, paths: paths}
 	var code int
-	err := safe.Call("cli "+args[0], func() error { code = c.dispatch(args); return nil })
-	if ref, ok := safe.Ref(err); ok {
+	err := panics.Call("cli "+args[0], func() error { code = c.dispatch(args); return nil })
+	if ref, ok := panics.Ref(err); ok {
 		fmt.Fprintf(stderr, "conduit: internal error (ref %s). This is a bug in conduit, not in your command.\n         Details: conduit panics show %s\n", ref, ref)
 		return ExitInternal
 	}

@@ -26,6 +26,11 @@ func (w *walker) peel(seg *Segment, argv []string, dyn []bool) ([]string, []bool
 			seg.risk("wrapper-args")
 			return argv, dyn
 		}
+		if skip >= len(argv) {
+			// Nothing follows the wrapper's own options: it is not wrapping anything, it
+			// is the command (`env` prints the environment, `nice` prints the niceness).
+			return argv, dyn
+		}
 		for _, a := range argv[1:skip] {
 			if bin == "env" && isAssignment(a) {
 				name := a[:strings.IndexByte(a, '=')]

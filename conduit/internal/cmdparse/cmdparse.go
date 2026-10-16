@@ -18,7 +18,7 @@ import (
 	"mvdan.cc/sh/v3/expand"
 	"mvdan.cc/sh/v3/syntax"
 
-	"github.com/hollis-labs/conduit/internal/safe"
+	"github.com/hollis-labs/libs/core/panics"
 )
 
 // MaxDepth caps nested unwrapping (sh -c inside ssh inside xargs ...) and the
@@ -119,12 +119,12 @@ var parseImpl = parseAt
 func Parse(src string) *Parsed {
 	p := &Parsed{Raw: src, Effect: EffectNone}
 	var segs []Segment
-	err := safe.Call("cmdparse.Parse", func() error {
+	err := panics.Call("cmdparse.Parse", func() error {
 		var e error
 		segs, e = parseImpl(src, 0, "")
 		return e
 	})
-	if ref, panicked := safe.Ref(err); panicked {
+	if ref, panicked := panics.Ref(err); panicked {
 		p.Internal = true
 		err = fmt.Errorf("internal parser error (ref %s)", ref)
 	}

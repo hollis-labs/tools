@@ -15,33 +15,34 @@ import (
 	"github.com/hollis-labs/conduit/internal/cmdparse"
 	"github.com/hollis-labs/conduit/internal/policy"
 	"github.com/hollis-labs/conduit/internal/proc"
-	"github.com/hollis-labs/conduit/internal/safe"
 	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/libs/core/panics"
+	"github.com/hollis-labs/libs/security/redact"
 )
 
 type memReporter struct {
 	mu   sync.Mutex
-	recs []safe.Record
+	recs []panics.Record
 }
 
-func (m *memReporter) Report(r safe.Record) { m.mu.Lock(); m.recs = append(m.recs, r); m.mu.Unlock() }
-func (m *memReporter) all() []safe.Record {
+func (m *memReporter) Report(r panics.Record) { m.mu.Lock(); m.recs = append(m.recs, r); m.mu.Unlock() }
+func (m *memReporter) all() []panics.Record {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return append([]safe.Record(nil), m.recs...)
+	return append([]panics.Record(nil), m.recs...)
 }
 
 func captured(t *testing.T) *memReporter {
 	t.Helper()
 	m := &memReporter{}
-	safe.SetReporter(m)
-	t.Cleanup(func() { safe.SetReporter(safe.Reporter(discard{})) })
+	panics.SetDefault(panics.Config{Reporter: m, Redact: redact.Default().Text})
+	t.Cleanup(func() { panics.SetDefault(panics.Config{Reporter: discard{}, Redact: redact.Default().Text}) })
 	return m
 }
 
 type discard struct{}
 
-func (discard) Report(safe.Record) {}
+func (discard) Report(panics.Record) {}
 
 // blobs that explode, standing in for any bug in code Execute calls.
 type panicBlobs struct{ blob.Store }
@@ -59,7 +60,7 @@ func TestPanicDuringExecutionFailsTheRunAndKeepsTheProcessAlive(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := s.Execute(context.Background(), run.ID, ExecOpts{})
-	ref, isPanic := safe.Ref(err)
+	ref, isPanic := panics.Ref(err)
 	if !isPanic {
 		t.Fatalf("expected a PanicError, got %v", err)
 	}
@@ -70,7 +71,7 @@ func TestPanicDuringExecutionFailsTheRunAndKeepsTheProcessAlive(t *testing.T) {
 		t.Error("panic text leaked into the failure record or error")
 	}
 	recs := rep.all()
-	if len(recs) != 1 || recs[0].RunID != run.ID || strings.Contains(recs[0].Value, "sk-abcdefghijklmnop") {
+	if len(recs) != 1 || recs[0].Attrs["run"] != run.ID || strings.Contains(recs[0].Value, "sk-abcdefghijklmnop") {
 		t.Fatalf("panic record: %+v", recs)
 	}
 	// the service is still usable afterwards

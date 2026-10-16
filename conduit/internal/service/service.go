@@ -15,6 +15,8 @@ import (
 	"github.com/hollis-labs/conduit/internal/policy"
 	"github.com/hollis-labs/conduit/internal/runbook"
 	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/libs/core/panics"
+	"github.com/hollis-labs/libs/security/redact"
 )
 
 // Service is the root of the service layer.
@@ -32,6 +34,7 @@ type Service struct {
 	env       []string
 	protect   []string // control-plane paths the protect sandbox keeps read-only
 	runbooks  *runbook.Set
+	redactor  *redact.Redactor // scrubs stored output and anything returned to a transport
 
 	approvalTTL time.Duration
 	maxActive   int             // per-principal ceiling on pending + approved + running runs
@@ -64,6 +67,14 @@ func WithPrincipal(p string) Option { return func(s *Service) { s.principal = p 
 // sandbox profile can keep it read-only for the commands it runs.
 func WithProtect(paths ...string) Option { return func(s *Service) { s.protect = paths } }
 
+// WithRedactor sets the redactor used on stored output and on text returned to
+// transports (default: the standard rules, no known values). Applications that
+// resolve credentials should build one with a redact.Scope holding them.
+func WithRedactor(r *redact.Redactor) Option { return func(s *Service) { s.redactor = r } }
+
+// text redacts untrusted text and bounds it for a transport.
+func (s *Service) text(x string, limit int) string { return panics.Clean(s.redactor.Text(x), limit) }
+
 // WithRunbooks sets the named operations the service offers.
 func WithRunbooks(r *runbook.Set) Option { return func(s *Service) { s.runbooks = r } }
 
@@ -93,7 +104,7 @@ func (s *Service) Store() *store.Store { return s.store }
 
 // New constructs a Service wired to the provided store.
 func New(st *store.Store, opts ...Option) *Service {
-	s := &Service{store: st, policy: policy.Baseline(), env: os.Environ(), approvalTTL: 15 * time.Minute, maxActive: 50,
+	s := &Service{store: st, policy: policy.Baseline(), redactor: redact.Default(), env: os.Environ(), approvalTTL: 15 * time.Minute, maxActive: 50,
 		base: context.Background(), running: map[string]context.CancelFunc{}, canceled: map[string]bool{},
 		heartbeatEvery: 5 * time.Second, staleAfter: 30 * time.Second}
 	if u, err := user.Current(); err == nil {
