@@ -52,8 +52,9 @@ const usage = `conduit — governed command runtime
   conduit token create -name n -scope exec.run,exec.read | ls | revoke <name>
   conduit serve [-unix path | -addr 127.0.0.1:7421] [-allow-dir d]...
                               HTTP API for "run this on this host" (bearer tokens, scoped)
-  conduit mcp [-principal name]
-                              MCP tools on stdio for agents (no approval tool, by design)
+  conduit mcp [-principal name] [-allow-dir d]... [-allow-any-dir] [-see-all]
+                              MCP tools on stdio for agents (no approval tool, by design;
+                              confined to the current directory and to its own runs by default)
   conduit reap [-stale 30s]       clean up after a crash: fail orphaned runs, stop their process groups
   conduit panics [-n 20] | show <ref>
                               internal errors conduit recovered from (a ref is all a remote caller sees)

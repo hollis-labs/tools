@@ -12,8 +12,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -56,17 +54,9 @@ func New(ctx context.Context, svc *service.Service, cfg Config) (http.Handler, e
 	if len(cfg.AllowDirs) == 0 {
 		return nil, errors.New("api: at least one allowed directory is required")
 	}
-	roots := make([]string, 0, len(cfg.AllowDirs))
-	for _, d := range cfg.AllowDirs {
-		r, err := filepath.EvalSymlinks(d)
-		if err != nil {
-			return nil, fmt.Errorf("api: allowed directory %q: %w", d, err)
-		}
-		abs, err := filepath.Abs(r)
-		if err != nil {
-			return nil, err
-		}
-		roots = append(roots, abs)
+	roots, err := service.ResolveRoots(cfg.AllowDirs)
+	if err != nil {
+		return nil, fmt.Errorf("api: %w", err)
 	}
 	cfg.AllowDirs = roots
 	if cfg.RatePerMinute <= 0 {
@@ -255,24 +245,7 @@ func fail(w http.ResponseWriter, err error) {
 }
 
 // dir validates a caller-supplied working directory against the allowed roots.
-func (s *server) dir(d string) (string, error) {
-	if d == "" {
-		return s.cfg.AllowDirs[0], nil
-	}
-	resolved, err := filepath.EvalSymlinks(d)
-	if err != nil {
-		return "", fmt.Errorf("%w: dir %q: %w", service.ErrBadRequest, d, err)
-	}
-	if !filepath.IsAbs(resolved) {
-		return "", fmt.Errorf("%w: dir must be absolute", service.ErrBadRequest)
-	}
-	for _, root := range s.cfg.AllowDirs {
-		if resolved == root || strings.HasPrefix(resolved, root+string(os.PathSeparator)) {
-			return resolved, nil
-		}
-	}
-	return "", fmt.Errorf("%w: dir %q is outside the allowed roots", service.ErrBadRequest, d)
-}
+func (s *server) dir(d string) (string, error) { return service.ResolveDir(s.cfg.AllowDirs, d) }
 
 func (s *server) check(w http.ResponseWriter, r *http.Request, _ *service.Principal) {
 	var a struct {

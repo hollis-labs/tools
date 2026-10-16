@@ -13,7 +13,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hollis-labs/conduit/internal/runbook"
@@ -86,12 +88,45 @@ func kindOf(err error) string {
 	return "internal"
 }
 
+// Options configure what a connected agent may do.
+type Options struct {
+	// AllowDirs are the roots an agent-supplied working directory must sit under;
+	// with none given, the server's own working directory (normally the project
+	// the agent was launched in). A request with no dir runs in the first root.
+	AllowDirs []string
+	// AnyDir turns the restriction off. It is an explicit opt-in, not a default.
+	AnyDir bool
+	// SeeAll lets the agent read other principals' runs and output. The default is
+	// own-runs-only, matching the exec.read.own scope.
+	SeeAll bool
+}
+
+// maxConcurrentCalls bounds tool calls in flight on one connection.
+const maxConcurrentCalls = 16
+
 type server struct {
 	svc       *service.Service
 	principal string
+	roots     []string
+	anyDir    bool
+	seeAll    bool
 }
 
+// viewer returns the viewer identity for service accessors.
+func (m *server) viewer() (string, bool) { return m.principal, m.seeAll }
+
 func (m *server) run(ctx context.Context, a service.ExecRequest) (any, error) {
+	// A runbook that fixes its own directory keeps it (an operator reviewed it);
+	// everything else is confined to the allowed roots.
+	if !m.anyDir {
+		if rb, ok := m.svc.Runbook(a.Runbook); a.Dir != "" || !ok || rb.Dir == "" {
+			d, err := service.ResolveDir(m.roots, a.Dir)
+			if err != nil {
+				return nil, &toolError{"invalid_params", err.Error()}
+			}
+			a.Dir = d
+		}
+	}
 	v, err := m.svc.ExecAndWait(ctx, a)
 	if errors.Is(err, service.ErrBadRequest) {
 		return nil, &toolError{"invalid_params", err.Error()}
@@ -100,6 +135,7 @@ func (m *server) run(ctx context.Context, a service.ExecRequest) (any, error) {
 }
 
 func (m *server) tools() []tool {
+	viewerID, viewerAll := m.viewer()
 	return []tool{
 		{"exec_check", "Dry-run a shell command through conduit's policy without running it: how it parses (segments, wrappers, effect classes) and the verdict (allow, ask, deny) with reasons. Use before exec_run to learn whether a command will need operator approval.",
 			schema([]string{"command"}, map[string]string{"command": "Shell command text."}),
@@ -118,7 +154,7 @@ func (m *server) tools() []tool {
 				Run      string `json:"run"`
 				MaxBytes int    `json:"max_bytes"`
 			}) (any, error) {
-				run, err := m.svc.GetFor(a.Run, m.principal, false)
+				run, err := m.svc.GetFor(a.Run, viewerID, viewerAll)
 				if err != nil {
 					return nil, err
 				}
@@ -132,7 +168,7 @@ func (m *server) tools() []tool {
 				UntilApproved bool   `json:"until_approved"`
 				MaxBytes      int    `json:"max_bytes"`
 			}) (any, error) {
-				own, err := m.svc.GetFor(a.Run, m.principal, false)
+				own, err := m.svc.GetFor(a.Run, viewerID, viewerAll)
 				if err != nil {
 					return nil, err
 				}
@@ -151,7 +187,7 @@ func (m *server) tools() []tool {
 				Offset   int    `json:"offset"`
 				MaxBytes int    `json:"max_bytes"`
 			}) (any, error) {
-				b, err := m.svc.RecallFor(ctx, a.Run, a.Stream, a.Attempt, m.principal, false)
+				b, err := m.svc.RecallFor(ctx, a.Run, a.Stream, a.Attempt, viewerID, viewerAll)
 				if err != nil {
 					return nil, err
 				}
@@ -170,7 +206,7 @@ func (m *server) tools() []tool {
 				if a.Limit <= 0 {
 					a.Limit = 20
 				}
-				runs, err := m.svc.ListFor(m.principal, false, a.Session, a.State, min(a.Limit, 200))
+				runs, err := m.svc.ListFor(viewerID, viewerAll, a.Session, a.State, min(a.Limit, 200))
 				if err != nil {
 					return nil, err
 				}
@@ -185,7 +221,7 @@ func (m *server) tools() []tool {
 			bind(func(ctx context.Context, a struct {
 				Run string `json:"run"`
 			}) (any, error) {
-				run, err := m.svc.Cancel(ctx, a.Run, false)
+				run, err := m.svc.Cancel(ctx, a.Run, false) // an agent only ever cancels its own runs
 				if err != nil {
 					return nil, err
 				}
@@ -208,8 +244,23 @@ type request struct {
 // Serve runs the server until in is closed. principal attributes everything the
 // connected agent submits (for example "mcp:chrispian"). While it serves, runs
 // of that principal that an operator approves elsewhere are started here.
-func Serve(ctx context.Context, svc *service.Service, principal string, in io.Reader, out io.Writer, version string) error {
-	srv := &server{svc: svc, principal: principal}
+func Serve(ctx context.Context, svc *service.Service, principal string, opts Options, in io.Reader, out io.Writer, version string) error {
+	srv := &server{svc: svc, principal: principal, anyDir: opts.AnyDir, seeAll: opts.SeeAll}
+	if !opts.AnyDir {
+		dirs := opts.AllowDirs
+		if len(dirs) == 0 {
+			wd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			dirs = []string{wd}
+		}
+		roots, err := service.ResolveRoots(dirs)
+		if err != nil {
+			return err
+		}
+		srv.roots = roots
+	}
 	ts := srv.tools()
 	ctx = service.As(ctx, principal)
 
@@ -231,6 +282,7 @@ func Serve(ctx context.Context, svc *service.Service, principal string, in io.Re
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 1<<20), 32<<20)
 	enc := json.NewEncoder(out)
+	var wmu sync.Mutex // replies are written by many goroutines
 	reply := func(id json.RawMessage, result any, rpcErr map[string]any) {
 		m := map[string]any{"jsonrpc": "2.0", "id": id}
 		if rpcErr != nil {
@@ -238,8 +290,22 @@ func Serve(ctx context.Context, svc *service.Service, principal string, in io.Re
 		} else {
 			m["result"] = result
 		}
+		wmu.Lock()
+		defer wmu.Unlock()
 		_ = enc.Encode(m)
 	}
+	// Tool calls run concurrently (bounded), so a long exec_wait cannot hold up an
+	// exec_cancel for the same run. Replies carry the request id, so order is free.
+	var calls sync.WaitGroup
+	sem := make(chan struct{}, maxConcurrentCalls)
+	defer func() {
+		done := make(chan struct{})
+		go func() { calls.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+		}
+	}()
 	for sc.Scan() {
 		var req request
 		if err := json.Unmarshal(sc.Bytes(), &req); err != nil {
@@ -273,7 +339,16 @@ func Serve(ctx context.Context, svc *service.Service, principal string, in io.Re
 				reply(req.ID, nil, map[string]any{"code": -32602, "message": "invalid params"})
 				continue
 			}
-			reply(req.ID, call(ctx, ts, p.Name, p.Arguments), nil)
+			id, name, args := req.ID, p.Name, p.Arguments
+			sem <- struct{}{}
+			calls.Add(1)
+			safe.Go("mcp call "+name, func() {
+				defer calls.Done()
+				defer func() { <-sem }()
+				reply(id, call(ctx, ts, name, args), nil)
+			}, func(pe *safe.PanicError) {
+				reply(id, nil, map[string]any{"code": -32603, "message": pe.Error()})
+			})
 		default:
 			reply(req.ID, nil, map[string]any{"code": -32601, "message": "method not found: " + req.Method})
 		}

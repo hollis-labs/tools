@@ -26,6 +26,7 @@ conduit approve <run>            # shows the parsed command, asks, approves
 
 ```sh
 conduit mcp                      # MCP tools on stdio: exec_check, exec_run, exec_wait, exec_output ...
+                                 #   confined to the cwd and to its own runs; -allow-dir, -allow-any-dir, -see-all to widen
 conduit token create -name agent -scope exec.run,exec.read     # secret printed once
 conduit token create -name oper  -scope exec.approve,exec.read
 conduit serve -allow-dir ~/work  # HTTP on 127.0.0.1:7421 (or -unix path); -unsafe-bind for other addresses

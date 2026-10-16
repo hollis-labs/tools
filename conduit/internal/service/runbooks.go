@@ -32,7 +32,8 @@ func (s *Service) SubmitRunbook(ctx context.Context, name string, params map[str
 		return nil, err
 	}
 	rq.Command = cmd
-	if rq.Timeout == 0 {
+	// A runbook's timeout is a ceiling the caller can shorten, never lengthen.
+	if rb.Timeout > 0 && (rq.Timeout == 0 || rq.Timeout > rb.Timeout) {
 		rq.Timeout = rb.Timeout
 	}
 	if rq.Dir == "" {

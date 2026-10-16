@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -363,5 +364,43 @@ func TestScopeStringsCannotSmuggleScopes(t *testing.T) {
 		if _, _, err := s.CreateToken(fmt.Sprintf("good%d", i), []string{good}); err != nil {
 			t.Errorf("rejected scope %q: %v", good, err)
 		}
+	}
+}
+
+func TestRunbookTimeoutIsACeilingNotADefault(t *testing.T) {
+	set := mustSet(t, &runbook.Runbook{Name: "bounded", Argv: []string{"echo", "x"}, Verdict: "allow", Timeout: 20 * time.Second})
+	s := newSvc(t, WithRunbooks(set))
+	eff := func(callerSec int) time.Duration {
+		v, err := s.ExecAndWait(context.Background(), ExecRequest{Runbook: "bounded", TimeoutSec: callerSec})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, _ := s.Get(v.ID)
+		var ep execParams
+		_ = json.Unmarshal([]byte(r.Request), &ep)
+		return ep.Timeout
+	}
+	if got := eff(3600); got != 20*time.Second {
+		t.Errorf("a caller lengthened the runbook's timeout: %v", got)
+	}
+	if got := eff(5); got != 5*time.Second {
+		t.Errorf("a caller should be able to shorten it: %v", got)
+	}
+	if got := eff(0); got != 20*time.Second {
+		t.Errorf("no caller timeout should use the runbook's: %v", got)
+	}
+}
+
+func TestRemoteRequestsAlwaysGetATimeout(t *testing.T) {
+	s := newSvc(t)
+	v, err := s.ExecAndWait(context.Background(), ExecRequest{Command: "echo hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, _ := s.Get(v.ID)
+	var ep execParams
+	_ = json.Unmarshal([]byte(r.Request), &ep)
+	if ep.Timeout != DefaultRemoteTimeout {
+		t.Errorf("timeout %v, want the %v default", ep.Timeout, DefaultRemoteTimeout)
 	}
 }

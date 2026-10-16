@@ -250,6 +250,10 @@ func (c *cmd) mcpCmd(args []string) int {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	fs.SetOutput(c.err)
 	who := fs.String("principal", "", "name recorded for this agent's runs (default mcp:<user>)")
+	var dirs multiDir
+	fs.Var(&dirs, "allow-dir", "directory the agent's commands may run under (repeatable; default: the current directory)")
+	anyDir := fs.Bool("allow-any-dir", false, "do not restrict the agent's working directory")
+	seeAll := fs.Bool("see-all", false, "let the agent read other principals' runs and output (default: its own only)")
 	if err := fs.Parse(args); err != nil {
 		return ExitError
 	}
@@ -264,7 +268,7 @@ func (c *cmd) mcpCmd(args []string) int {
 		p = "mcp:" + p
 	}
 	c.svc.StartReaper(c.ctx, 30*time.Second, func(f string, a ...any) { fmt.Fprintf(c.err, f+"\n", a...) })
-	if err := mcp.Serve(c.ctx, c.svc, p, c.in, c.out, Version); err != nil {
+	if err := mcp.Serve(c.ctx, c.svc, p, mcp.Options{AllowDirs: dirs, AnyDir: *anyDir, SeeAll: *seeAll}, c.in, c.out, Version); err != nil {
 		return c.fail("mcp: %v", err)
 	}
 	return ExitOK

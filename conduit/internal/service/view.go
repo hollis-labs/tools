@@ -232,10 +232,7 @@ func (s *Service) ExecAndWait(ctx context.Context, a ExecRequest) (*RunView, err
 	if a.TimeoutSec < 0 || timeout > MaxTimeout {
 		return nil, fmt.Errorf("%w: timeout_sec must be between 0 and %d", ErrBadRequest, int(MaxTimeout.Seconds()))
 	}
-	if timeout == 0 {
-		timeout = DefaultRemoteTimeout
-	}
-	rq := RunRequest{Dir: a.Dir, Session: a.Session, Sandbox: a.Sandbox, Timeout: timeout}
+	rq := RunRequest{Dir: a.Dir, Session: a.Session, Sandbox: a.Sandbox, Timeout: timeout, DefaultTimeout: DefaultRemoteTimeout}
 	var run *store.Run
 	var err error
 	if a.Runbook != "" {

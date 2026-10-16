@@ -58,9 +58,12 @@ type RunRequest struct {
 	PassEnv []string // credential-looking variables allowed through the scrub
 	Retries int      // extra attempts for transient failures of read-only commands
 	Sandbox string   // confinement profile; a policy obligation can raise it, never lower it
-	Approve Approver // used by Run only; Submit leaves an Ask pending
-	Stdout  io.Writer
-	Stderr  io.Writer
+	// DefaultTimeout applies when, after any runbook has had its say, no timeout
+	// is set. Transports for remote callers set it so nothing runs unbounded.
+	DefaultTimeout time.Duration
+	Approve        Approver // used by Run only; Submit leaves an Ask pending
+	Stdout         io.Writer
+	Stderr         io.Writer
 }
 
 // execParams are the execution settings stored with a run, so an approved run
@@ -152,6 +155,9 @@ func (s *Service) submit(ctx context.Context, rq RunRequest, rb *runbook.Runbook
 	}
 
 	principal := s.principalOf(ctx)
+	if rq.Timeout == 0 {
+		rq.Timeout = rq.DefaultTimeout
+	}
 	if rq.Timeout < 0 || rq.Timeout > MaxTimeout {
 		return nil, fmt.Errorf("%w: timeout must be between 0 and %s", ErrBadRequest, MaxTimeout)
 	}
