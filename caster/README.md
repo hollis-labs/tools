@@ -81,6 +81,10 @@ curl -H "Authorization: Bearer $TOKEN" -d '{"name":"api/x","content":"hi"}' loca
 
 Routes: `GET /v1/head|get|list|log|search|actions|devices|report`, `POST /v1/put|snap|scan|expand|act|observe|label|renew|devices/revoke|pair/exchange`, `GET /health` (JSON bodies are the service request structs). A missing ref is HTTP 404 with a Meta body; a bad ref is 400; no identity is 401; a missing scope is 403; an unreachable backend is 502. Serve on loopback and reach it over an SSH forward or Tailscale Serve (the ADR 0062 pattern); `-addr` on another interface is allowed only in enforce mode.
 
+## Running the home node (home-node)
+
+Cerberus owns the process: `caster.cerberus.yaml` defines `caster-uat`, an `os_service` (systemd user unit via `supervisor: auto`, lingering on, so it survives logout and reboot) running the repo-built artifact `./bin/caster serve -addr 127.0.0.1:8991`. Check it with `cerberus resource status caster-uat`; after changing source run `cerberus resource deploy caster-uat --ack` (a plain `go install` does not update the service). The service and the `caster` CLI on that machine share one store under `~/.local/share/caster`, so `caster put` there is immediately visible to remote clients.
+
 ## Using a home node from other machines
 
 One machine is the **home node**: it owns the store, resolves Torque and Tesseract, and runs `caster serve` (bound to loopback). Every other machine, human or agent, is a client of it: the CLI and `caster mcp` call the home node's HTTP API through the same service contract, with no local store.
