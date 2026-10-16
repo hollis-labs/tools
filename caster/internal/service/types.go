@@ -17,41 +17,15 @@ const (
 	StateDenied   = resolver.StateDenied
 )
 
-// Scopes the operations require. Transports that authorise (HTTP, and MCP over
-// HTTP) map their routes and tools to these; ScopeFor is the single table.
-const (
-	ScopeRead  = "caster.read"
-	ScopeWrite = "caster.write"
-)
-
-// ScopeFor returns the scope an operation needs. Unknown operations get "".
-func ScopeFor(op string) string {
-	switch op {
-	case OpPut, OpSnap, OpAct, OpObserve, OpLabel:
-		return ScopeWrite
-	case OpGet, OpHead, OpList, OpLog, OpSearch, OpScan, OpExpand, OpActions, OpReport:
-		return ScopeRead
-	}
-	return ""
-}
-
-// Operation names, shared by every transport.
-const (
-	OpPut, OpGet, OpHead, OpSnap = "put", "get", "head", "snap"
-	OpList, OpLog, OpSearch      = "list", "log", "search"
-	OpScan, OpExpand             = "scan", "expand"
-	OpActions, OpAct             = "actions", "act"
-	OpObserve, OpReport, OpLabel = "observe", "report", "label"
-)
-
 // Error kinds, the one vocabulary transports map to exit codes, HTTP statuses
 // and MCP error codes.
 const (
-	KindInvalid     = "invalid"
-	KindNotFound    = "not_found"
-	KindDenied      = "denied"
-	KindUnavailable = "unavailable"
-	KindInternal    = "internal"
+	KindUnauthenticated = "unauthenticated"
+	KindInvalid         = "invalid"
+	KindNotFound        = "not_found"
+	KindDenied          = "denied"
+	KindUnavailable     = "unavailable"
+	KindInternal        = "internal"
 )
 
 // Error is a classified service error.

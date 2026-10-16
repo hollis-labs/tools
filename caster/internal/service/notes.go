@@ -17,7 +17,10 @@ type Notes struct {
 }
 
 // Put stores content and, when named, advances the name to it.
-func (s *Notes) Put(_ context.Context, req PutRequest) (PutResult, error) {
+func (s *Notes) Put(ctx context.Context, req PutRequest) (PutResult, error) {
+	if err := require(ctx, ScopeWrite); err != nil {
+		return PutResult{}, err
+	}
 	var ns, name string
 	if req.Name != "" {
 		ns, name = splitName(req.Name)
@@ -45,7 +48,10 @@ func (s *Notes) Put(_ context.Context, req PutRequest) (PutResult, error) {
 }
 
 // List returns the latest revision of named items.
-func (s *Notes) List(_ context.Context, req ListRequest) (ListResult, error) {
+func (s *Notes) List(ctx context.Context, req ListRequest) (ListResult, error) {
+	if err := require(ctx, ScopeRead); err != nil {
+		return ListResult{}, err
+	}
 	names, err := s.store.List(req.NS, req.Tag)
 	if err != nil {
 		return ListResult{}, classify(err)
@@ -59,7 +65,10 @@ func (s *Notes) List(_ context.Context, req ListRequest) (ListResult, error) {
 }
 
 // Log returns every revision of a name, newest first.
-func (s *Notes) Log(_ context.Context, req LogRequest) (LogResult, error) {
+func (s *Notes) Log(ctx context.Context, req LogRequest) (LogResult, error) {
+	if err := require(ctx, ScopeRead); err != nil {
+		return LogResult{}, err
+	}
 	ns, n := splitName(req.Name)
 	h, err := s.store.History(ns, n)
 	if err != nil {
@@ -76,7 +85,10 @@ func (s *Notes) Log(_ context.Context, req LogRequest) (LogResult, error) {
 }
 
 // Search is a full-text search over stored text.
-func (s *Notes) Search(_ context.Context, req SearchRequest) (SearchResult, error) {
+func (s *Notes) Search(ctx context.Context, req SearchRequest) (SearchResult, error) {
+	if err := require(ctx, ScopeRead); err != nil {
+		return SearchResult{}, err
+	}
 	if strings.TrimSpace(req.Query) == "" {
 		return SearchResult{}, invalid(fmt.Errorf("empty query"))
 	}

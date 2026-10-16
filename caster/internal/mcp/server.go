@@ -110,6 +110,7 @@ type request struct {
 // Serve runs the server until in is closed. The stdio transport is launched by
 // the operator and is not authenticated; see the README for the HTTP transport.
 func Serve(ctx context.Context, svc *service.Service, in io.Reader, out io.Writer, version string) error {
+	ctx = service.AsLocalOperator(ctx) // stdio: the caller is the process owner
 	ts := tools(svc)
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 1<<20), 32<<20)

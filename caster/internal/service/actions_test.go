@@ -42,7 +42,7 @@ var okCtx = ActionContext{Namespace: "project/x/workspace/handoffs", SessionID: 
 
 func seed(t *testing.T, s *Service) {
 	t.Helper()
-	if _, err := s.Notes.Put(context.Background(), PutRequest{Name: "n/h", Content: "# Handoff\n\nbody"}); err != nil {
+	if _, err := s.Notes.Put(localCtx(), PutRequest{Name: "n/h", Content: "# Handoff\n\nbody"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -55,7 +55,7 @@ func TestSaveHandoffValidatesContext(t *testing.T) {
 		"user":     {Namespace: "user/chrispian/workspace/x", SessionID: "s", AgentID: "a"},
 		"no-space": {Namespace: "project/x/memory/notes", SessionID: "s", AgentID: "a"},
 	} {
-		_, err := s.Actions.Run(context.Background(), ActRequest{Action: ActionSaveHandoff, Ref: "n/h", Context: c})
+		_, err := s.Actions.Run(localCtx(), ActRequest{Action: ActionSaveHandoff, Ref: "n/h", Context: c})
 		if KindOf(err) != KindInvalid {
 			t.Errorf("%s: want invalid, got %v", name, err)
 		}
@@ -68,7 +68,7 @@ func TestSaveHandoffValidatesContext(t *testing.T) {
 func TestSaveHandoffDryRunStoresAndWritesNothing(t *testing.T) {
 	s, w := newSvc(t)
 	seed(t, s)
-	res, err := s.Actions.Run(context.Background(), ActRequest{Action: ActionSaveHandoff, Ref: "n/h", Context: okCtx, DryRun: true})
+	res, err := s.Actions.Run(localCtx(), ActRequest{Action: ActionSaveHandoff, Ref: "n/h", Context: okCtx, DryRun: true})
 	if err != nil || res.Status != StatusDryRun || res.Plan == "" || len(w.drafts) != 0 {
 		t.Fatalf("dry run: %+v %v writes=%d", res, err, len(w.drafts))
 	}
@@ -78,7 +78,7 @@ func TestSaveHandoffWritesOnceAndReplays(t *testing.T) {
 	s, w := newSvc(t)
 	seed(t, s)
 	run := func() ActResult {
-		res, err := s.Actions.Run(context.Background(), ActRequest{Action: ActionSaveHandoff, Ref: "n/h", Context: okCtx})
+		res, err := s.Actions.Run(localCtx(), ActRequest{Action: ActionSaveHandoff, Ref: "n/h", Context: okCtx})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -99,11 +99,11 @@ func TestSaveHandoffWritesOnceAndReplays(t *testing.T) {
 
 func TestSaveHandoffUnresolvedWritesNothing(t *testing.T) {
 	s, w := newSvc(t)
-	res, err := s.Actions.Run(context.Background(), ActRequest{Action: ActionSaveHandoff, Ref: "n/missing", Context: okCtx})
+	res, err := s.Actions.Run(localCtx(), ActRequest{Action: ActionSaveHandoff, Ref: "n/missing", Context: okCtx})
 	if err != nil || res.State != StateNotFound || len(w.drafts) != 0 {
 		t.Fatalf("%+v %v writes=%d", res, err, len(w.drafts))
 	}
-	if _, err := s.Actions.Run(context.Background(), ActRequest{Action: "nope", Ref: "n/h", Context: okCtx}); KindOf(err) != KindInvalid {
+	if _, err := s.Actions.Run(localCtx(), ActRequest{Action: "nope", Ref: "n/h", Context: okCtx}); KindOf(err) != KindInvalid {
 		t.Fatalf("unknown action must be invalid, got %v", err)
 	}
 }

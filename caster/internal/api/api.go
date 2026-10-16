@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/hollis-labs/libs/security/auth"
@@ -19,24 +20,12 @@ import (
 
 const maxBody = 8 << 20
 
-// Scopes is the route → scope table, derived from the service's operation scopes.
-func Scopes() *auth.ScopeTable {
-	return auth.NewScopeTable().
-		Route("GET", "/v1/head", service.ScopeFor(service.OpHead)).
-		Route("GET", "/v1/get", service.ScopeFor(service.OpGet)).
-		Route("GET", "/v1/list", service.ScopeFor(service.OpList)).
-		Route("GET", "/v1/log", service.ScopeFor(service.OpLog)).
-		Route("GET", "/v1/search", service.ScopeFor(service.OpSearch)).
-		Route("POST", "/v1/observe", service.ScopeFor(service.OpObserve)).
-		Route("GET", "/v1/report", service.ScopeFor(service.OpReport)).
-		Route("POST", "/v1/label", service.ScopeFor(service.OpLabel)).
-		Route("GET", "/v1/actions", service.ScopeFor(service.OpActions)).
-		Route("POST", "/v1/act", service.ScopeFor(service.OpAct)).
-		Route("POST", "/v1/scan", service.ScopeFor(service.OpScan)).
-		Route("POST", "/v1/expand", service.ScopeFor(service.OpExpand)).
-		Route("POST", "/v1/put", service.ScopeFor(service.OpPut)).
-		Route("POST", "/v1/snap", service.ScopeFor(service.OpSnap))
-}
+// OpenPaths are the routes reachable without a bearer token. Everything else
+// is authenticated by the guard middleware; what an identity may DO is decided
+// by the service layer, not here.
+func OpenPaths(path string) bool { return path == "/health" || path == exchangePath }
+
+const exchangePath = "/v1/pair/exchange"
 
 // Handler serves the API. guard may be nil only in tests; the server always
 // passes one.
@@ -96,6 +85,14 @@ func Handler(svc *service.Service, guard *auth.Guard) http.Handler {
 		respond(w, "", res, err)
 	})
 	mux.HandleFunc("POST /v1/act", post(svc.Actions.Run, func(r service.ActResult) string { return r.State }))
+	mux.HandleFunc("POST "+exchangePath, limited(newBucket(10, 6*time.Second), 4<<10,
+		post(svc.Access.Exchange, func(service.ExchangeResult) string { return "" })))
+	mux.HandleFunc("POST /v1/renew", post(svc.Access.Renew, func(service.DeviceInfo) string { return "" }))
+	mux.HandleFunc("GET /v1/devices", func(w http.ResponseWriter, r *http.Request) {
+		res, err := svc.Access.Devices(r.Context(), struct{}{})
+		respond(w, "", res, err)
+	})
+	mux.HandleFunc("POST /v1/devices/revoke", post(svc.Access.Revoke, func(service.RevokeResult) string { return "" }))
 	mux.HandleFunc("POST /v1/put", post(svc.Notes.Put, func(service.PutResult) string { return "" }))
 	mux.HandleFunc("POST /v1/snap", post(svc.Refs.Snapshot, func(r service.SnapResult) string { return r.State }))
 	mux.HandleFunc("POST /v1/scan", post(svc.Refs.Scan, func(service.ScanResult) string { return "" }))
@@ -145,6 +142,8 @@ func respond(w http.ResponseWriter, state string, body any, err error) {
 
 func statusOfKind(kind string) int {
 	switch kind {
+	case service.KindUnauthenticated:
+		return http.StatusUnauthorized
 	case service.KindInvalid:
 		return http.StatusBadRequest
 	case service.KindNotFound:
@@ -166,4 +165,45 @@ func write(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// bucket is a listener-wide token bucket for the open exchange route: a burst of
+// n attempts, refilled one per interval. It does not key on client address, so
+// a forwarded header cannot mint a fresh allowance.
+type bucket struct {
+	mu       sync.Mutex
+	tokens   float64
+	max      float64
+	interval time.Duration
+	last     time.Time
+}
+
+func newBucket(burst int, interval time.Duration) *bucket {
+	return &bucket{tokens: float64(burst), max: float64(burst), interval: interval, last: time.Now()}
+}
+
+func (b *bucket) allow() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := time.Now()
+	b.tokens = min(b.max, b.tokens+float64(now.Sub(b.last))/float64(b.interval))
+	b.last = now
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
+}
+
+// limited rate-limits and size-limits an open route.
+func limited(b *bucket, maxBody int64, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !b.allow() {
+			w.Header().Set("Retry-After", "6")
+			fail(w, http.StatusTooManyRequests, "rate_limited", "too many attempts")
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+		next(w, r)
+	}
 }

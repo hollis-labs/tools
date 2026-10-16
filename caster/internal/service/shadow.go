@@ -59,6 +59,9 @@ type ObserveResult struct {
 // Observe detects, validates and records. The same text at the same extractor
 // generation is recorded once; later sightings only count as repeats.
 func (s *Shadow) Observe(ctx context.Context, req ObserveRequest) (ObserveResult, error) {
+	if err := require(ctx, ScopeObserve); err != nil {
+		return ObserveResult{}, err
+	}
 	if len(req.Text) > MaxObserveBytes {
 		return ObserveResult{}, invalid(fmt.Errorf("text over %d bytes", MaxObserveBytes))
 	}
@@ -149,7 +152,10 @@ type ReportResult struct {
 }
 
 // Report aggregates what shadow mode has seen.
-func (s *Shadow) Report(_ context.Context, req ReportRequest) (ReportResult, error) {
+func (s *Shadow) Report(ctx context.Context, req ReportRequest) (ReportResult, error) {
+	if err := require(ctx, ScopeAdmin); err != nil {
+		return ReportResult{}, err
+	}
 	tot, stats, top, err := s.store.ShadowReport(req.Since, 20)
 	if err != nil {
 		return ReportResult{}, classify(err)
@@ -188,7 +194,10 @@ type LabelResult struct {
 }
 
 // Label sets the verdict on every recorded detection of a ref.
-func (s *Shadow) Label(_ context.Context, req LabelRequest) (LabelResult, error) {
+func (s *Shadow) Label(ctx context.Context, req LabelRequest) (LabelResult, error) {
+	if err := require(ctx, ScopeAdmin); err != nil {
+		return LabelResult{}, err
+	}
 	if req.Verdict != "true" && req.Verdict != "false" {
 		return LabelResult{}, invalid(fmt.Errorf(`verdict must be "true" or "false"`))
 	}

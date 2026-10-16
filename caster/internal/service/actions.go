@@ -111,6 +111,9 @@ func lookup(id string) (ActionInfo, bool) {
 
 // List returns the actions that apply to a ref. All current actions need text.
 func (a *Actions) List(ctx context.Context, req ActionsRequest) (ActionsResult, error) {
+	if err := require(ctx, ScopeRead); err != nil {
+		return ActionsResult{}, err
+	}
 	m, err := a.refs.Head(ctx, RefRequest{Ref: req.Ref})
 	if err != nil {
 		return ActionsResult{}, err
@@ -125,6 +128,9 @@ func (a *Actions) List(ctx context.Context, req ActionsRequest) (ActionsResult, 
 
 // Run executes an action.
 func (a *Actions) Run(ctx context.Context, req ActRequest) (ActResult, error) {
+	if err := require(ctx, ScopeAct); err != nil {
+		return ActResult{}, err
+	}
 	def, ok := lookup(req.Action)
 	if !ok {
 		return ActResult{}, invalid(fmt.Errorf("unknown action %q", req.Action))

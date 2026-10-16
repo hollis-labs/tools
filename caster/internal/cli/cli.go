@@ -11,9 +11,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
+
+	"github.com/hollis-labs/libs/security/secrets/tokenfile"
 
 	"github.com/hollis-labs/caster/internal/service"
 )
@@ -51,6 +54,11 @@ const usage = `caster — content-addressed store and ref resolver
                                 per-extractor measurement of shadow detection
   caster shadow label <ref> true|false
                                 record whether a detected ref was a true or false positive
+  caster pair [-scope read,resolve,…] [-ttl 5m] [-label l] [-token-file path]
+                                one-use pairing code for a client (local terminal only); with
+                                -token-file, redeem it here and save the device token to that file
+  caster devices                paired devices
+  caster revoke <dev_…|grt_…>   revoke a device or an unused pairing code
   caster paths                  where data lives
   caster mcp                    serve the tools over MCP stdio (for agents)
   caster serve [-addr a]        serve the HTTP API (bearer auth; see README)
@@ -66,6 +74,7 @@ func Run(ctx context.Context, svc *service.Service, args []string, in io.Reader,
 		fmt.Fprint(errw, usage)
 		return ExitUsage
 	}
+	ctx = service.AsLocalOperator(ctx) // the CLI's caller is the process owner
 	a := &app{svc: svc, in: in, out: out, err: errw}
 	cmd, rest := args[0], args[1:]
 	switch cmd {
@@ -93,6 +102,12 @@ func Run(ctx context.Context, svc *service.Service, args []string, in io.Reader,
 		return a.act(ctx, rest)
 	case "shadow":
 		return a.shadow(ctx, rest)
+	case "pair":
+		return a.pair(ctx, rest)
+	case "devices":
+		return a.devices(ctx, rest)
+	case "revoke":
+		return a.revoke(ctx, rest)
 	}
 	fmt.Fprintf(errw, "caster: unknown command %q\n\n%s", cmd, usage)
 	return ExitUsage
@@ -109,7 +124,7 @@ func (a *app) fail(err error) int {
 	switch service.KindOf(err) {
 	case service.KindNotFound:
 		return ExitNotFound
-	case service.KindDenied:
+	case service.KindDenied, service.KindUnauthenticated:
 		return ExitDenied
 	case service.KindInvalid:
 		return ExitUsage
@@ -497,5 +512,77 @@ func (a *app) shadow(ctx context.Context, args []string) int {
 		fmt.Fprintf(a.err, "caster shadow: unknown subcommand %q\n", sub)
 		return ExitUsage
 	}
+	return ExitOK
+}
+
+func (a *app) pair(ctx context.Context, args []string) int {
+	fs := a.flags("pair")
+	req := service.PairRequest{}
+	var scopes string
+	var ttl time.Duration
+	fs.StringVar(&scopes, "scope", "", "comma-separated scopes: "+strings.Join(service.AllScopes, ", "))
+	fs.DurationVar(&ttl, "ttl", 0, "how long the code lives (default 5m, max 1h)")
+	fs.StringVar(&req.Label, "label", "", "device label")
+	tokenFile := fs.String("token-file", "", "redeem the code here and write the device token to this file (0600)")
+	if _, ok := a.parse(fs, args); !ok {
+		return ExitUsage
+	}
+	req.Scopes, req.TTLSeconds = []string{scopes}, int(ttl.Seconds())
+	g, err := a.svc.Access.CreateGrant(ctx, req)
+	if err != nil {
+		return a.fail(err)
+	}
+	if *tokenFile == "" {
+		fmt.Fprintln(a.out, g.Code)
+		fmt.Fprintf(a.err, "grant %s  scopes %s  expires %s\nThe code is shown once. Redeem it with POST /v1/pair/exchange {\"code\":…} before it expires.\n",
+			g.GrantID, strings.Join(g.Scopes, ","), g.ExpiresAt.Local().Format(time.RFC3339))
+		return ExitOK
+	}
+	ex, err := a.svc.Access.Exchange(ctx, service.ExchangeRequest{Code: g.Code, Label: req.Label})
+	if err != nil {
+		return a.fail(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(*tokenFile), 0o700); err != nil {
+		return a.fail(err)
+	}
+	if err := tokenfile.Write(*tokenFile, ex.Token); err != nil {
+		return a.fail(err)
+	}
+	fmt.Fprintf(a.err, "device %s  scopes %s  expires %s\ntoken written to %s\n", ex.DeviceID, strings.Join(ex.Scopes, ","), ex.ExpiresAt.Local().Format("2006-01-02"), *tokenFile)
+	return ExitOK
+}
+
+func (a *app) devices(ctx context.Context, _ []string) int {
+	res, err := a.svc.Access.Devices(ctx, struct{}{})
+	if err != nil {
+		return a.fail(err)
+	}
+	tw := tabwriter.NewWriter(a.out, 0, 4, 2, ' ', 0)
+	for _, d := range res.Devices {
+		state, used := "active", "never"
+		if d.Revoked {
+			state = "revoked"
+		} else if time.Now().After(d.ExpiresAt) {
+			state = "expired"
+		}
+		if d.LastUsedAt != nil {
+			used = d.LastUsedAt.Local().Format("2006-01-02 15:04")
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\texpires %s\tused %s\t%s\n", d.ID, state, d.Label, d.ExpiresAt.Local().Format("2006-01-02"), used, strings.Join(d.Scopes, ","))
+	}
+	_ = tw.Flush()
+	return ExitOK
+}
+
+func (a *app) revoke(ctx context.Context, args []string) int {
+	if len(args) != 1 {
+		fmt.Fprintln(a.err, "usage: caster revoke <dev_…|grt_…>")
+		return ExitUsage
+	}
+	res, err := a.svc.Access.Revoke(ctx, service.RevokeRequest{ID: args[0]})
+	if err != nil {
+		return a.fail(err)
+	}
+	fmt.Fprintf(a.out, "revoked %s\n", res.Revoked)
 	return ExitOK
 }

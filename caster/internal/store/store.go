@@ -74,6 +74,12 @@ CREATE TABLE IF NOT EXISTS detections(
   state TEXT NOT NULL, verdict TEXT NOT NULL, would_show INTEGER NOT NULL, error TEXT NOT NULL DEFAULT '',
   label TEXT NOT NULL DEFAULT '');
 CREATE INDEX IF NOT EXISTS detections_ref ON detections(ref);
+CREATE TABLE IF NOT EXISTS grants(
+  id TEXT PRIMARY KEY, code_hash TEXT NOT NULL UNIQUE, scopes TEXT NOT NULL, label TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL, expires_at TEXT NOT NULL, consumed_at TEXT, revoked_at TEXT);
+CREATE TABLE IF NOT EXISTS devices(
+  id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, label TEXT NOT NULL DEFAULT '', scopes TEXT NOT NULL,
+  grant_id TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked_at TEXT, last_used_at TEXT);
 CREATE VIRTUAL TABLE IF NOT EXISTS blob_fts USING fts5(hash UNINDEXED, body);
 `
 

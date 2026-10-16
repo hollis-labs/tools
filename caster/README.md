@@ -53,7 +53,7 @@ caster shadow label <ref> true|false         # human verdict on a detected ref -
 
 Verdicts: `card` (resolved, high confidence), `quiet_index` (resolved, low confidence: never shown), `ignore` (did not resolve), `error` (resolver could not answer), `skipped` (over the 50-resolves-per-text budget). Identical text at the same extractor generation (`ref.Generation`, bump it when an extractor changes) is recorded once; later sightings count as repeats. HTTP: `POST /v1/observe`, `GET /v1/report?since=24h`, `POST /v1/label`; MCP: `caster_observe`, `caster_shadow_report`, `caster_shadow_label`.
 
-**Feeding it from a chat UI.** Ops Chat (`apps/ops-chat`) sends finished messages through an observe-only dev-server endpoint that keeps the bearer token in its Node process (see its README, `VITE_CASTER_SHADOW=1`). Any other browser client should do the same: the token must not reach the browser, and a generic pass-through proxy would let any web page drive the whole API.
+**Feeding it from a chat UI.** Ops Chat (`apps/ops-chat`) sends finished messages through an observe-only dev-server endpoint that keeps a paired `caster.observe`-only token in its Node process (see its README, `VITE_CASTER_SHADOW=1`). Any other browser client should do the same: the token must not reach the browser, and a generic pass-through proxy would let any web page drive the whole API.
 
 Known false-positive classes (from the first run): a task id inside a URL path matches `torque-id`. Not extracted yet: git SHAs, `org/repo#N`, bare file paths.
 
@@ -74,16 +74,37 @@ caster act save-handoff caster://handoffs/today  # -> tesseract://item/<id>
 
 ```sh
 caster serve [-addr 127.0.0.1:8991]
-TOKEN=$(cat "$(caster token)")                       # 0600 file, created on first use
+TOKEN=$(cat "$(caster token)")                       # the local operator's key (all scopes); other clients pair, see below
 curl -H "Authorization: Bearer $TOKEN" 'localhost:8991/v1/get?ref=CW-20261016-0015'
 curl -H "Authorization: Bearer $TOKEN" -d '{"name":"api/x","content":"hi"}' localhost:8991/v1/put
 ```
 
-Routes: `GET /v1/head|get|list|log|search`, `POST /v1/put|snap|scan|expand` (JSON bodies are the service request structs), `GET /health` (open). Auth is `libs/security/auth`: bearer API key (hash of the token file), scopes `caster.read` and `caster.write`, mode `enforce` by default (`HOLLIS_AUTH_CASTER` / `HOLLIS_AUTH` override; `ValidateBind` refuses `off`/`permissive` on non-local listeners), audit events as JSON on stderr. Unmapped routes fail closed. A missing ref is HTTP 404 with a Meta body; a bad ref is 400; an unreachable backend is 502.
+Routes: `GET /v1/head|get|list|log|search|actions|devices|report`, `POST /v1/put|snap|scan|expand|act|observe|label|renew|devices/revoke|pair/exchange`, `GET /health` (JSON bodies are the service request structs). A missing ref is HTTP 404 with a Meta body; a bad ref is 400; no identity is 401; a missing scope is 403; an unreachable backend is 502. Serve on loopback and reach it over an SSH forward or Tailscale Serve (the ADR 0062 pattern); `-addr` on another interface is allowed only in enforce mode.
+
+## Access and security
+
+Authorization lives in the service layer, so the CLI, MCP and HTTP are held to the same rules by the same code; a transport only stamps who is calling. The CLI and stdio MCP stamp the local operator (the process owner, all scopes); HTTP stamps whoever its bearer token resolves to. No identity is refused.
+
+| Scope | Allows |
+|---|---|
+| `caster.read` | `get`/`list`/`log`/`search`/`scan`/`expand`/`actions` over the local store (`cas://`, `caster://`) |
+| `caster.resolve` | the same for refs backed by another system (`torque://`, `tesseract://`), read **as caster**. Separate so a read-only holder cannot read everything the home node can reach |
+| `caster.write` | `put`, `snap` |
+| `caster.act` | actions with effects on other systems (`save-handoff`) |
+| `caster.observe` | the shadow-mode feed (records refs and verdicts, returns counts; it validates candidates, so it can learn whether an id exists) |
+| `caster.admin` | shadow reports and labels, listing and revoking devices |
+
+`scan`/`expand` treat a ref the caller lacks the scope for as unresolved, never as forbidden.
+
+**Pairing** (the Tether Outpost shape): at the local terminal, `caster pair -scope read,resolve -label laptop` prints a one-use code (5 min by default, 1 h max). The client redeems it once at `POST /v1/pair/exchange` for a `cst_` device token (30 days; only the SHA-256 of codes and tokens is stored; every failure answers the same 401; the route is rate-limited and takes at most 4 KiB). Scopes can only be narrowed at exchange and renewal, `POST /v1/renew` extends a device, `caster devices` lists, `caster revoke <dev_…>` ends one on its next request. Pairing grants can only be created at the local terminal, never over HTTP, so a leaked token cannot enroll anything. `caster pair -scope observe -token-file PATH` redeems locally and writes the token (0600), for a client on the same machine such as the Ops Chat feed.
+
+**Identity sources** (`caster serve`, tried in order): device tokens; Tether-issued JWTs when `CASTER_TETHER_URL` is set (`aud=caster`, scopes `caster.<verb>`, verified offline against Tether's JWKS with go-auth; `CASTER_JWT_ISSUER` pins `iss`, `CASTER_JWT_BOOTSTRAP_KEY` is a PEM or JWKS file used before the first fetch); and the local operator's static key (the token file `caster token` prints, `caster.*`). Tether cannot yet mint `caster.*` scopes for paired devices or launch grants, which is why caster has its own pairing for now. Issued-token revocation relies on the token's short lifetime: Tether requires a credential to read its deny-list and the poller is not wired.
+
+**Known limits.** One shared owner, no per-namespace permissions inside caster. `caster.resolve` reads Tesseract/Torque with the home node's access, so grant it deliberately. Same-uid processes can read the store and token files directly.
 
 ## Architecture
 
-`internal/service` is the contract, organised as domain services on `Service` (`Notes`, `Refs`, `Actions`, `Shadow`): every operation is `func(ctx, Request) (Result, error)` with JSON-tagged structs, errors classified by `service.Kind`, and the operation→scope table (`ScopeFor`). `internal/cli`, `internal/mcp` and `internal/api` only decode, call the service and encode; `.golangci.transport.yml` enforces that they never touch the store. A new transport (gRPC, a Chimera plugin, Tether tool) is a new package of that shape.
+`internal/service` is the contract, organised as domain services on `Service` (`Notes`, `Refs`, `Actions`, `Shadow`): every operation is `func(ctx, Request) (Result, error)` with JSON-tagged structs, errors classified by `service.Kind`, and scope checks (`require`) inside each method. `internal/cli`, `internal/mcp` and `internal/api` only decode, call the service and encode; `.golangci.transport.yml` enforces that they never touch the store. A new transport (gRPC, a Chimera plugin, Tether tool) is a new package of that shape.
 
 ## Storage
 

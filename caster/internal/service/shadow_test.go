@@ -1,14 +1,13 @@
 package service
 
 import (
-	"context"
 	"strings"
 	"testing"
 )
 
 func TestShadowPolicyDryRun(t *testing.T) {
 	s, _ := newSvc(t)
-	ctx := context.Background()
+	ctx := localCtx()
 	put, _ := s.Notes.Put(ctx, PutRequest{Name: "n/real", Content: "hello"})
 	hash := strings.TrimPrefix(put.CAS, "cas://sha256/")
 	missingHash := strings.Repeat("a", 64)
@@ -47,7 +46,7 @@ func TestShadowPolicyDryRun(t *testing.T) {
 
 func TestShadowLabelsGivePrecision(t *testing.T) {
 	s, _ := newSvc(t)
-	ctx := context.Background()
+	ctx := localCtx()
 	_, _ = s.Notes.Put(ctx, PutRequest{Name: "n/a", Content: "x"})
 	_, _ = s.Shadow.Observe(ctx, ObserveRequest{Text: "caster://n/a"})
 	if _, err := s.Shadow.Label(ctx, LabelRequest{Ref: "caster://n/a", Verdict: "maybe"}); KindOf(err) != KindInvalid {
@@ -67,7 +66,7 @@ func TestShadowLabelsGivePrecision(t *testing.T) {
 
 func TestShadowRejectsHugeText(t *testing.T) {
 	s, _ := newSvc(t)
-	if _, err := s.Shadow.Observe(context.Background(), ObserveRequest{Text: strings.Repeat("x", MaxObserveBytes+1)}); KindOf(err) != KindInvalid {
+	if _, err := s.Shadow.Observe(localCtx(), ObserveRequest{Text: strings.Repeat("x", MaxObserveBytes+1)}); KindOf(err) != KindInvalid {
 		t.Fatalf("want invalid, got %v", err)
 	}
 }

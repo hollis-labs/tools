@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hollis-labs/libs/security/auth"
@@ -53,10 +54,27 @@ func serve(ctx context.Context, svc *service.Service, configDir string, args []s
 	if err != nil {
 		return fmt.Errorf("api token: %w", err)
 	}
-	keys := auth.NewAPIKeyVerifier(auth.APIKey{Hash: auth.HashKey(token), ID: "caster/operator", Display: "caster operator key",
-		Scopes: []string{service.ScopeRead, service.ScopeWrite}})
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	guard, err := auth.New(auth.Config{Mode: mode, Verifier: keys, Scopes: api.Scopes(), Logger: logger,
+
+	// Identity sources, tried in order; the first that accepts a token wins.
+	//   1. paired device tokens (cst_…): caster-native pairing, `caster pair`
+	//   2. Tether-issued JWTs, aud=caster, when CASTER_TETHER_URL is set
+	//   3. the local operator's static key (the token file), full scopes
+	verifiers := []auth.Verifier{svc.Access.Verifier()}
+	if tetherURL := os.Getenv("CASTER_TETHER_URL"); tetherURL != "" || os.Getenv("CASTER_JWT_BOOTSTRAP_KEY") != "" {
+		jv, err := jwtVerifier(tetherURL)
+		if err != nil {
+			return fmt.Errorf("jwt verifier: %w", err)
+		}
+		go jv.Run(ctx)
+		verifiers = append(verifiers, jv)
+		logger.Info("accepting Tether-issued tokens", "audience", "caster", "issuer", tetherURL)
+	}
+	verifiers = append(verifiers, auth.NewAPIKeyVerifier(auth.APIKey{Hash: auth.HashKey(token), ID: "caster/operator",
+		Display: "local operator key", Kind: auth.KindOperator, Scopes: []string{"caster.*"}}))
+
+	// Authentication only: what an identity may do is decided in the service layer.
+	guard, err := auth.New(auth.Config{Mode: mode, Verifier: auth.Chain(verifiers...), Logger: logger, OpenPath: api.OpenPaths,
 		Audit: func(e auth.Event) { logger.Info("audit", "event", e) }})
 	if err != nil {
 		return err
@@ -74,4 +92,30 @@ func serve(ctx context.Context, svc *service.Service, configDir string, args []s
 		return err
 	}
 	return nil
+}
+
+// tetherHeader adds the protocol header Tether's issuer endpoints require.
+type tetherHeader struct{ next http.RoundTripper }
+
+func (t tetherHeader) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.Header.Set("Tether-Protocol", "1")
+	return t.next.RoundTrip(r)
+}
+
+// jwtVerifier verifies Tether-issued Ed25519 JWTs offline against the issuer's
+// JWKS. Tokens must carry aud=caster. Deny-list polling is not wired: Tether
+// requires a credential to read it, so revocation of an issued token relies on
+// its short lifetime (at most 60 minutes) until that is resolved.
+func jwtVerifier(tetherURL string) (*auth.JWTVerifier, error) {
+	cfg := auth.JWTConfig{
+		Issuer:           os.Getenv("CASTER_JWT_ISSUER"),
+		Audience:         "caster",
+		BootstrapKeyFile: os.Getenv("CASTER_JWT_BOOTSTRAP_KEY"),
+		Client:           &http.Client{Timeout: 10 * time.Second, Transport: tetherHeader{http.DefaultTransport}},
+	}
+	if tetherURL != "" {
+		cfg.JWKSURL = strings.TrimRight(tetherURL, "/") + "/.well-known/jwks.json"
+	}
+	return auth.NewJWTVerifier(cfg)
 }

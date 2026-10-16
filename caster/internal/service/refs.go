@@ -53,6 +53,9 @@ func (s *Refs) materialize(ctx context.Context, raw string) (resolver.Content, e
 	if err != nil {
 		return resolver.Content{}, err
 	}
+	if err := require(ctx, readScope(r)); err != nil {
+		return resolver.Content{}, err
+	}
 	c, err := s.reg.Materialize(ctx, r)
 	return c, classify(err)
 }
@@ -61,6 +64,9 @@ func (s *Refs) materialize(ctx context.Context, raw string) (resolver.Content, e
 func (s *Refs) Head(ctx context.Context, req RefRequest) (Meta, error) {
 	r, err := parseRef(req.Ref)
 	if err != nil {
+		return Meta{}, err
+	}
+	if err := require(ctx, readScope(r)); err != nil {
 		return Meta{}, err
 	}
 	m, err := s.reg.Resolve(ctx, r)
@@ -74,6 +80,9 @@ func (s *Refs) Head(ctx context.Context, req RefRequest) (Meta, error) {
 // the bytes in CAS, recording where and when they came from. The result is a
 // pinned cas:// ref; with a name it also advances that name.
 func (s *Refs) Snapshot(ctx context.Context, req SnapRequest) (SnapResult, error) {
+	if err := require(ctx, ScopeWrite); err != nil {
+		return SnapResult{}, err
+	}
 	c, err := s.materialize(ctx, req.Ref)
 	if err != nil {
 		return SnapResult{}, err
@@ -109,6 +118,10 @@ type found struct {
 func (s *Refs) scan(ctx context.Context, text string) []found {
 	var out []found
 	for _, c := range ref.Detect(text) {
+		if !visible(ctx, c.Ref) {
+			out = append(out, found{c, resolver.Meta{Ref: c.Ref, State: StateNotFound}, nil})
+			continue
+		}
 		m, err := s.reg.Resolve(ctx, c.Ref)
 		out = append(out, found{c, m, err})
 	}
@@ -118,6 +131,9 @@ func (s *Refs) scan(ctx context.Context, text string) []found {
 // Scan detects refs in text and validates each with its resolver. Detection
 // fetches nothing; only refs that resolve are listed.
 func (s *Refs) Scan(ctx context.Context, req ScanRequest) (ScanResult, error) {
+	if _, ok := caller(ctx); !ok {
+		return ScanResult{}, require(ctx)
+	}
 	out := ScanResult{Refs: []Meta{}}
 	for _, f := range s.scan(ctx, req.Text) {
 		switch {
@@ -137,6 +153,9 @@ func (s *Refs) Scan(ctx context.Context, req ScanRequest) (ScanResult, error) {
 // source and records the revision actually used. Unresolved refs are left
 // exactly as written.
 func (s *Refs) Expand(ctx context.Context, req ExpandRequest) (ExpandResult, error) {
+	if _, ok := caller(ctx); !ok {
+		return ExpandResult{}, require(ctx)
+	}
 	budget := req.Budget
 	if budget <= 0 {
 		budget = 16 << 10
@@ -182,3 +201,8 @@ func parseRef(raw string) (ref.Ref, error) {
 	}
 	return r, nil
 }
+
+// visible reports whether the caller may see a detected ref at all. Refs the
+// caller lacks the scope for are treated as unresolved, so scanning and
+// expanding text never lets a caller probe or read what its scopes do not cover.
+func visible(ctx context.Context, r ref.Ref) bool { return can(ctx, readScope(r)) }
