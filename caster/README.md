@@ -81,6 +81,26 @@ curl -H "Authorization: Bearer $TOKEN" -d '{"name":"api/x","content":"hi"}' loca
 
 Routes: `GET /v1/head|get|list|log|search|actions|devices|report`, `POST /v1/put|snap|scan|expand|act|observe|label|renew|devices/revoke|pair/exchange`, `GET /health` (JSON bodies are the service request structs). A missing ref is HTTP 404 with a Meta body; a bad ref is 400; no identity is 401; a missing scope is 403; an unreachable backend is 502. Serve on loopback and reach it over an SSH forward or Tailscale Serve (the ADR 0062 pattern); `-addr` on another interface is allowed only in enforce mode.
 
+## Using a home node from other machines
+
+One machine is the **home node**: it owns the store, resolves Torque and Tesseract, and runs `caster serve` (bound to loopback). Every other machine, human or agent, is a client of it: the CLI and `caster mcp` call the home node's HTTP API through the same service contract, with no local store.
+
+```sh
+# on the home node, once per client
+caster serve                                  # loopback; reach it over an SSH forward or `tailscale serve --bg 8991` (https)
+caster pair -scope read,resolve,write -label work-laptop     # prints a one-use code (5 min)
+
+# on the client (the URL is what the client can reach: https://<name>.<tailnet>.ts.net, or http://localhost:8991 through `ssh -L 8991:localhost:8991 <home>`)
+caster login https://home-node.<tailnet>.ts.net <code>
+caster whoami                                 # who the home node takes you for, your scopes, expiry
+caster put -n notes/today < today.md          # now stored on the home node
+caster remote                                 # mode, reachability, scopes, days left;   caster renew   extends 30 days
+```
+
+`login` redeems the code and stores the device token with the **secrets lib** (OS keychain, else its managed 0600 file store on headless Linux; `-ref` picks another reference such as `op://…`). The saved profile (`~/.config/caster/remote.json`) holds only the URL and that reference, never the token. After login every command on that machine uses the home node, including `caster mcp`, so an agent platform only needs `{"command": "caster", "args": ["mcp"]}` (give the absolute path where `PATH` is minimal). `CASTER_LOCAL=1` forces a local store (use it on the home node itself); `CASTER_REMOTE` + `CASTER_TOKEN_REF` configure a machine without a profile. `caster logout` forgets the home node locally; end the device itself with `caster revoke <dev_…>` there.
+
+The client refuses plain http except to loopback or a tailnet address (`-allow-http` / `CASTER_ALLOW_HTTP=1` to accept it), never follows redirects, and says what to do when its token is expired or revoked. Commands that only make sense on the home node (`serve`, `token`, `pair`, `paths`) say so instead of acting.
+
 ## Access and security
 
 Authorization lives in the service layer, so the CLI, MCP and HTTP are held to the same rules by the same code; a transport only stamps who is calling. The CLI and stdio MCP stamp the local operator (the process owner, all scopes); HTTP stamps whoever its bearer token resolves to. No identity is refused.
@@ -96,7 +116,7 @@ Authorization lives in the service layer, so the CLI, MCP and HTTP are held to t
 
 `scan`/`expand` treat a ref the caller lacks the scope for as unresolved, never as forbidden.
 
-**Pairing** (the Tether Outpost shape): at the local terminal, `caster pair -scope read,resolve -label laptop` prints a one-use code (5 min by default, 1 h max). The client redeems it once at `POST /v1/pair/exchange` for a `cst_` device token (30 days; only the SHA-256 of codes and tokens is stored; every failure answers the same 401; the route is rate-limited and takes at most 4 KiB). Scopes can only be narrowed at exchange and renewal, `POST /v1/renew` extends a device, `caster devices` lists, `caster revoke <dev_…>` ends one on its next request. Pairing grants can only be created at the local terminal, never over HTTP, so a leaked token cannot enroll anything. `caster pair -scope observe -token-file PATH` redeems locally and writes the token (0600), for a client on the same machine such as the Ops Chat feed.
+**Pairing** (the Tether Outpost shape): at the local terminal, `caster pair -scope read,resolve -label laptop` prints a one-use code (5 min by default, 1 h max). The client redeems it once (`caster login <url> <code>`, which calls `POST /v1/pair/exchange`) for a `cst_` device token (30 days; only the SHA-256 of codes and tokens is stored; every failure answers the same 401; the route is rate-limited and takes at most 4 KiB). Scopes can only be narrowed at exchange and renewal, `POST /v1/renew` extends a device, `caster devices` lists, `caster revoke <dev_…>` ends one on its next request. Pairing grants can only be created at the home node's own terminal, never over HTTP, so a leaked token cannot enroll anything. `caster pair -scope observe -token-file PATH` redeems locally and writes the token (0600), for a client on the same machine such as the Ops Chat feed.
 
 **Identity sources** (`caster serve`, tried in order): device tokens; Tether-issued JWTs when `CASTER_TETHER_URL` is set (`aud=caster`, scopes `caster.<verb>`, verified offline against Tether's JWKS with go-auth; `CASTER_JWT_ISSUER` pins `iss`, `CASTER_JWT_BOOTSTRAP_KEY` is a PEM or JWKS file used before the first fetch); and the local operator's static key (the token file `caster token` prints, `caster.*`). Tether cannot yet mint `caster.*` scopes for paired devices or launch grants, which is why caster has its own pairing for now. Issued-token revocation relies on the token's short lifetime: Tether requires a credential to read its deny-list and the poller is not wired.
 
@@ -104,7 +124,7 @@ Authorization lives in the service layer, so the CLI, MCP and HTTP are held to t
 
 ## Architecture
 
-`internal/service` is the contract, organised as domain services on `Service` (`Notes`, `Refs`, `Actions`, `Shadow`): every operation is `func(ctx, Request) (Result, error)` with JSON-tagged structs, errors classified by `service.Kind`, and scope checks (`require`) inside each method. `internal/cli`, `internal/mcp` and `internal/api` only decode, call the service and encode; `.golangci.transport.yml` enforces that they never touch the store. A new transport (gRPC, a Chimera plugin, Tether tool) is a new package of that shape.
+`internal/service` is the contract, organised as domain services on `Service` (`Notes`, `Refs`, `Actions`, `Shadow`): every operation is `func(ctx, Request) (Result, error)` with JSON-tagged structs, errors classified by `service.Kind`, and scope checks (`require`) inside each method. `internal/cli`, `internal/mcp` and `internal/api` only decode, call the service and encode; the domain services are interfaces (`service/contract.go`), implemented locally by the service and remotely by `internal/client`, so the CLI and MCP are identical in both modes; `.golangci.transport.yml` enforces that they never touch the store. A new transport (gRPC, a Chimera plugin, Tether tool) is a new package of that shape.
 
 ## Storage
 

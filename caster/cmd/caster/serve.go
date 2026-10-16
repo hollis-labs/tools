@@ -60,7 +60,7 @@ func serve(ctx context.Context, svc *service.Service, configDir string, args []s
 	//   1. paired device tokens (cst_…): caster-native pairing, `caster pair`
 	//   2. Tether-issued JWTs, aud=caster, when CASTER_TETHER_URL is set
 	//   3. the local operator's static key (the token file), full scopes
-	verifiers := []auth.Verifier{svc.Access.Verifier()}
+	verifiers := []auth.Verifier{svc.Verifier()}
 	if tetherURL := os.Getenv("CASTER_TETHER_URL"); tetherURL != "" || os.Getenv("CASTER_JWT_BOOTSTRAP_KEY") != "" {
 		jv, err := jwtVerifier(tetherURL)
 		if err != nil {

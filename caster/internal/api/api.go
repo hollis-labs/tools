@@ -88,6 +88,10 @@ func Handler(svc *service.Service, guard *auth.Guard) http.Handler {
 	mux.HandleFunc("POST "+exchangePath, limited(newBucket(10, 6*time.Second), 4<<10,
 		post(svc.Access.Exchange, func(service.ExchangeResult) string { return "" })))
 	mux.HandleFunc("POST /v1/renew", post(svc.Access.Renew, func(service.DeviceInfo) string { return "" }))
+	mux.HandleFunc("GET /v1/whoami", func(w http.ResponseWriter, r *http.Request) {
+		res, err := svc.Access.Whoami(r.Context(), struct{}{})
+		respond(w, "", res, err)
+	})
 	mux.HandleFunc("GET /v1/devices", func(w http.ResponseWriter, r *http.Request) {
 		res, err := svc.Access.Devices(r.Context(), struct{}{})
 		respond(w, "", res, err)

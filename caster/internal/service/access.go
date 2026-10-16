@@ -313,3 +313,27 @@ func (v deviceVerifier) Verify(_ context.Context, token string) (auth.Principal,
 	return auth.Principal{Verified: true, ID: devicePfx + d.ID, Kind: auth.KindDevice, Display: d.Label,
 		Audience: "caster", Scopes: d.Scopes, ExpiresAt: d.ExpiresAt}, nil
 }
+
+// WhoamiResult is how the service sees the caller.
+type WhoamiResult struct {
+	ID        string     `json:"id"`
+	Kind      string     `json:"kind,omitempty"`
+	Label     string     `json:"label,omitempty"`
+	Scopes    []string   `json:"scopes"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+// Whoami reports the caller's identity, scopes and expiry. Any verified caller
+// may ask: it reveals nothing the caller does not already hold.
+func (a *Access) Whoami(ctx context.Context, _ struct{}) (WhoamiResult, error) {
+	p, ok := caller(ctx)
+	if !ok {
+		return WhoamiResult{}, require(ctx)
+	}
+	out := WhoamiResult{ID: p.ID, Kind: p.Kind, Label: p.Display, Scopes: append([]string{}, p.Scopes...)}
+	if !p.ExpiresAt.IsZero() {
+		t := p.ExpiresAt
+		out.ExpiresAt = &t
+	}
+	return out, nil
+}

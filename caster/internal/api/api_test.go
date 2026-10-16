@@ -50,7 +50,7 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	keys := auth.NewAPIKeyVerifier(auth.APIKey{Hash: auth.HashKey("operator-key"), ID: "caster/operator", Kind: auth.KindOperator, Scopes: []string{"caster.*"}})
-	g, err := auth.New(auth.Config{Mode: auth.ModeEnforce, Verifier: auth.Chain(svc.Access.Verifier(), jv, keys), OpenPath: OpenPaths})
+	g, err := auth.New(auth.Config{Mode: auth.ModeEnforce, Verifier: auth.Chain(svc.Verifier(), jv, keys), OpenPath: OpenPaths})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -54,6 +54,8 @@ const usage = `caster — content-addressed store and ref resolver
                                 per-extractor measurement of shadow detection
   caster shadow label <ref> true|false
                                 record whether a detected ref was a true or false positive
+  caster whoami                 who the service takes you for: identity, scopes, expiry
+  caster renew                  extend this device's token another 30 days (remote mode)
   caster pair [-scope read,resolve,…] [-ttl 5m] [-label l] [-token-file path]
                                 one-use pairing code for a client (local terminal only); with
                                 -token-file, redeem it here and save the device token to that file
@@ -102,6 +104,10 @@ func Run(ctx context.Context, svc *service.Service, args []string, in io.Reader,
 		return a.act(ctx, rest)
 	case "shadow":
 		return a.shadow(ctx, rest)
+	case "whoami":
+		return a.whoami(ctx)
+	case "renew":
+		return a.renew(ctx)
 	case "pair":
 		return a.pair(ctx, rest)
 	case "devices":
@@ -584,5 +590,27 @@ func (a *app) revoke(ctx context.Context, args []string) int {
 		return a.fail(err)
 	}
 	fmt.Fprintf(a.out, "revoked %s\n", res.Revoked)
+	return ExitOK
+}
+
+func (a *app) whoami(ctx context.Context) int {
+	w, err := a.svc.Access.Whoami(ctx, struct{}{})
+	if err != nil {
+		return a.fail(err)
+	}
+	exp := "never"
+	if w.ExpiresAt != nil {
+		exp = w.ExpiresAt.Local().Format("2006-01-02 15:04")
+	}
+	fmt.Fprintf(a.out, "id:      %s\nkind:    %s\nlabel:   %s\nscopes:  %s\nexpires: %s\n", w.ID, w.Kind, w.Label, strings.Join(w.Scopes, ", "), exp)
+	return ExitOK
+}
+
+func (a *app) renew(ctx context.Context) int {
+	d, err := a.svc.Access.Renew(ctx, service.RenewRequest{})
+	if err != nil {
+		return a.fail(err)
+	}
+	fmt.Fprintf(a.out, "%s renewed until %s\n", d.ID, d.ExpiresAt.Local().Format("2006-01-02"))
 	return ExitOK
 }

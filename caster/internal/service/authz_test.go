@@ -107,7 +107,7 @@ func (fakeRemote) Materialize(_ context.Context, r ref.Ref) (resolver.Content, e
 func TestPairingLifecycle(t *testing.T) {
 	s, _ := newSvc(t)
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
-	s.Access.now = func() time.Time { return now }
+	s.access.now = func() time.Time { return now }
 	op := localCtx()
 
 	if _, err := s.Access.CreateGrant(ctxWith(ScopeAdmin), PairRequest{Scopes: []string{"read"}}); KindOf(err) != KindDenied {
@@ -138,7 +138,7 @@ func TestPairingLifecycle(t *testing.T) {
 		}
 	}
 
-	p, err := s.Access.Verifier().Verify(op, ex.Token)
+	p, err := s.access.Verifier().Verify(op, ex.Token)
 	if err != nil || p.ID != "device/"+ex.DeviceID || !p.HasScope(ScopeRead) || p.HasScope(ScopeWrite) {
 		t.Fatalf("verify: %+v %v", p, err)
 	}
@@ -155,19 +155,19 @@ func TestPairingLifecycle(t *testing.T) {
 		t.Fatalf("renew: %+v %v", renewed, err)
 	}
 	now = now.Add(DeviceLifetime + time.Hour)
-	if _, err := s.Access.Verifier().Verify(op, ex.Token); err == nil {
+	if _, err := s.access.Verifier().Verify(op, ex.Token); err == nil {
 		t.Fatal("an expired device must not verify")
 	}
 
 	g2, _ := s.Access.CreateGrant(op, PairRequest{Scopes: []string{"read"}})
 	ex2, _ := s.Access.Exchange(op, ExchangeRequest{Code: g2.Code})
-	if _, err := s.Access.Verifier().Verify(op, ex2.Token); err != nil {
+	if _, err := s.access.Verifier().Verify(op, ex2.Token); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Access.Revoke(op, RevokeRequest{ID: ex2.DeviceID}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Access.Verifier().Verify(op, ex2.Token); err == nil {
+	if _, err := s.access.Verifier().Verify(op, ex2.Token); err == nil {
 		t.Fatal("a revoked device must stop verifying immediately")
 	}
 
