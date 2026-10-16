@@ -1,0 +1,17 @@
+# Draft catalog entry: mcp-servers/caster.yaml
+# `caster mcp` as a client of the home node, scoped by a paired device token
+# (label "agents": caster.read, caster.write, caster.resolve), not the
+# local-operator identity a bare `caster mcp` takes. The token lasts 30 days;
+# `caster renew` with the same CASTER_REMOTE / CASTER_TOKEN_REF extends it.
+# Where the gateway runs, caster must be installed there and the token file must
+# exist there (0600, in the catalog's credentials/ dir). Off the home node, use the
+# tailnet HTTPS URL instead of loopback.
+id: caster
+transport: stdio
+command: /opt/caster/go/bin/caster
+args: [mcp]
+env:
+  CASTER_REMOTE: http://127.0.0.1:8991
+  CASTER_TOKEN_REF: file:///opt/caster/.tether/catalog/credentials/caster.token
+tags: [notes, scratchpad, drafts, refs, cas, caster]
+enabled: true
