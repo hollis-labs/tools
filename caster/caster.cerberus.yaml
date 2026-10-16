@@ -19,6 +19,11 @@ resources:
     config:
       build_strategy:
         kind: make_standard
+        source:
+          root: .
+        rules:
+          target: build
+          output: bin/caster
       command:
         - ./bin/caster
         - serve
