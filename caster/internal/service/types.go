@@ -27,9 +27,9 @@ const (
 // ScopeFor returns the scope an operation needs. Unknown operations get "".
 func ScopeFor(op string) string {
 	switch op {
-	case OpPut, OpSnap, OpAct:
+	case OpPut, OpSnap, OpAct, OpObserve, OpLabel:
 		return ScopeWrite
-	case OpGet, OpHead, OpList, OpLog, OpSearch, OpScan, OpExpand, OpActions:
+	case OpGet, OpHead, OpList, OpLog, OpSearch, OpScan, OpExpand, OpActions, OpReport:
 		return ScopeRead
 	}
 	return ""
@@ -41,6 +41,7 @@ const (
 	OpList, OpLog, OpSearch      = "list", "log", "search"
 	OpScan, OpExpand             = "scan", "expand"
 	OpActions, OpAct             = "actions", "act"
+	OpObserve, OpReport, OpLabel = "observe", "report", "label"
 )
 
 // Error kinds, the one vocabulary transports map to exit codes, HTTP statuses

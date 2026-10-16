@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/hollis-labs/libs/security/auth"
 
@@ -26,6 +27,9 @@ func Scopes() *auth.ScopeTable {
 		Route("GET", "/v1/list", service.ScopeFor(service.OpList)).
 		Route("GET", "/v1/log", service.ScopeFor(service.OpLog)).
 		Route("GET", "/v1/search", service.ScopeFor(service.OpSearch)).
+		Route("POST", "/v1/observe", service.ScopeFor(service.OpObserve)).
+		Route("GET", "/v1/report", service.ScopeFor(service.OpReport)).
+		Route("POST", "/v1/label", service.ScopeFor(service.OpLabel)).
 		Route("GET", "/v1/actions", service.ScopeFor(service.OpActions)).
 		Route("POST", "/v1/act", service.ScopeFor(service.OpAct)).
 		Route("POST", "/v1/scan", service.ScopeFor(service.OpScan)).
@@ -80,6 +84,16 @@ func Handler(svc *service.Service, guard *auth.Guard) http.Handler {
 	mux.HandleFunc("GET /v1/actions", func(w http.ResponseWriter, r *http.Request) {
 		res, err := svc.Actions.List(r.Context(), service.ActionsRequest{Ref: r.URL.Query().Get("ref")})
 		respond(w, res.State, res, err)
+	})
+	mux.HandleFunc("POST /v1/observe", post(svc.Shadow.Observe, func(service.ObserveResult) string { return "" }))
+	mux.HandleFunc("POST /v1/label", post(svc.Shadow.Label, func(service.LabelResult) string { return "" }))
+	mux.HandleFunc("GET /v1/report", func(w http.ResponseWriter, r *http.Request) {
+		var req service.ReportRequest
+		if d, err := time.ParseDuration(r.URL.Query().Get("since")); err == nil && d > 0 {
+			req.Since = time.Now().Add(-d)
+		}
+		res, err := svc.Shadow.Report(r.Context(), req)
+		respond(w, "", res, err)
 	})
 	mux.HandleFunc("POST /v1/act", post(svc.Actions.Run, func(r service.ActResult) string { return r.State }))
 	mux.HandleFunc("POST /v1/put", post(svc.Notes.Put, func(service.PutResult) string { return "" }))

@@ -63,6 +63,17 @@ CREATE TABLE IF NOT EXISTS name_revs(
 CREATE TABLE IF NOT EXISTS action_log(
   idem_key TEXT PRIMARY KEY, action TEXT NOT NULL, source_ref TEXT NOT NULL,
   outcome_ref TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS observations(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, text_hash TEXT NOT NULL, generation INTEGER NOT NULL,
+  first_source TEXT NOT NULL DEFAULT '', first_at TEXT NOT NULL, last_at TEXT NOT NULL, seen INTEGER NOT NULL DEFAULT 1,
+  candidates INTEGER NOT NULL, resolved INTEGER NOT NULL, would_show INTEGER NOT NULL,
+  UNIQUE(text_hash, generation));
+CREATE TABLE IF NOT EXISTS detections(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, observation_id INTEGER NOT NULL REFERENCES observations(id),
+  extractor TEXT NOT NULL, confidence TEXT NOT NULL, ref TEXT NOT NULL, scheme TEXT NOT NULL,
+  state TEXT NOT NULL, verdict TEXT NOT NULL, would_show INTEGER NOT NULL, error TEXT NOT NULL DEFAULT '',
+  label TEXT NOT NULL DEFAULT '');
+CREATE INDEX IF NOT EXISTS detections_ref ON detections(ref);
 CREATE VIRTUAL TABLE IF NOT EXISTS blob_fts USING fts5(hash UNINDEXED, body);
 `
 

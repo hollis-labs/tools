@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/hollis-labs/caster/internal/service"
 )
@@ -44,6 +45,12 @@ const usage = `caster — content-addressed store and ref resolver
   caster act [-ns namespace] [-session id] [-agent id] [-workstream id] [-dry-run] <action> <ref>
                                 run an action, e.g. save-handoff (context defaults from
                                 CASTER_NAMESPACE, CASTER_SESSION_ID, CASTER_AGENT_ID, CASTER_WORKSTREAM_ID)
+  caster shadow observe [-source s] [file|-]
+                                detect refs in text and record what a card UI would show (counts only)
+  caster shadow report [-since 24h] [-json]
+                                per-extractor measurement of shadow detection
+  caster shadow label <ref> true|false
+                                record whether a detected ref was a true or false positive
   caster paths                  where data lives
   caster mcp                    serve the tools over MCP stdio (for agents)
   caster serve [-addr a]        serve the HTTP API (bearer auth; see README)
@@ -84,6 +91,8 @@ func Run(ctx context.Context, svc *service.Service, args []string, in io.Reader,
 		return a.actions(ctx, rest)
 	case "act":
 		return a.act(ctx, rest)
+	case "shadow":
+		return a.shadow(ctx, rest)
 	}
 	fmt.Fprintf(errw, "caster: unknown command %q\n\n%s", cmd, usage)
 	return ExitUsage
@@ -410,5 +419,83 @@ func (a *app) act(ctx context.Context, args []string) int {
 	}
 	fmt.Fprintln(a.out, res.Outcome)
 	fmt.Fprintf(a.err, "%s %s  source %s  key %s\n", res.Action, res.Status, res.Source, res.Key)
+	return ExitOK
+}
+
+func (a *app) shadow(ctx context.Context, args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(a.err, "usage: caster shadow observe|report|label …")
+		return ExitUsage
+	}
+	sub, rest := args[0], args[1:]
+	switch sub {
+	case "observe":
+		fs := a.flags("shadow observe")
+		req := service.ObserveRequest{}
+		fs.StringVar(&req.Source, "source", "", "opaque label for where the text came from")
+		pos, ok := a.parse(fs, rest)
+		if !ok {
+			return ExitUsage
+		}
+		text, err := a.text(pos)
+		if err != nil {
+			return a.fail(err)
+		}
+		req.Text = text
+		res, err := a.svc.Shadow.Observe(ctx, req)
+		if err != nil {
+			return a.fail(err)
+		}
+		fmt.Fprintf(a.out, "%s: %d candidates, %d resolved, %d would show (cached: %v)\n", res.Mode, res.Candidates, res.Resolved, res.WouldShow, res.Cached)
+	case "report":
+		fs := a.flags("shadow report")
+		since := fs.Duration("since", 0, "only observations seen within this duration, e.g. 24h")
+		asJSON := fs.Bool("json", false, "json output")
+		if _, ok := a.parse(fs, rest); !ok {
+			return ExitUsage
+		}
+		req := service.ReportRequest{}
+		if *since > 0 {
+			req.Since = time.Now().Add(-*since)
+		}
+		res, err := a.svc.Shadow.Report(ctx, req)
+		if err != nil {
+			return a.fail(err)
+		}
+		if *asJSON {
+			_ = json.NewEncoder(a.out).Encode(res)
+			return ExitOK
+		}
+		fmt.Fprintf(a.out, "%s, generation %d: %d observations (%d repeats served from cache)\n\n", res.Mode, res.Generation, res.Observations, res.Repeats)
+		tw := tabwriter.NewWriter(a.out, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(tw, "extractor\tconf\tcandidates\tresolved\trate\tshow\tdistinct\terrors\tprecision")
+		for _, e := range res.Extractors {
+			prec := "-"
+			if e.Precision != nil {
+				prec = fmt.Sprintf("%.0f%% (%d/%d)", *e.Precision*100, e.LabeledTrue, e.LabeledTrue+e.LabeledFalse)
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%.0f%%\t%d\t%d\t%d\t%s\n", e.Extractor, e.Confidence, e.Candidates, e.Resolved, e.ResolveRate*100, e.WouldShow, e.DistinctRefs, e.Errors, prec)
+		}
+		_ = tw.Flush()
+		if len(res.TopUnresolved) > 0 {
+			fmt.Fprintln(a.out, "\ntop unresolved:")
+			for _, c := range res.TopUnresolved {
+				fmt.Fprintf(a.out, "  %4d  %s\n", c.Count, c.Ref)
+			}
+		}
+	case "label":
+		if len(rest) != 2 {
+			fmt.Fprintln(a.err, "usage: caster shadow label <ref> true|false")
+			return ExitUsage
+		}
+		res, err := a.svc.Shadow.Label(ctx, service.LabelRequest{Ref: rest[0], Verdict: rest[1]})
+		if err != nil {
+			return a.fail(err)
+		}
+		fmt.Fprintf(a.out, "labelled %d detections\n", res.Updated)
+	default:
+		fmt.Fprintf(a.err, "caster shadow: unknown subcommand %q\n", sub)
+		return ExitUsage
+	}
 	return ExitOK
 }

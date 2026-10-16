@@ -41,6 +41,20 @@ MCP-store refs go through a stdio MCP client (`internal/mcpclient`) that launche
 
 Stdio MCP server with `caster_put`, `caster_get`, `caster_head`, `caster_snap`, `caster_ls`, `caster_log`, `caster_search`, `caster_scan`, `caster_expand`. Register it as `{"command":"caster","args":["mcp"]}`. Missing refs are outcomes (`state: not_found`), not errors; `caster_get` truncates at 64 KiB by default. The stdio server is launched by the operator and is not authenticated (same trust as the CLI).
 
+## Detection in shadow mode: `caster shadow`
+
+Measures how noisy detection is before any card is shown. A UI or ingester hands each message to `observe`; caster runs every extractor (including the low-confidence ones: bare ULIDs → `tesseract://item/…`, bare 64-hex → `cas://…`), validates each candidate with its resolver, applies the card/quiet policy as a **dry run**, and records the outcome. It returns counts only, so nothing can leak into the UI, and it never stores message text (only ref, extractor, state, verdict).
+
+```sh
+caster shadow observe -source chat:<session>/<msg> < message.txt   # shadow: 6 candidates, 3 resolved, 2 would show
+caster shadow report [-since 24h] [-json]    # per extractor: candidates, resolve rate, would-show, distinct refs, precision
+caster shadow label <ref> true|false         # human verdict on a detected ref -> precision
+```
+
+Verdicts: `card` (resolved, high confidence), `quiet_index` (resolved, low confidence: never shown), `ignore` (did not resolve), `error` (resolver could not answer), `skipped` (over the 50-resolves-per-text budget). Identical text at the same extractor generation (`ref.Generation`, bump it when an extractor changes) is recorded once; later sightings count as repeats. HTTP: `POST /v1/observe`, `GET /v1/report?since=24h`, `POST /v1/label`; MCP: `caster_observe`, `caster_shadow_report`, `caster_shadow_label`.
+
+Known false-positive classes (from the first run): a task id inside a URL path matches `torque-id`. Not extracted yet: git SHAs, `org/repo#N`, bare file paths.
+
 ## Actions: `caster actions`, `caster act`
 
 An action is a registered operation on a ref whose parameters bind from ambient context instead of being typed. One exists so far:
@@ -67,7 +81,7 @@ Routes: `GET /v1/head|get|list|log|search`, `POST /v1/put|snap|scan|expand` (JSO
 
 ## Architecture
 
-`internal/service` is the contract, organised as domain services on `Service` (`Notes`, `Refs`, `Actions`): every operation is `func(ctx, Request) (Result, error)` with JSON-tagged structs, errors classified by `service.Kind`, and the operation→scope table (`ScopeFor`). `internal/cli`, `internal/mcp` and `internal/api` only decode, call the service and encode; `.golangci.transport.yml` enforces that they never touch the store. A new transport (gRPC, a Chimera plugin, Tether tool) is a new package of that shape.
+`internal/service` is the contract, organised as domain services on `Service` (`Notes`, `Refs`, `Actions`, `Shadow`): every operation is `func(ctx, Request) (Result, error)` with JSON-tagged structs, errors classified by `service.Kind`, and the operation→scope table (`ScopeFor`). `internal/cli`, `internal/mcp` and `internal/api` only decode, call the service and encode; `.golangci.transport.yml` enforces that they never touch the store. A new transport (gRPC, a Chimera plugin, Tether tool) is a new package of that shape.
 
 ## Storage
 
