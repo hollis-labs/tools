@@ -53,6 +53,8 @@ caster shadow label <ref> true|false         # human verdict on a detected ref -
 
 Verdicts: `card` (resolved, high confidence), `quiet_index` (resolved, low confidence: never shown), `ignore` (did not resolve), `error` (resolver could not answer), `skipped` (over the 50-resolves-per-text budget). Identical text at the same extractor generation (`ref.Generation`, bump it when an extractor changes) is recorded once; later sightings count as repeats. HTTP: `POST /v1/observe`, `GET /v1/report?since=24h`, `POST /v1/label`; MCP: `caster_observe`, `caster_shadow_report`, `caster_shadow_label`.
 
+**Feeding it from a chat UI.** Ops Chat (`apps/ops-chat`) sends finished messages through an observe-only dev-server endpoint that keeps the bearer token in its Node process (see its README, `VITE_CASTER_SHADOW=1`). Any other browser client should do the same: the token must not reach the browser, and a generic pass-through proxy would let any web page drive the whole API.
+
 Known false-positive classes (from the first run): a task id inside a URL path matches `torque-id`. Not extracted yet: git SHAs, `org/repo#N`, bare file paths.
 
 ## Actions: `caster actions`, `caster act`
