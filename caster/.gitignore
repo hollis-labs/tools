@@ -31,3 +31,4 @@ go.work.sum
 
 # Cerberus artifact output
 /bin/
+.cerberus-build.lock
