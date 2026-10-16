@@ -25,6 +25,9 @@ refuses a tag whose CHANGELOG has no heading for it.
 - Deployment: Cerberus resource `caster-uat` (systemd user service on home-node), `make dist` client binaries for darwin and linux (arm64, amd64), `deploy/tailscale-serve.sh` for tailnet-only HTTPS, draft Tether catalog entries for a scoped MCP server and a `caster` agent in `deploy/tether/`.
 - Docs split by topic under `docs/`; `AGENTS.md` lists the invariants and the tests that guard them.
 
+- Client accepts a literal device token from the environment (`CASTER_TOKEN`, or a `cst_…` value in `CASTER_TOKEN_REF`) for launchers that resolve secret references themselves, as Tether's gateway does; it is never saved to the profile or printed.
+- MCP `tags` accepts a list as well as the documented space-separated string.
+
 ### Known issues
 
 - No delete operation; no garbage collection.

@@ -48,3 +48,30 @@ func TestServePutGetRoundTrip(t *testing.T) {
 		t.Fatalf("unknown tool must be an error: %s", lines[4])
 	}
 }
+
+func TestTagsMayArriveAsAListOrAString(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "main.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	in := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"caster_put","arguments":{"content":"a","name":"t/list","tags":["x","y"]}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"caster_put","arguments":{"content":"b","name":"t/str","tags":"x y"}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"caster_ls","arguments":{"tag":"y"}}}`,
+	}, "\n")
+	var out bytes.Buffer
+	if err := Serve(context.Background(), service.New(st), strings.NewReader(in), &out, "test"); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	for _, l := range lines[1:3] {
+		if strings.Contains(l, `"isError":true`) {
+			t.Fatalf("put with tags failed: %s", l)
+		}
+	}
+	if !strings.Contains(lines[3], "t/list") || !strings.Contains(lines[3], "t/str") {
+		t.Fatalf("both tag forms should be searchable by tag: %s", lines[3])
+	}
+}

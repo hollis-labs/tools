@@ -26,12 +26,34 @@ func bind[Q, R any](fn func(context.Context, Q) (R, error)) func(context.Context
 	return func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var q Q
 		if len(raw) > 0 {
+			raw = listsAsText(raw)
 			if err := json.Unmarshal(raw, &q); err != nil {
 				return nil, &service.Error{Kind: service.KindInvalid, Err: err}
 			}
 		}
 		return fn(ctx, q)
 	}
+}
+
+// listsAsText accepts "tags" as a list of strings as well as the documented
+// space-separated string: some MCP clients and proxies turn a tag-like string
+// parameter into an array. Anything else is left for the strict decode to refuse.
+func listsAsText(raw json.RawMessage) json.RawMessage {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(raw, &m) != nil {
+		return raw
+	}
+	var tags []string
+	if t, ok := m["tags"]; !ok || json.Unmarshal(t, &tags) != nil {
+		return raw
+	}
+	joined, _ := json.Marshal(strings.Join(tags, " "))
+	m["tags"] = joined
+	out, err := json.Marshal(m)
+	if err != nil {
+		return raw
+	}
+	return out
 }
 
 func schema(required []string, props map[string]string) map[string]any {

@@ -89,10 +89,10 @@ func run(ctx context.Context, args []string) (int, error) {
 		case "serve", "token":
 			return 0, fmt.Errorf("`caster %s` runs on the home node; this machine is a client of %s (set CASTER_LOCAL=1 to use a local store instead)", cmd, profile.URL)
 		case "paths":
-			fmt.Printf("remote  %s\ntoken   %s (a secrets reference)\nprofile %s\n", profile.URL, profile.TokenRef, client.ProfilePath(layout.ConfigDir()))
+			fmt.Printf("remote  %s\ntoken   %s\nprofile %s\n", profile.URL, profile.TokenLabel(), client.ProfilePath(layout.ConfigDir()))
 			return cli.ExitOK, nil
 		}
-		c, cerr := client.New(profile.URL, client.SecretsTokenSource(profile.TokenRef), profile.AllowHTTP)
+		c, cerr := client.New(profile.URL, profile.Source(), profile.AllowHTTP)
 		if cerr != nil {
 			return 0, cerr
 		}

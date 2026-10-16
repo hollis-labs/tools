@@ -24,6 +24,28 @@ type Profile struct {
 	Scopes    []string  `json:"scopes,omitempty"`
 	ExpiresAt time.Time `json:"expires_at,omitzero"`
 	AllowHTTP bool      `json:"allow_http,omitempty"`
+
+	// Token is a literal device token handed in through the environment, for a
+	// launcher that resolves secret references itself (Tether's gateway does for a
+	// server's env). It is never saved to the profile and never printed.
+	Token string `json:"-"`
+}
+
+// Source is where this profile's credential comes from.
+func (p *Profile) Source() TokenSource {
+	if p.Token != "" {
+		tok := p.Token
+		return func(context.Context) (string, error) { return tok, nil }
+	}
+	return SecretsTokenSource(p.TokenRef)
+}
+
+// TokenLabel names the credential's location for display, never its value.
+func (p *Profile) TokenLabel() string {
+	if p.Token != "" {
+		return "(literal token from the environment)"
+	}
+	return p.TokenRef + " (a secrets reference)"
 }
 
 // ProfilePath is where the profile lives.
@@ -89,8 +111,11 @@ func RemoveProfile(configDir string) error {
 // environment wins over the saved profile; CASTER_LOCAL=1 forces the local
 // store even when a profile exists (what you want on the home node itself).
 //
-//	CASTER_REMOTE       home node URL; needs CASTER_TOKEN_REF
+//	CASTER_REMOTE       home node URL; needs CASTER_TOKEN_REF or CASTER_TOKEN
 //	CASTER_TOKEN_REF    secrets reference to the device token
+//	CASTER_TOKEN        the device token itself (what a launcher that resolves
+//	                    secret references hands over); a cst_… value in
+//	                    CASTER_TOKEN_REF is taken the same way
 //	CASTER_ALLOW_HTTP   1 = accept plain http off loopback/tailnet
 //	CASTER_LOCAL        1 = ignore any remote configuration
 func Active(configDir string, getenv func(string) string) (*Profile, error) {
@@ -98,11 +123,14 @@ func Active(configDir string, getenv func(string) string) (*Profile, error) {
 		return nil, nil
 	}
 	if u := getenv("CASTER_REMOTE"); u != "" {
-		ref := getenv("CASTER_TOKEN_REF")
-		if ref == "" {
+		tok, ref := strings.TrimSpace(getenv("CASTER_TOKEN")), getenv("CASTER_TOKEN_REF")
+		if tok == "" && strings.HasPrefix(ref, "cst_") {
+			tok, ref = strings.TrimSpace(ref), "" // the launcher already resolved the reference
+		}
+		if tok == "" && ref == "" {
 			return nil, errors.New("CASTER_REMOTE is set but CASTER_TOKEN_REF is not (a secrets reference such as keychain://caster/home)")
 		}
-		return &Profile{URL: u, TokenRef: ref, AllowHTTP: getenv("CASTER_ALLOW_HTTP") == "1"}, nil
+		return &Profile{URL: u, TokenRef: ref, Token: tok, AllowHTTP: getenv("CASTER_ALLOW_HTTP") == "1"}, nil
 	}
 	p, err := LoadProfile(configDir)
 	if p != nil && getenv("CASTER_ALLOW_HTTP") == "1" {

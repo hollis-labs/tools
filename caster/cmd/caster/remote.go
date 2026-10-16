@@ -77,8 +77,10 @@ func logout(ctx context.Context, configDir string) (int, error) {
 		fmt.Println("not logged in")
 		return cli.ExitOK, nil
 	}
-	if err := client.DeleteToken(ctx, p.TokenRef); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not delete the stored token (%v)\n", err)
+	if p.TokenRef != "" {
+		if err := client.DeleteToken(ctx, p.TokenRef); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not delete the stored token (%v)\n", err)
+		}
 	}
 	if err := client.RemoveProfile(configDir); err != nil {
 		return cli.ExitError, err
@@ -101,8 +103,8 @@ func remoteStatus(ctx context.Context, configDir string) (int, error) {
 		fmt.Println("mode: local store (not paired with a home node; `caster login <url> <code>` to pair)")
 		return cli.ExitOK, nil
 	}
-	fmt.Printf("mode:    remote\nhome:    %s\ntoken:   %s\n", p.URL, p.TokenRef)
-	c, err := client.New(p.URL, client.SecretsTokenSource(p.TokenRef), p.AllowHTTP)
+	fmt.Printf("mode:    remote\nhome:    %s\ntoken:   %s\n", p.URL, p.TokenLabel())
+	c, err := client.New(p.URL, p.Source(), p.AllowHTTP)
 	if err != nil {
 		return cli.ExitError, err
 	}

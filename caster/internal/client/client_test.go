@@ -3,6 +3,7 @@ package client_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -206,5 +207,29 @@ func TestProfileHoldsNoSecretAndEnvWins(t *testing.T) {
 	}
 	if p, _ := client.Active(dir, env(map[string]string{"CASTER_LOCAL": "1"})); p != nil {
 		t.Fatal("CASTER_LOCAL=1 must force the local store")
+	}
+}
+
+func TestLauncherResolvedTokenIsUsedButNeverShown(t *testing.T) {
+	dir := t.TempDir()
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	for name, e := range map[string]map[string]string{
+		"token env":           {"CASTER_REMOTE": "https://home.example", "CASTER_TOKEN": "cst_literal"},
+		"resolved ref in env": {"CASTER_REMOTE": "https://home.example", "CASTER_TOKEN_REF": "cst_literal"},
+	} {
+		p, err := client.Active(dir, env(e))
+		if err != nil || p == nil {
+			t.Fatalf("%s: %v %v", name, p, err)
+		}
+		tok, err := p.Source()(context.Background())
+		if err != nil || tok != "cst_literal" {
+			t.Fatalf("%s: token %q, %v", name, tok, err)
+		}
+		if strings.Contains(p.TokenLabel(), "cst_") || p.TokenRef != "" {
+			t.Fatalf("%s: the literal leaked into the display or the reference: %q", name, p.TokenLabel())
+		}
+		if b, _ := json.Marshal(p); strings.Contains(string(b), "cst_") {
+			t.Fatalf("%s: the literal would be written to a saved profile: %s", name, b)
+		}
 	}
 }
