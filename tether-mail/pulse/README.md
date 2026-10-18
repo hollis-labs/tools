@@ -13,8 +13,8 @@ Torque epic EP-20261014-0001). No network, no prompt bodies, secrets masked.
 - `agy/hooks.snippet.json` - named hook for Agy (replace /ABS/PATH). Verified on agy 1.3.3 (`agy --dangerously-skip-permissions -p=...` in a planted `.agents/plugins/<name>/`): PreInvocation, PreToolUse/PostToolUse (matcher `.*`; the flat no-matcher form did NOT fire for tools), Stop. Hook inherits agy's env. A headless run whose tool is auto-denied never reaches Stop (row stays `working` until the pid dies).
 - `codex/hooks.snippet.toml` - for `~/.codex/config.toml` (replace /ABS/PATH). Verified on codex-cli 0.162.1 end to end (`codex exec -c hooks.X=...`): SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop; payloads match Claude's (`tool_name`, `tool_input`, `session_id`). PermissionRequest not exercised; SessionEnd not exercised (dead pids are dropped by the collector anyway).
 
-State lives in `$TETHER_PULSE_DIR` (default `~/.local/state/tether-pulse/<machine>/`). Override the
-machine label with `TETHER_PULSE_MACHINE`. Declare an exact task with `AGENT_TASK=CW-...`;
+State lives in `$TETHER_PULSE_DIR` (default `~/.local/state/tether-pulse/<machine>/`). The machine label is
+`TETHER_PULSE_MACHINE`, else the Tether worker's configured label (`~/.tether-worker/config.json`), else the short hostname. Declare an exact task with `AGENT_TASK=CW-...`;
 otherwise the last CW id mentioned in a prompt or tool input is recorded as `inferred`.
 
 ## Row fields (pulse-collect --json)
