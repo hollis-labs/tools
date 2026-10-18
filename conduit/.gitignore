@@ -28,3 +28,12 @@ Thumbs.db
 # consumers and CI alike
 go.work
 go.work.sum
+
+# Local build output
+/bin/
+/conduit
+# Local application state and credentials
+*.db
+*.db-shm
+*.db-wal
+*.token

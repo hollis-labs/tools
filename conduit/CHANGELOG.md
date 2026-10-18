@@ -4,10 +4,16 @@ All notable changes to conduit are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Write the entry for a release here BEFORE cutting its tag: the release workflow
-refuses a tag whose CHANGELOG has no heading for it.
+Releases use `conduit/vX.Y.Z` tags in the tools monorepo. Add a `## vX.Y.Z`
+section before running the repository release script. No releases are tagged yet.
 
 ## Unreleased
+
+### Changed
+
+- Published in the public `hollis-labs/tools` monorepo with preserved history,
+  MIT licensing, portable setup examples and per-module Go checks.
+- Updated the Go module and install path to `github.com/hollis-labs/tools/conduit`.
 
 ### Added
 

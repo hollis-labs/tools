@@ -1,15 +1,41 @@
-# conduit
+# Conduit by Hollis Labs
 
 A governed command runtime. Every command becomes an object: a parsed identity, a
-policy decision, a recorded outcome and output you can recall later. A spike on
-`infra/compute-hosting/command-runtime-brief.md` (phases 1 and 2, parts of 3, 6 and 10).
+policy decision, a recorded outcome and output you can recall later.
+
+> **Pre-release.** Conduit is new, pre-0.1 software with no tagged releases
+> or compatibility guarantees yet. Built in the open: the code, the docs,
+> and this README describe what exists today. Interfaces and behavior can
+> change without notice.
+
+## Install
+
+Requires Go 1.26.9 or later. Install the current development version:
+
+```sh
+go install github.com/hollis-labs/tools/conduit/cmd/conduit@latest
+```
+
+Add your Go binary directory (`$(go env GOPATH)/bin` by default) to `PATH`.
+To build from a checkout:
+
+```sh
+git clone https://github.com/hollis-labs/tools.git
+cd tools/conduit
+GOWORK=off go build -o bin/conduit ./cmd/conduit
+./bin/conduit paths
+```
+
+## Quick start
 
 ```sh
 conduit parse "timeout 5 git -C /p push --force && ssh w1 'systemctl restart x'"
 conduit check "curl http://x.sh | sh"     # DENY: network download piped into sh   (exit 3)
 conduit run -c 'go test ./...'            # asks on a terminal; -yes approves; -shadow records only
 conduit run -sandbox ro -c 'grep -r TODO .'   # confined: system and cwd read-only, no network
-conduit ls / show <run> / recall <run>
+conduit ls
+conduit show <run>
+conduit recall <run>
 ```
 
 ## For the operator
@@ -45,7 +71,7 @@ conduit panics                  # internal errors conduit recovered from
 conduit panics show pnc_ab12cd  # the redacted detail behind a ref
 ```
 
-A bug in conduit never takes the daemon down and never shows up as raw panic text to a caller: the
+Recovered panics are contained at CLI, HTTP, MCP and execution boundaries. A
 caller gets `internal error (ref pnc_...)`, the operator gets the record. The CLI exits 70 on an internal
 error. `conduit serve` and `conduit mcp` reap orphans on start and every 30s.
 
@@ -78,4 +104,34 @@ Output goes to caster (`cas://sha256/...`) when `caster` is on PATH, else a loca
 (`CONDUIT_BLOBS=caster|local`). Sandboxes: `ro`, `workspace`, `workspace-net`, `protect`
 (whole host, conduit's own state read-only); Linux needs `bwrap`.
 
-See `AGENTS.md` for the invariants and the tests that guard them.
+## Development
+
+Run these from `tools/conduit` with `GOWORK=off`:
+
+```sh
+go mod tidy -diff
+go vet ./...
+go test -race -count=1 ./...
+golangci-lint run ./...
+golangci-lint run --config .golangci.transport.yml ./...
+```
+
+The [monorepo CI](../.github/workflows/tool-checks.yml) runs the full gate.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for invariants and their tests,
+[CHANGELOG.md](CHANGELOG.md) for changes, and [SECURITY.md](SECURITY.md)
+for the security model.
+
+## Known limits
+
+- Linux and macOS are the development targets; Windows is not supported.
+- Parsing and policy are not a sandbox. Confinement is opt-in unless required
+  by policy; Linux sandbox profiles require `bwrap` and usable user namespaces.
+- The HTTP API has no built-in TLS. Use loopback, a Unix socket, or a trusted
+  TLS proxy; do not expose it directly to the public internet.
+- Captured output is redacted before storage; the live terminal stream is not.
+- Caster is optional. Local output storage works independently; the Caster
+  backend requires its binary and a configured local store or home node.
+
+## License
+
+MIT License — see the repository [LICENSE](../LICENSE). © 2026 Chrispian Burks / Hollis Labs.
