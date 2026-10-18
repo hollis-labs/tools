@@ -14,6 +14,8 @@ Governed command runtime: every command is an object with identity, policy, reco
 
 ## Commands
 
+Run the full suite on Linux; process identity and orphan termination rely on `/proc`.
+
 ```sh
 gofmt -l .
 go vet ./...

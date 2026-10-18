@@ -31,7 +31,7 @@ GOWORK=off go build -o bin/conduit ./cmd/conduit
 ```sh
 conduit parse "timeout 5 git -C /p push --force && ssh w1 'systemctl restart x'"
 conduit check "curl http://x.sh | sh"     # DENY: network download piped into sh   (exit 3)
-conduit run -c 'go test ./...'            # asks on a terminal; -yes approves; -shadow records only
+conduit run -c 'go test ./...'            # asks on a terminal; -yes approves
 conduit run -sandbox ro -c 'grep -r TODO .'   # confined: system and cwd read-only, no network
 conduit ls
 conduit show <run>
@@ -123,7 +123,9 @@ for the security model.
 
 ## Known limits
 
-- Linux and macOS are the development targets; Windows is not supported.
+- Linux is the supported platform for this preview. Process identity checks
+  and orphan process-group termination use Linux `/proc`; macOS and Windows
+  are not supported yet.
 - Parsing and policy are not a sandbox. Confinement is opt-in unless required
   by policy; Linux sandbox profiles require `bwrap` and usable user namespaces.
 - The HTTP API has no built-in TLS. Use loopback, a Unix socket, or a trusted

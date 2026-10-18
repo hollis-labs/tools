@@ -27,6 +27,10 @@ jobs:
       matrix:
         module: [caster, conduit]
         os: [ubuntu-latest, macos-latest]
+        exclude:
+          # Conduit's process identity and orphan reaping currently use /proc.
+          - module: conduit
+            os: macos-latest
     runs-on: ${{ matrix.os }}
     env:
       GOWORK: 'off'
