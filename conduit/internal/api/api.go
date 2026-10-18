@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hollis-labs/conduit/internal/runbook"
-	"github.com/hollis-labs/conduit/internal/service"
-	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/tools/conduit/internal/runbook"
+	"github.com/hollis-labs/tools/conduit/internal/service"
+	"github.com/hollis-labs/tools/conduit/internal/store"
 	"github.com/hollis-labs/libs/core/panics"
 	"github.com/hollis-labs/libs/core/panics/httpguard"
 )

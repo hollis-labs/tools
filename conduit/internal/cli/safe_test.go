@@ -6,10 +6,10 @@ import (
 	"testing"
 	"unicode"
 
-	"github.com/hollis-labs/conduit/internal/cmdparse"
-	"github.com/hollis-labs/conduit/internal/policy"
-	"github.com/hollis-labs/conduit/internal/service"
-	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/tools/conduit/internal/cmdparse"
+	"github.com/hollis-labs/tools/conduit/internal/policy"
+	"github.com/hollis-labs/tools/conduit/internal/service"
+	"github.com/hollis-labs/tools/conduit/internal/store"
 )
 
 // hostile is text a submitter controls: it tries to clear the screen, set the

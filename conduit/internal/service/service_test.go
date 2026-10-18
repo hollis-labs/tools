@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hollis-labs/conduit/internal/blob"
-	"github.com/hollis-labs/conduit/internal/policy"
-	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/tools/conduit/internal/blob"
+	"github.com/hollis-labs/tools/conduit/internal/policy"
+	"github.com/hollis-labs/tools/conduit/internal/store"
 )
 
 func newSvc(t *testing.T, opts ...Option) *Service {

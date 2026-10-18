@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hollis-labs/conduit/internal/policy"
-	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/tools/conduit/internal/policy"
+	"github.com/hollis-labs/tools/conduit/internal/store"
 )
 
 // RunView is the transport-facing summary of a run: state, verdict and, once it

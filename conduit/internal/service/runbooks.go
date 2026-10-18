@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/hollis-labs/conduit/internal/runbook"
-	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/tools/conduit/internal/runbook"
+	"github.com/hollis-labs/tools/conduit/internal/store"
 )
 
 // Runbooks lists the named operations this service offers.

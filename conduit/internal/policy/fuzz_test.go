@@ -3,7 +3,7 @@ package policy
 import (
 	"testing"
 
-	"github.com/hollis-labs/conduit/internal/cmdparse"
+	"github.com/hollis-labs/tools/conduit/internal/cmdparse"
 )
 
 // FuzzDecide drives parse + policy together on arbitrary input. It must never

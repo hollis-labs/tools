@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/hollis-labs/conduit/internal/cmdparse"
+	"github.com/hollis-labs/tools/conduit/internal/cmdparse"
 )
 
 // rootish paths: recursive removal or permission changes here are never run.

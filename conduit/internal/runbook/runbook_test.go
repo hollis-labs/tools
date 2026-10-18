@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hollis-labs/conduit/internal/cmdparse"
+	"github.com/hollis-labs/tools/conduit/internal/cmdparse"
 )
 
 func restart(t *testing.T) *Runbook {

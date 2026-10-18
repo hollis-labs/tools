@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/hollis-labs/conduit/internal/cmdparse"
+	"github.com/hollis-labs/tools/conduit/internal/cmdparse"
 )
 
 // Each of these ran something beyond a read when executed by bash, and each was

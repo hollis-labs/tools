@@ -8,9 +8,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/hollis-labs/conduit/internal/cmdparse"
-	"github.com/hollis-labs/conduit/internal/policy"
-	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/tools/conduit/internal/cmdparse"
+	"github.com/hollis-labs/tools/conduit/internal/policy"
+	"github.com/hollis-labs/tools/conduit/internal/store"
 )
 
 func decisionOf(run *store.Run) policy.Decision {

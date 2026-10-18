@@ -14,8 +14,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/hollis-labs/conduit/internal/cmdparse"
-	"github.com/hollis-labs/conduit/internal/cmdrun"
+	"github.com/hollis-labs/tools/conduit/internal/cmdparse"
+	"github.com/hollis-labs/tools/conduit/internal/cmdrun"
 )
 
 // Verdict is a policy outcome.

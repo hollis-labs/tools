@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hollis-labs/conduit/internal/service"
+	"github.com/hollis-labs/tools/conduit/internal/service"
 )
 
 func items(cmds ...string) []service.HistoryItem {

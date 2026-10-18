@@ -11,8 +11,8 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/hollis-labs/conduit/internal/fuzzy"
-	"github.com/hollis-labs/conduit/internal/service"
+	"github.com/hollis-labs/tools/conduit/internal/fuzzy"
+	"github.com/hollis-labs/tools/conduit/internal/service"
 	"github.com/hollis-labs/libs/core/panics"
 )
 

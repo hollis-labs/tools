@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hollis-labs/conduit/internal/policy"
-	"github.com/hollis-labs/conduit/internal/runbook"
-	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/tools/conduit/internal/policy"
+	"github.com/hollis-labs/tools/conduit/internal/runbook"
+	"github.com/hollis-labs/tools/conduit/internal/store"
 )
 
 func agent(ctx context.Context) context.Context { return As(ctx, "token:agent") }

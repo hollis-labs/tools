@@ -17,7 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"mvdan.cc/sh/v3/syntax"
 
-	"github.com/hollis-labs/conduit/internal/cmdrun"
+	"github.com/hollis-labs/tools/conduit/internal/cmdrun"
 )
 
 // Param describes one parameter.

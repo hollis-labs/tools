@@ -11,10 +11,10 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/hollis-labs/conduit/internal/api"
-	"github.com/hollis-labs/conduit/internal/mcp"
-	"github.com/hollis-labs/conduit/internal/service"
-	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/tools/conduit/internal/api"
+	"github.com/hollis-labs/tools/conduit/internal/mcp"
+	"github.com/hollis-labs/tools/conduit/internal/service"
+	"github.com/hollis-labs/tools/conduit/internal/store"
 )
 
 // Version is reported by the MCP server.

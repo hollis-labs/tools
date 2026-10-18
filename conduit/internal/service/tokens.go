@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/tools/conduit/internal/store"
 )
 
 // Scopes. A scope may carry a host suffix (exec.run:worker-1) or :* ; exec.admin

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hollis-labs/conduit/internal/service"
-	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/tools/conduit/internal/service"
+	"github.com/hollis-labs/tools/conduit/internal/store"
 )
 
 func (c *cmd) run(args []string) int {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/tools/conduit/internal/store"
 )
 
 // Get returns a run by id, prefix or suffix.

@@ -1,4 +1,4 @@
-module github.com/hollis-labs/conduit
+module github.com/hollis-labs/tools/conduit
 
 go 1.26.9
 

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hollis-labs/conduit/internal/proc"
-	"github.com/hollis-labs/conduit/internal/store"
+	"github.com/hollis-labs/tools/conduit/internal/proc"
+	"github.com/hollis-labs/tools/conduit/internal/store"
 	"github.com/hollis-labs/libs/core/panics"
 )
 
