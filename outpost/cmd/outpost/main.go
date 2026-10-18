@@ -31,7 +31,7 @@ func run() error {
 	id := flags.String("id", "", "pairing/controller name")
 	plugin := flags.String("plugin", "", "plugin permitted by this pairing")
 	output := flags.String("output", "", "new private credential file for the controller")
-	if err := flags.Parse(os.Args[1:]); err != nil {
+	if err = flags.Parse(os.Args[1:]); err != nil {
 		return err
 	}
 	if flags.NArg() != 1 {

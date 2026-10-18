@@ -22,15 +22,16 @@ import (
 	auth "github.com/hollis-labs/libs/security/auth"
 )
 
-// Listen restricts plaintext HTTP to loopback or an encrypted Tailscale address.
-// A public listener needs a TLS reverse proxy, which remains operator-owned.
+// Listen restricts plaintext HTTP to loopback or a Tailscale address range.
+// Interface ownership and encryption remain the operator's responsibility.
 func Listen(address string) (net.Listener, error) {
 	h, _, err := net.SplitHostPort(address)
 	if err != nil {
 		return nil, err
 	}
 	ip, err := netip.ParseAddr(h)
-	if err != nil || !(ip.IsLoopback() || netip.MustParsePrefix("100.64.0.0/10").Contains(ip) || netip.MustParsePrefix("fd7a:115c:a1e0::/48").Contains(ip)) {
+	allowed := ip.IsLoopback() || netip.MustParsePrefix("100.64.0.0/10").Contains(ip) || netip.MustParsePrefix("fd7a:115c:a1e0::/48").Contains(ip)
+	if err != nil || !allowed {
 		return nil, fmt.Errorf("outpost HTTP must bind a literal loopback or Tailscale address")
 	}
 	return net.Listen("tcp", address)
@@ -41,9 +42,9 @@ func Run(ctx context.Context, cfg Config, version string) error {
 	if err != nil {
 		return err
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	var nonce [16]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
+	if _, err = rand.Read(nonce[:]); err != nil {
 		return err
 	}
 	instance := "outpost-" + hex.EncodeToString(nonce[:])
@@ -52,7 +53,7 @@ func Run(ctx context.Context, cfg Config, version string) error {
 		data := filepath.Join(cfg.StateDir, "plugins", p.ID, "data")
 		cache := filepath.Join(cfg.StateDir, "plugins", p.ID, "cache")
 		for _, path := range []string{data, cache} {
-			if err := os.MkdirAll(path, 0700); err != nil {
+			if err = os.MkdirAll(path, 0700); err != nil {
 				return err
 			}
 		}
@@ -64,7 +65,7 @@ func Run(ctx context.Context, cfg Config, version string) error {
 				Grants:             capability.GrantSet{}}})
 	}
 	inv := plugins.NewInventory(specs)
-	if err := inv.Start(ctx); err != nil {
+	if err = inv.Start(ctx); err != nil {
 		return err
 	}
 	gate, err := auth.New(auth.Config{Mode: auth.ModeEnforce, Verifier: FileVerifier{Path: cfg.CredentialsFile}})
@@ -98,13 +99,13 @@ func Run(ctx context.Context, cfg Config, version string) error {
 					continue
 				}
 				check, stop := context.WithTimeout(life, 3*time.Second)
-				status, err := client.Health(check)
+				status, healthErr := client.Health(check)
 				stop()
-				if err == nil && !status.OK {
-					err = errors.New("plugin reported unhealthy")
+				if healthErr == nil && !status.OK {
+					healthErr = errors.New("plugin reported unhealthy")
 				}
-				if err != nil && life.Err() == nil {
-					fault <- fmt.Errorf("plugin %s unhealthy: %w", p.ID, err)
+				if healthErr != nil && life.Err() == nil {
+					fault <- fmt.Errorf("plugin %s unhealthy: %w", p.ID, healthErr)
 					cancel()
 					return
 				}

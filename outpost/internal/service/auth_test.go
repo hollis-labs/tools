@@ -19,7 +19,7 @@ func TestPairingIsolationAndRevocation(t *testing.T) {
 	if err := Pair(cfg, "controller", "cerberus", path); err != nil {
 		t.Fatal(err)
 	}
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) //nolint:gosec // Test-owned temporary credential output.
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,4 +82,71 @@ func TestPublicPlaintextBindRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	ln.Close()
+}
+
+func TestPairRejectsStoreAsOutput(t *testing.T) {
+	dir := t.TempDir()
+	store := filepath.Join(dir, "pairings.json")
+	cfg := Config{CredentialsFile: store, Plugins: []Plugin{{ID: "example"}}}
+	if err := Pair(cfg, "controller", "example", store); err == nil {
+		t.Fatal("accepted pairing store as token output")
+	}
+	if _, err := os.Stat(store); !os.IsNotExist(err) {
+		t.Fatalf("refused pairing touched store: %v", err)
+	}
+}
+
+func TestPairingLockPreventsLostUpdates(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{CredentialsFile: filepath.Join(dir, "pairings.json"), Plugins: []Plugin{{ID: "example"}}}
+	unlock, err := pairingLock(cfg.CredentialsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	output := filepath.Join(dir, "controller.token")
+	if err = Pair(cfg, "controller", "example", output); err == nil {
+		t.Fatal("paired while another writer held the store lock")
+	}
+	if _, err = os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("refused pairing wrote a token: %v", err)
+	}
+	unlock()
+	if err = Pair(cfg, "controller", "example", output); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("token permissions = %o", info.Mode().Perm())
+	}
+}
+
+func TestUnavailablePairingStoreFailsClosed(t *testing.T) {
+	store := filepath.Join(t.TempDir(), "pairings.json")
+	v := FileVerifier{Path: store}
+	gate, err := auth.New(auth.Config{Mode: auth.ModeEnforce, Verifier: v})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := gate.Middleware(AuthorizePlugins(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("unavailable verifier admitted a request")
+	})))
+	check := func() {
+		t.Helper()
+		r := httptest.NewRequest("POST", "/api/plugins/example/execute", nil)
+		r.Header.Set("Authorization", "Bearer invalid")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code < 400 {
+			t.Fatalf("unavailable store returned %d", w.Code)
+		}
+	}
+	check()
+	if err := os.WriteFile(store, []byte("not JSON"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	check()
 }

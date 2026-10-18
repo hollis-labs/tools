@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,7 +27,7 @@ func (v FileVerifier) Verify(ctx context.Context, token string) (auth.Principal,
 }
 
 func readKeys(path string) ([]auth.APIKey, error) {
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) //nolint:gosec // The local operator selects the pairing store; no request controls this path.
 	if err != nil {
 		return nil, err
 	}
@@ -41,6 +42,17 @@ func readKeys(path string) ([]auth.APIKey, error) {
 // credential goes into a new private file for the named controller to receive
 // through the operator's authenticated deployment channel.
 func Pair(cfg Config, id, plugin, output string) error {
+	outputPath, err := filepath.Abs(output)
+	if err != nil {
+		return err
+	}
+	storePath, err := filepath.Abs(cfg.CredentialsFile)
+	if err != nil {
+		return err
+	}
+	if outputPath == storePath {
+		return fmt.Errorf("credential output must differ from the pairing store")
+	}
 	unlock, err := pairingLock(cfg.CredentialsFile)
 	if err != nil {
 		return err
@@ -68,11 +80,11 @@ func Pair(cfg Config, id, plugin, output string) error {
 		}
 	}
 	var secret [32]byte
-	if _, err := rand.Read(secret[:]); err != nil {
+	if _, err = rand.Read(secret[:]); err != nil {
 		return err
 	}
 	token := hex.EncodeToString(secret[:])
-	f, err := os.OpenFile(output, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	f, err := os.OpenFile(output, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600) //nolint:gosec // Operator-selected output is created exclusively with private permissions.
 	if err != nil {
 		return err
 	}
@@ -83,7 +95,7 @@ func Pair(cfg Config, id, plugin, output string) error {
 	closeErr := f.Close()
 	if err != nil || closeErr != nil {
 		_ = os.Remove(output)
-		return fmt.Errorf("write pairing credential: %v %v", err, closeErr)
+		return fmt.Errorf("write pairing credential: %w", errors.Join(err, closeErr))
 	}
 	keys = append(keys, auth.APIKey{Hash: auth.HashKey(token), ID: id, Scopes: []string{"outpost." + plugin}})
 	if err := writeKeys(cfg.CredentialsFile, keys); err != nil {
@@ -143,7 +155,7 @@ func writeKeys(path string, keys []auth.APIKey) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }()
 	_, err = f.Write(append(b, '\n'))
 	if err == nil {
 		err = f.Sync()

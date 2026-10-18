@@ -2,7 +2,9 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,15 +32,21 @@ type Plugin struct {
 
 func ReadConfig(path string) (Config, error) {
 	var cfg Config
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // The local operator selects the inventory file; no remote input reaches this path.
 	if err != nil {
 		return cfg, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	d := json.NewDecoder(f)
 	d.DisallowUnknownFields()
 	if err := d.Decode(&cfg); err != nil {
 		return cfg, err
+	}
+	// A second document or trailing garbage usually means the operator edited
+	// the wrong inventory; do not silently run with only its first fragment.
+	var extra any
+	if err := d.Decode(&extra); !errors.Is(err, io.EOF) {
+		return cfg, fmt.Errorf("configuration must contain exactly one JSON object")
 	}
 	if cfg.Address == "" {
 		cfg.Address = "127.0.0.1:8977"
