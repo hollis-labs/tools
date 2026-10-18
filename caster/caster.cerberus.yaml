@@ -8,7 +8,7 @@ resources:
   # The home node's HTTP API. Loopback only: other machines reach it through
   # Tailscale Serve (https) or an SSH forward, never by binding a network
   # interface. Auth is enforce mode (device tokens, optional Tether JWTs, the
-  # operator key); see README "Access and security". Data lives in the user's
+  # operator key); see docs/access.md. Data lives in the user's
   # XDG dirs, so `caster` on this machine (CASTER_LOCAL=1 not needed here) and
   # the service share one store.
   - id: caster-uat
@@ -29,7 +29,7 @@ resources:
         - serve
         - -addr
         - 127.0.0.1:8991
-      dir: ~/dev/hollis-labs/tools/caster
+      dir: ~/src/tools/caster
       mode: os_service
       port: 8991
       run_from: artifact

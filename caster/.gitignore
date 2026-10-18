@@ -32,3 +32,9 @@ go.work.sum
 # Cerberus artifact output
 /bin/
 .cerberus-build.lock
+/caster
+# Local application state and credentials
+*.db
+*.db-shm
+*.db-wal
+*.token

@@ -1,18 +1,33 @@
-# caster
+# Caster by Hollis Labs
 
 A content-addressed store and ref resolver for scratchpads, drafts and notes (mostly markdown), that can also pull Torque tasks and Tesseract records by id or key. One store on a **home node**; the CLI on your laptop, a small browser UI, an MCP server for agents and an HTTP API all reach it through the same service layer.
 
-Status: spike (pre-0.1, nothing tagged). Design brief: `infra/compute-hosting/reference-store-brief.md`. It is not a second knowledge store (Tesseract keeps durable knowledge; caster keeps bytes, names and provenance) and not a sync product.
+> **Pre-release.** Caster is new, pre-0.1 software with no tagged releases
+> or compatibility guarantees yet. Built in the open: the code, the docs,
+> and this README describe what exists today. Interfaces and behavior can
+> change without notice.
 
 ## Install
 
+Requires Go 1.26.9 or later. Install the current development version:
+
 ```sh
-make build          # bin/caster
-make dist           # bin/dist/caster-{darwin,linux}-{arm64,amd64}, pure Go, for scp to other machines
-caster paths        # where the store lives (go-apppaths layout)
+go install github.com/hollis-labs/tools/caster/cmd/caster@latest
 ```
 
-Go 1.26; no cgo. On a machine that is not the home node, `caster login` (below) turns the same binary into a client.
+Add your Go binary directory (`$(go env GOPATH)/bin` by default) to `PATH`.
+To build from a checkout:
+
+```sh
+git clone https://github.com/hollis-labs/tools.git
+cd tools/caster
+GOWORK=off go build -o bin/caster ./cmd/caster
+./bin/caster paths
+```
+
+The binary is pure Go (no cgo required). `make dist` builds Linux and macOS
+clients for amd64 and arm64. `caster login` turns the same binary into a
+client of a home node.
 
 ## Quick start
 
@@ -78,7 +93,7 @@ Local only: loopback, or your tailnet. Nothing here is meant for the public inte
 - [docs/shadow-mode.md](docs/shadow-mode.md): measuring ref-detection noise before showing any card in a chat UI.
 - [docs/actions.md](docs/actions.md): registered operations on a ref, such as `save-handoff` to a Tesseract workspace draft.
 - [docs/transport-boundary.md](docs/transport-boundary.md): the lint gate that keeps transports off the store.
-- [CHANGELOG.md](CHANGELOG.md), [AGENTS.md](AGENTS.md) (invariants and the tests that guard them).
+- [CHANGELOG.md](CHANGELOG.md), [contributor guide](CONTRIBUTING.md) (invariants and the tests that guard them).
 
 ## Architecture
 
@@ -96,7 +111,8 @@ go vet ./...
 GOWORK=off golangci-lint run --config .golangci.transport.yml ./...   # transport boundary
 ```
 
-CI (`.github/workflows/check.yml`) is the full gate.
+The [monorepo CI](../.github/workflows/tool-checks.yml) runs the full gate.
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 ## Known limits
 
@@ -109,4 +125,4 @@ CI (`.github/workflows/check.yml`) is the full gate.
 
 ## License
 
-See [LICENSE](LICENSE).
+MIT License — see the repository [LICENSE](../LICENSE). © 2026 Chrispian Burks / Hollis Labs.

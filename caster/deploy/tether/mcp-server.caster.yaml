@@ -1,17 +1,14 @@
-# Catalog entry: mcp-servers/caster.yaml  (the Tether hub catalog, /var/lib/fabric/tether/catalog)
-# `caster mcp` as a client of the home node over tailnet HTTPS, scoped by its own
-# paired device (label "hub-agents": caster.read, caster.write, caster.resolve),
-# not the local-operator identity a bare `caster mcp` takes. The token lasts 30
-# days: renew with `caster renew` using the same CASTER_REMOTE / CASTER_TOKEN_REF.
-# Install on the hub: the `caster` linux binary at /var/lib/fabric/bin/caster and
-# the token at credentials/caster.token (0600). The gateway also has to list
-# `caster` in its --servers.
+# Example Tether catalog entry: mcp-servers/caster.yaml.
+# Replace the URL, binary path and token reference for your deployment.
+# Pair a dedicated device with only the read/write/resolve scopes it needs.
+# Keep its token outside this repository in a mode-0600 file; renew it before
+# expiry. The gateway must include caster in its server allowlist.
 id: caster
 transport: stdio
-command: /var/lib/fabric/bin/caster
+command: /opt/caster/bin/caster
 args: [mcp]
 env:
-  CASTER_REMOTE: https://caster.example.com:8443
-  CASTER_TOKEN_REF: file:///var/lib/fabric/tether/catalog/credentials/caster.token
+  CASTER_REMOTE: https://caster.example.com
+  CASTER_TOKEN_REF: file:///var/lib/caster/credentials/device.token
 tags: [notes, scratchpad, drafts, refs, cas, caster]
 enabled: true

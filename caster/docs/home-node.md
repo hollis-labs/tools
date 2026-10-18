@@ -2,7 +2,7 @@
 
 ## Running it
 
-Cerberus owns the process: `caster.cerberus.yaml` defines `caster-uat`, an `os_service` (systemd user unit via `supervisor: auto`, lingering on, so it survives logout and reboot) running the repo-built artifact `./bin/caster serve -addr 127.0.0.1:8991`. Check it with `cerberus resource status caster-uat`; after changing source run `cerberus resource deploy caster-uat --ack` (a plain `go install` does not update the service). The service and the `caster` CLI on that machine share one store under `~/.local/share/caster`, so `caster put` there is immediately visible to remote clients.
+For a Cerberus-managed deployment, adapt the checkout path in `caster.cerberus.yaml` before importing it. The example `caster.cerberus.yaml` defines `caster-uat`, an `os_service` (systemd user unit via `supervisor: auto`, lingering on, so it survives logout and reboot) running the repo-built artifact `./bin/caster serve -addr 127.0.0.1:8991`. Check it with `cerberus resource status caster-uat`; after changing source run `cerberus resource deploy caster-uat --ack` (a plain `go install` does not update the service). The service and the `caster` CLI on that machine share one store under `~/.local/share/caster`, so `caster put` there is immediately visible to remote clients.
 
 ## Using a home node from other machines
 
@@ -34,4 +34,4 @@ deploy/tailscale-serve.sh        # tailscale serve --bg --https=8443 http://127.
 tailscale serve --https=8443 off # undo
 ```
 
-Port 8443 because `:443` on the home node's tailnet address was already taken. The URL is then `https://home-node.<tailnet>.ts.net:8443`: tailnet-only, never the public internet (that would be Funnel, which is not used). The browser UI, the CLI (`caster login`), `caster mcp` and curl all use it; every request still needs a device token, and the UI shell is the only unauthenticated path. Serve config lives in `tailscaled`, not in Cerberus, so re-run the script after a node rebuild; a Cerberus-managed step is still to do.
+The script defaults to port 8443; set `CASTER_TS_HTTPS_PORT` to choose another port. The URL is then `https://home-node.<tailnet>.ts.net:8443`: tailnet-only, never the public internet (that would be Funnel, which is not used). The browser UI, the CLI (`caster login`), `caster mcp` and curl all use it; every request still needs a device token, and the UI shell is the only unauthenticated path. Serve config lives in `tailscaled`, not in Cerberus, so re-run the script after a node rebuild; a Cerberus-managed step is still to do.

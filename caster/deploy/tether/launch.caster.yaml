@@ -1,5 +1,5 @@
 # Catalog entry: launches/caster.yaml
-# Run it on the home-node outpost (the repo lives there, not on the hub):
+# Run it on the home-node outpost (replace the worker name for your installation):
 #   tether launch --launch caster --worker home-node --prompt-append "..."
 id: caster
 project: caster
