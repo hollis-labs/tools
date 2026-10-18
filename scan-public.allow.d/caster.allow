@@ -1,0 +1,3 @@
+# Synthetic URL-policy cases; no network request is made by this test.
+internal-ip caster/internal/client/client_test.go Synthetic CGNAT address exercises the private-network URL policy
+tailscale-host caster/internal/client/client_test.go Synthetic tailnet hostname exercises URL validation without a network request

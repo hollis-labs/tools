@@ -44,7 +44,7 @@ linters:
     #     transports-not-store:
     #       files: ["**/internal/api/**", "**/internal/mcp/**", "!$test"]
     #       deny:
-    #         - pkg: "github.com/hollis-labs/caster/internal/store"
+    #         - pkg: "github.com/hollis-labs/tools/caster/internal/store"
     #           desc: "transport-boundary: transports call the service layer, not the store package"
   exclusions:
     generated: lax

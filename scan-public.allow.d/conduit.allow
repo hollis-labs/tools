@@ -1,0 +1,5 @@
+internal-ip conduit/internal/api/api_test.go Synthetic private address verifies refusal to bind outside loopback
+home-path-linux conduit/internal/fuzzy/fuzzy_test.go Generic fixture path used only as fuzzy-matching benchmark text
+aws-access-key conduit/internal/cmdrun/cmdrun_test.go Historical redaction fixture built from an alphabet sequence rather than an issued credential
+aws-access-token conduit/internal/cmdrun/cmdrun_test.go Historical redaction fixture built from an alphabet sequence rather than an issued credential
+credentials-in-url conduit/internal/redact/text_test.go Historical redaction fixture uses an example-domain URL and dummy password

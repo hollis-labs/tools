@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hollis-labs/tools/conduit/internal/service"
 	"github.com/hollis-labs/libs/core/panics"
 	"github.com/hollis-labs/libs/security/redact"
+	"github.com/hollis-labs/tools/conduit/internal/service"
 )
 
 // exitInternal is EX_SOFTWARE: conduit itself failed.

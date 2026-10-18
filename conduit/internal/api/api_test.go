@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hollis-labs/libs/core/panics"
+	"github.com/hollis-labs/libs/security/redact"
 	"github.com/hollis-labs/tools/conduit/internal/blob"
 	"github.com/hollis-labs/tools/conduit/internal/runbook"
 	"github.com/hollis-labs/tools/conduit/internal/service"
 	"github.com/hollis-labs/tools/conduit/internal/store"
-	"github.com/hollis-labs/libs/core/panics"
-	"github.com/hollis-labs/libs/security/redact"
 )
 
 // every request on a fresh connection, so per-address logic cannot hide behind a reused port

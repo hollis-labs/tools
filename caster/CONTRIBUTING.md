@@ -1,16 +1,15 @@
 # Contributing to Caster
 
-Content-addressed store and ref resolver for scratchpads, drafts, notes, Torque tasks and Tesseract objects. One store on a home node (home node); CLI, browser UI, MCP and HTTP are thin wrappers over one service layer.
-
+Content-addressed store and ref resolver for scratchpads, drafts, notes, Torque tasks and Tesseract objects. One store on a home node; CLI, browser UI, MCP and HTTP are thin wrappers over one service layer.
 
 ## Start Here
 
-- `.golangci.transport.yml` — the transport-boundary gate; `docs/transport-boundary.md` says how to run and ratchet it.
+- `.golangci.transport.yml` — the transport-boundary gate; `docs/transport-boundary.md` says how to run it.
 - `cmd/caster/main.go` — the composition root: resolves paths (go-apppaths), gates telemetry (go-otel), opens the store, builds the service layer, and chooses local vs remote mode (`remote.go`, `serve.go`); the only place that opens the store.
 - `internal/service` — the contract and the logic. `contract.go` has the domain interfaces (`NotesAPI`, `RefsAPI`, `ActionsAPI`, `ShadowAPI`, `AccessAPI`) and `Compose`; `authz.go` the scopes; `access.go` pairing and devices; `actions.go`, `shadow.go`, `notes.go`, `refs.go`.
 - `internal/ref` (parse and detect), `internal/resolver` (cas, caster, torque, tesseract), `internal/mcpclient` (stdio MCP client for the Tesseract gateway), `internal/store` (SQLite + blobs).
 - `internal/cli`, `internal/mcp`, `internal/api` (+ `internal/api/ui`, the embedded browser UI) are the transports; `internal/client` is the remote implementation of the same service interfaces, used when this machine is a client of a home node.
-- Deploy: `caster.cerberus.yaml` (Cerberus resource `caster-uat`, a systemd user service on home node), `deploy/tailscale-serve.sh` (tailnet HTTPS), `deploy/tether/*` (draft catalog entries for the MCP server and a `caster` agent).
+- Deploy: `caster.cerberus.yaml` (Cerberus resource `caster-uat`, a systemd user service on the home node), `deploy/tailscale-serve.sh` (tailnet HTTPS), `deploy/tether/*` (draft catalog entries for the MCP server and a `caster` agent).
 - `../.github/workflows/tool-checks.yml` — the full CI gate.
 
 ## Commands
@@ -28,7 +27,7 @@ CI (`../.github/workflows/tool-checks.yml`) is the full gate. If you run a Cerbe
 ## Boundaries
 
 - Transports (the packages matched by `transport_dirs_regex` in `.golangci.transport.yml`) call the service layer, never `store.Store` methods or raw SQL; the gate is `.golangci.transport.yml`, CI rejects transport-boundary findings. A new operation goes in the service contract first, then in each transport: CLI, MCP, HTTP, and `internal/client` for remote mode.
-- Authorization lives in the service layer, not in transports. No identity is refused; a transport only stamps who is calling (`AsLocalOperator` for the CLI and stdio MCP, the verified principal for HTTP) (`TestFailClosedWithoutIdentity`, `TestScopeMatrix`). Scopes: `caster.read`, `.resolve`, `.write`, `.act`, `.observe`, `.admin`; `resolve` is separate so a read-only holder cannot read everything the home node can reach.
+- Authorization lives in the service layer, not in transports. Requests without an identity are refused; a transport only stamps who is calling (`AsLocalOperator` for the CLI and stdio MCP, the verified principal for HTTP) (`TestFailClosedWithoutIdentity`, `TestScopeMatrix`). Scopes: `caster.read`, `.resolve`, `.write`, `.act`, `.observe`, `.admin`; `resolve` is separate so a read-only holder cannot read everything the home node can reach.
 - Blobs are immutable and addressed by sha256; mutable things (names, tasks, records) are pointers or snapshots, never blob contents (`TestPutDedupsAndVerifies`, `TestNameRevisions`). There is no delete; do not add one without deciding what happens to blobs other names still reference.
 - Detection never fetches; only refs a resolver validates are shown or expanded. `scan` and `expand` treat a remote ref the caller lacks `resolve` for as unresolved, never as forbidden, so they cannot be used to probe (`TestDetectIsQuietAboutProse`, `TestScanAndExpandDoNotLeakRemoteRefsWithoutResolve`). Expanded content is labeled untrusted.
 - Tesseract resolution reads nothing until materialized, and materializing is a read that reinforces the item (`TestGatewayResolveReadsNothingMaterializeReads`); an absent gateway is `unavailable`, not `not_found` (`TestGatewayAbsentIsUnavailable`). Caster holds no Tesseract credentials: it launches the server from the Tether catalog entry.

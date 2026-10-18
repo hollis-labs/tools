@@ -9,6 +9,10 @@ section before running the repository release script. No releases are tagged yet
 
 ## Unreleased
 
+### Fixed
+
+- Isolated the Caster integration test from existing local stores and remote profiles.
+
 ### Changed
 
 - Published in the public `hollis-labs/tools` monorepo with preserved history,

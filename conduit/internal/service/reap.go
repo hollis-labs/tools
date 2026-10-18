@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/hollis-labs/libs/core/panics"
 	"github.com/hollis-labs/tools/conduit/internal/proc"
 	"github.com/hollis-labs/tools/conduit/internal/store"
-	"github.com/hollis-labs/libs/core/panics"
 )
 
 // ReapReport says what a reap did.

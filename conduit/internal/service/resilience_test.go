@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hollis-labs/libs/core/panics"
+	"github.com/hollis-labs/libs/security/redact"
 	"github.com/hollis-labs/tools/conduit/internal/blob"
 	"github.com/hollis-labs/tools/conduit/internal/cmdparse"
 	"github.com/hollis-labs/tools/conduit/internal/policy"
 	"github.com/hollis-labs/tools/conduit/internal/proc"
 	"github.com/hollis-labs/tools/conduit/internal/store"
-	"github.com/hollis-labs/libs/core/panics"
-	"github.com/hollis-labs/libs/security/redact"
 )
 
 type memReporter struct {

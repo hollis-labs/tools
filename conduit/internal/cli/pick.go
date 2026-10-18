@@ -11,9 +11,9 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/hollis-labs/libs/core/panics"
 	"github.com/hollis-labs/tools/conduit/internal/fuzzy"
 	"github.com/hollis-labs/tools/conduit/internal/service"
-	"github.com/hollis-labs/libs/core/panics"
 )
 
 func (c *cmd) pick(args []string) int {

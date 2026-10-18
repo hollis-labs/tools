@@ -29,7 +29,7 @@ section before running the repository release script. No releases are tagged yet
 - Remote client: `caster login|whoami|remote|renew|logout`; the CLI and `caster mcp` run against a home node with the token in the secrets library (keychain, or a 0600 file store), profile holding only a URL and a reference; plain http only to loopback or a tailnet address, redirects never followed.
 - Browser UI at `/` on `caster serve`: list and search, markdown view built from DOM calls, edit and save (new revision), history, restore into editor, and a pairing dialog opened by `caster pair -link <url>` (code carried in the URL fragment). Strict CSP, no inline script.
 - Deployment: Cerberus resource `caster-uat` (systemd user service on the home node), `make dist` client binaries for darwin and linux (arm64, amd64), `deploy/tailscale-serve.sh` for tailnet-only HTTPS, draft Tether catalog entries for a scoped MCP server and a `caster` agent in `deploy/tether/`.
-- Docs split by topic under `docs/`; `AGENTS.md` lists the invariants and the tests that guard them.
+- Docs split by topic under `docs/`; `CONTRIBUTING.md` lists the invariants and the tests that guard them.
 
 - Client accepts a literal device token from the environment (`CASTER_TOKEN`, or a `cst_…` value in `CASTER_TOKEN_REF`) for launchers that resolve secret references themselves, as Tether's gateway does; it is never saved to the profile or printed.
 - MCP `tags` accepts a list as well as the documented space-separated string.

@@ -11,6 +11,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/hollis-labs/libs/core/panics"
 	"github.com/hollis-labs/tools/conduit/internal/blob"
 	"github.com/hollis-labs/tools/conduit/internal/cmdparse"
 	"github.com/hollis-labs/tools/conduit/internal/cmdrun"
@@ -18,7 +19,6 @@ import (
 	"github.com/hollis-labs/tools/conduit/internal/proc"
 	"github.com/hollis-labs/tools/conduit/internal/runbook"
 	"github.com/hollis-labs/tools/conduit/internal/store"
-	"github.com/hollis-labs/libs/core/panics"
 )
 
 // Errors a transport maps to exit codes or status codes.
