@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/hollis-labs/caster/internal/mcpclient"
+	"github.com/hollis-labs/tools/caster/internal/mcpclient"
 )
 
 // WorkspaceDraft is one Tesseract workspace item to create. IdempotencyKey makes

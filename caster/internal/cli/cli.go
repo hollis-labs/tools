@@ -18,7 +18,7 @@ import (
 
 	"github.com/hollis-labs/libs/security/secrets/tokenfile"
 
-	"github.com/hollis-labs/caster/internal/service"
+	"github.com/hollis-labs/tools/caster/internal/service"
 )
 
 // Exit codes.

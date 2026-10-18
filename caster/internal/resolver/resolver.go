@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/hollis-labs/caster/internal/ref"
+	"github.com/hollis-labs/tools/caster/internal/ref"
 )
 
 // States a resolver reports.

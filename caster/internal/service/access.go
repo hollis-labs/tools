@@ -13,7 +13,7 @@ import (
 
 	"github.com/hollis-labs/libs/security/auth"
 
-	"github.com/hollis-labs/caster/internal/store"
+	"github.com/hollis-labs/tools/caster/internal/store"
 )
 
 // Pairing limits, following Tether's device pairing: a short-lived one-use code

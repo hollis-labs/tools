@@ -7,8 +7,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/hollis-labs/caster/internal/ref"
-	"github.com/hollis-labs/caster/internal/resolver"
+	"github.com/hollis-labs/tools/caster/internal/ref"
+	"github.com/hollis-labs/tools/caster/internal/resolver"
 )
 
 // Refs is the domain service for refs: resolve, fetch, snapshot into CAS, and

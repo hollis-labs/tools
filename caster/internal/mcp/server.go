@@ -11,7 +11,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/hollis-labs/caster/internal/service"
+	"github.com/hollis-labs/tools/caster/internal/service"
 )
 
 type tool struct {

@@ -6,7 +6,7 @@ import (
 
 	"github.com/hollis-labs/libs/security/auth"
 
-	"github.com/hollis-labs/caster/internal/ref"
+	"github.com/hollis-labs/tools/caster/internal/ref"
 )
 
 // Scopes. Authorization lives in the service layer, not in a transport, so every

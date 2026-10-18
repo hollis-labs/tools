@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hollis-labs/caster/internal/cli"
-	"github.com/hollis-labs/caster/internal/client"
-	"github.com/hollis-labs/caster/internal/service"
+	"github.com/hollis-labs/tools/caster/internal/cli"
+	"github.com/hollis-labs/tools/caster/internal/client"
+	"github.com/hollis-labs/tools/caster/internal/service"
 )
 
 // login redeems a pairing code from the home node and saves the resulting

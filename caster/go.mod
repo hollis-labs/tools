@@ -1,4 +1,4 @@
-module github.com/hollis-labs/caster
+module github.com/hollis-labs/tools/caster
 
 go 1.26.9
 

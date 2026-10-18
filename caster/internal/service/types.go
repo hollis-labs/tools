@@ -5,8 +5,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/hollis-labs/caster/internal/resolver"
-	"github.com/hollis-labs/caster/internal/store"
+	"github.com/hollis-labs/tools/caster/internal/resolver"
+	"github.com/hollis-labs/tools/caster/internal/store"
 )
 
 // Resolution states. A missing or forbidden ref is an outcome carried in

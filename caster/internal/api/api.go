@@ -17,7 +17,7 @@ import (
 
 	"github.com/hollis-labs/libs/security/auth"
 
-	"github.com/hollis-labs/caster/internal/service"
+	"github.com/hollis-labs/tools/caster/internal/service"
 )
 
 const maxBody = 8 << 20

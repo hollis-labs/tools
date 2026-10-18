@@ -10,8 +10,8 @@ import (
 
 	"github.com/hollis-labs/libs/security/auth"
 
-	"github.com/hollis-labs/caster/internal/resolver"
-	"github.com/hollis-labs/caster/internal/store"
+	"github.com/hollis-labs/tools/caster/internal/resolver"
+	"github.com/hollis-labs/tools/caster/internal/store"
 )
 
 // DefaultNS is the namespace used when a bare name is given.

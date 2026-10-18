@@ -16,8 +16,8 @@ import (
 	"github.com/hollis-labs/libs/security/auth"
 	"github.com/hollis-labs/libs/security/secrets/tokenfile"
 
-	"github.com/hollis-labs/caster/internal/api"
-	"github.com/hollis-labs/caster/internal/service"
+	"github.com/hollis-labs/tools/caster/internal/api"
+	"github.com/hollis-labs/tools/caster/internal/service"
 )
 
 const defaultAddr = "127.0.0.1:8991"

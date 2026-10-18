@@ -15,12 +15,12 @@ import (
 	"github.com/hollis-labs/go-apppaths/paths"
 	hotel "github.com/hollis-labs/go-otel"
 
-	"github.com/hollis-labs/caster/internal/cli"
-	"github.com/hollis-labs/caster/internal/client"
-	"github.com/hollis-labs/caster/internal/mcp"
-	"github.com/hollis-labs/caster/internal/resolver"
-	"github.com/hollis-labs/caster/internal/service"
-	"github.com/hollis-labs/caster/internal/store"
+	"github.com/hollis-labs/tools/caster/internal/cli"
+	"github.com/hollis-labs/tools/caster/internal/client"
+	"github.com/hollis-labs/tools/caster/internal/mcp"
+	"github.com/hollis-labs/tools/caster/internal/resolver"
+	"github.com/hollis-labs/tools/caster/internal/service"
+	"github.com/hollis-labs/tools/caster/internal/store"
 )
 
 const (

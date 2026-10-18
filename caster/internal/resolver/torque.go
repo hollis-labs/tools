@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hollis-labs/caster/internal/ref"
+	"github.com/hollis-labs/tools/caster/internal/ref"
 )
 
 // DefaultTorqueURL is the local Torque HTTP API.

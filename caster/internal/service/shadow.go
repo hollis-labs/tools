@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hollis-labs/caster/internal/ref"
-	"github.com/hollis-labs/caster/internal/resolver"
-	"github.com/hollis-labs/caster/internal/store"
+	"github.com/hollis-labs/tools/caster/internal/ref"
+	"github.com/hollis-labs/tools/caster/internal/resolver"
+	"github.com/hollis-labs/tools/caster/internal/store"
 )
 
 // Shadow limits.

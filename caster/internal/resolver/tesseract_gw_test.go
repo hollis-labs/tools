@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hollis-labs/caster/internal/mcpclient"
-	"github.com/hollis-labs/caster/internal/ref"
+	"github.com/hollis-labs/tools/caster/internal/mcpclient"
+	"github.com/hollis-labs/tools/caster/internal/ref"
 )
 
 type fakeGW struct{ calls []string }

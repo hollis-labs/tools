@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hollis-labs/caster/internal/service"
-	"github.com/hollis-labs/caster/internal/store"
+	"github.com/hollis-labs/tools/caster/internal/service"
+	"github.com/hollis-labs/tools/caster/internal/store"
 )
 
 func TestServePutGetRoundTrip(t *testing.T) {

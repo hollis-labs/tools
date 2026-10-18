@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hollis-labs/caster/internal/ref"
+	"github.com/hollis-labs/tools/caster/internal/ref"
 )
 
 // Tesseract resolves tesseract://<ns>/<key> and tesseract://item/<record_id>

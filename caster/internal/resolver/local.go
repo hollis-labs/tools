@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strconv"
 
-	"github.com/hollis-labs/caster/internal/ref"
-	"github.com/hollis-labs/caster/internal/store"
+	"github.com/hollis-labs/tools/caster/internal/ref"
+	"github.com/hollis-labs/tools/caster/internal/store"
 )
 
 // Local resolves cas:// and caster:// refs from the local store.

@@ -10,7 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/hollis-labs/caster/internal/mcpclient"
+	"github.com/hollis-labs/tools/caster/internal/mcpclient"
 )
 
 // ToolCaller calls an MCP tool and returns its structured result.

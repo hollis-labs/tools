@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hollis-labs/caster/internal/ref"
-	"github.com/hollis-labs/caster/internal/store"
+	"github.com/hollis-labs/tools/caster/internal/ref"
+	"github.com/hollis-labs/tools/caster/internal/store"
 )
 
 // Notes is the domain service for stored text: blobs, named items and their
