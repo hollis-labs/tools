@@ -2,6 +2,25 @@
 
 Go tools and other command-line utilities from Hollis Labs. One public repository, flat layout: every tool is a top-level directory.
 
+## Caster and Conduit
+
+- [Caster](caster/) stores content-addressed notes and drafts, resolves references,
+  and exposes one service through CLI, browser, MCP and HTTP.
+- [Conduit](conduit/) parses commands, applies policy, records outcomes and lets
+  operators approve work submitted by agents.
+
+> **Pre-release.** Both are new tools being built in the open. Their documentation
+> describes what exists today; interfaces and behavior can change without notice,
+> and there are no compatibility guarantees or tagged releases yet.
+
+```sh
+go install github.com/hollis-labs/tools/caster/cmd/caster@latest
+go install github.com/hollis-labs/tools/conduit/cmd/conduit@latest
+```
+
+Both require Go 1.26.9 or later. Caster and Conduit are independent modules;
+Conduit can optionally use the Caster binary to store command output.
+
 ## Layout
 
 ```
