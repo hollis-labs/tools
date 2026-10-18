@@ -46,6 +46,16 @@ func TestCasterAgreesWithLocalRefs(t *testing.T) {
 	if err != nil {
 		t.Skip("caster not installed")
 	}
+	// A developer may already have a local store or a remote profile. This
+	// integration test must only write to its own temporary, local store.
+	root := t.TempDir()
+	for _, key := range []string{"XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME"} {
+		t.Setenv(key, filepath.Join(root, key))
+	}
+	t.Setenv("CASTER_LOCAL", "1")
+	t.Setenv("CASTER_DB_PATH", filepath.Join(root, "caster.db"))
+	t.Setenv("CASTER_WORKSPACE", "default")
+	t.Setenv("HOLLIS_OTEL_ENABLED", "false")
 	ctx := context.Background()
 	l, _ := NewLocal(t.TempDir())
 	data := []byte("conduit blob test: ref agreement\n")
