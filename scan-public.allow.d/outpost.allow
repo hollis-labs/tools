@@ -1,0 +1,2 @@
+# Owner reviewed during the Outpost public preparation review.
+internal-ip outpost/internal/service/service.go Standard Tailscale CGNAT network prefix in the listener allow policy, not a deployed host address.

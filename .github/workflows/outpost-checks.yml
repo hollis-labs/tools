@@ -1,0 +1,76 @@
+name: Outpost
+
+on:
+  push:
+    paths:
+      - 'outpost/**'
+      - '.github/workflows/outpost-checks.yml'
+  pull_request:
+    paths:
+      - 'outpost/**'
+      - '.github/workflows/outpost-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: outpost-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      GOWORK: 'off'
+      GOPROXY: https://proxy.golang.org
+      GOPRIVATE: ''
+      GONOPROXY: ''
+      GONOSUMDB: ''
+    defaults:
+      run:
+        working-directory: outpost
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: outpost/go.mod
+          cache-dependency-path: outpost/go.sum
+      - name: modules
+        run: |
+          go mod verify
+          go mod tidy -diff
+      - name: format
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "$out"
+            exit 1
+          fi
+      - name: vet
+        run: go vet ./...
+      - name: race tests
+        run: go test -race -count=1 ./...
+      - name: build
+        run: make build
+      - uses: golangci/golangci-lint-action@v7
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          version: v2.11.4
+          working-directory: outpost
+      - name: vulnerability scan
+        if: matrix.os == 'ubuntu-latest'
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+      - name: staging helper syntax
+        run: python3 -m py_compile scripts/stage-machine.py
+      - name: public installation
+        if: github.repository == 'hollis-labs/tools' && github.ref == 'refs/heads/main'
+        env:
+          REVISION: ${{ github.sha }}
+        run: |
+          GOBIN="$RUNNER_TEMP/public-install" go install "github.com/hollis-labs/tools/outpost/cmd/outpost@$REVISION"
+          go version -m "$RUNNER_TEMP/public-install/outpost"

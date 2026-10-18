@@ -2,24 +2,28 @@
 
 Go tools and other command-line utilities from Hollis Labs. One public repository, flat layout: every tool is a top-level directory.
 
-## Caster and Conduit
+## Tools
 
 - [Caster](caster/) stores content-addressed notes and drafts, resolves references,
   and exposes one service through CLI, browser, MCP and HTTP.
 - [Conduit](conduit/) parses commands, applies policy, records outcomes and lets
   operators approve work submitted by agents.
+- [Outpost](outpost/) hosts trusted subprocess plugins on a machine and routes
+  authenticated requests to them using per-plugin controller pairings.
 
-> **Pre-release.** Both are new tools being built in the open. Their documentation
+> **Pre-release.** These are new tools being built in the open. Their documentation
 > describes what exists today; interfaces and behavior can change without notice,
 > and there are no compatibility guarantees or tagged releases yet.
 
 ```sh
 go install github.com/hollis-labs/tools/caster/cmd/caster@latest
 go install github.com/hollis-labs/tools/conduit/cmd/conduit@latest
+go install github.com/hollis-labs/tools/outpost/cmd/outpost@latest
 ```
 
-Both require Go 1.26.9 or later. Caster and Conduit are independent modules;
-Conduit can optionally use the Caster binary to store command output.
+All three require Go 1.26.9 or later and are independent modules. Conduit can
+optionally use the Caster binary to store command output. Outpost installs its
+plugin binaries separately; see its README for inventory and pairing setup.
 
 ## Layout
 
