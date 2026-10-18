@@ -1,0 +1,44 @@
+kind: cerberus-project/v1
+owner: caster
+namespace: local
+project:
+  id: caster
+  name: Caster
+resources:
+  # The home node's HTTP API. Loopback only: other machines reach it through
+  # Tailscale Serve (https) or an SSH forward, never by binding a network
+  # interface. Auth is enforce mode (device tokens, optional Tether JWTs, the
+  # operator key); see docs/access.md. Data lives in the user's
+  # XDG dirs, so `caster` on this machine (CASTER_LOCAL=1 not needed here) and
+  # the service share one store.
+  - id: caster-uat
+    name: Caster home node
+    type: process
+    project: caster
+    connector: local
+    config:
+      build_strategy:
+        kind: make_standard
+        source:
+          root: .
+        rules:
+          target: build
+          output: bin/caster
+      command:
+        - ./bin/caster
+        - serve
+        - -addr
+        - 127.0.0.1:8991
+      dir: ~/src/tools/caster
+      mode: os_service
+      port: 8991
+      run_from: artifact
+      supervisor: auto
+      url: http://127.0.0.1:8991/health
+    tags:
+      - api
+      - go
+      - daemon
+      - uat
+      - artifact
+      - caster
