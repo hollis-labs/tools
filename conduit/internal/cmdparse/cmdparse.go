@@ -190,8 +190,8 @@ type walker struct {
 }
 
 func (w *walker) text(n syntax.Node) string {
-	s, e := int(n.Pos().Offset()), int(n.End().Offset())
-	if s < 0 || e > len(w.src) || s > e {
+	s, e := n.Pos().Offset(), n.End().Offset()
+	if e > uint(len(w.src)) || s > e {
 		return ""
 	}
 	return w.src[s:e]

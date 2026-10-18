@@ -11,6 +11,8 @@ section before running the repository release script. No releases are tagged yet
 
 ### Fixed
 
+- Guard terminal descriptor conversions and retain unsigned parser offsets
+  until bounds validation, satisfying the pinned CI security linter.
 - Isolated the Caster integration test from existing local stores and remote profiles.
 
 ### Changed

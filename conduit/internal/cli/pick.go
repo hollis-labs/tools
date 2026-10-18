@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -77,7 +78,11 @@ func (c *cmd) interactive(p *picker) (string, bool, error) {
 		return "", false, fmt.Errorf("no terminal (use -filter for non-interactive use)")
 	}
 	defer func() { _ = tty.Close() }()
-	fd := int(tty.Fd())
+	rawFD := tty.Fd()
+	if rawFD > math.MaxInt {
+		return "", false, fmt.Errorf("terminal file descriptor is out of range")
+	}
+	fd := int(rawFD)
 	old, err := term.MakeRaw(fd)
 	if err != nil {
 		return "", false, err

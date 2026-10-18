@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"unicode"
@@ -64,5 +65,9 @@ func oneLineSafe(s string, n int) string {
 // to a pipe or file it is written as stored.
 func (c *cmd) isTerminal() bool {
 	f, ok := c.out.(*os.File)
-	return ok && term.IsTerminal(int(f.Fd()))
+	if !ok || f == nil {
+		return false
+	}
+	fd := f.Fd()
+	return fd <= math.MaxInt && term.IsTerminal(int(fd))
 }
