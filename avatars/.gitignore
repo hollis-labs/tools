@@ -1,6 +1,0 @@
-__pycache__/
-*.pyc
-out/.sprite_ref_*.png
-*.tmp
-.DS_Store
-*.lock
