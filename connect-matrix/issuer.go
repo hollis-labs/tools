@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -53,14 +54,14 @@ type httpIssuer struct {
 	credFile     string // optional bearer for the issuer's own API
 }
 
-func (h *httpIssuer) post(ctx context.Context, url string, in, out any) error {
+func (h *httpIssuer) post(ctx context.Context, target string, in, out any) error {
 	body, err := json.Marshal(in)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return errors.New("invalid issuer URL") // the URL may hold a secret: never echo it
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if h.credFile != "" {
@@ -70,7 +71,7 @@ func (h *httpIssuer) post(ctx context.Context, url string, in, out any) error {
 		}
 		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(b)))
 	}
-	resp, err := h.client.Do(req) // #nosec G704 -- operator-supplied URL
+	resp, err := sameOrigin(h.client, req.URL).Do(req) // #nosec G704 -- operator-supplied URL
 	if err != nil {
 		return errors.New("issuer request failed: " + scrub(err))
 	}
@@ -107,9 +108,24 @@ func (h *httpIssuer) Revoke(ctx context.Context, m Minted) error {
 // scrub keeps a transport error useful without echoing a URL that may carry
 // a secret in its query.
 func scrub(err error) string {
-	s := err.Error()
-	if i := strings.Index(s, "\": "); i >= 0 {
-		return s[i+3:]
+	var ue *url.Error
+	if errors.As(err, &ue) && ue.Err != nil {
+		return ue.Err.Error()
 	}
-	return s
+	return "request failed"
+}
+
+// sameOrigin returns a copy of c that refuses any redirect leaving the origin
+// (scheme, host and port) of the first request, so the issuer credential is
+// never forwarded to another service, including another port on the same host.
+func sameOrigin(c *http.Client, first *url.URL) *http.Client {
+	cc := *c
+	origin := first.Scheme + "://" + first.Host
+	cc.CheckRedirect = func(r *http.Request, _ []*http.Request) error {
+		if r.URL.Scheme+"://"+r.URL.Host != origin {
+			return errors.New("refusing cross-origin redirect")
+		}
+		return nil
+	}
+	return &cc
 }

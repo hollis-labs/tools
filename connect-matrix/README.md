@@ -10,7 +10,7 @@ Proves that one app can call another app's API with a service token, and that re
 | `revoke` | the issuer accepted the revocation |
 | `revoked` | the target starts refusing the token, and how many seconds that took. The check waits up to `revoke_bound_seconds` (default 45: one 30s deny-list poll interval plus slack) for the effect; a target that has not refused by then fails. This is a test patience, not a guarantee about the target: revocation takes effect within one poll interval after a successful poll, and if the issuer or deny-list is unreachable the target keeps the last list (stale) |
 
-`wrong_audience` and `revoked` only mean something when the target is enforcing. Set `"enforcing": false` for a target that admits anonymous callers and those two checks are skipped; claiming `enforcing` on a target that is not fails with a hint. Tokens and credentials are never printed or written to the JSON report.
+`wrong_audience` and `revoked` only mean something when the target is enforcing. Set `"enforcing": false` for a target that admits anonymous callers and those two checks are skipped; claiming `enforcing` on a target that is not fails with a hint. Tokens and credentials are never printed or written to the JSON report. Every minted token is revoked before a pair finishes, on every exit path, and a failed revoke is a failing `cleanup` / `cleanup_other` check. The issuer client refuses redirects that leave its origin (scheme, host and port), so the issuer credential is never forwarded.
 
 ```sh
 go install github.com/hollis-labs/tools/connect-matrix/cmd/connect-matrix@latest
@@ -38,7 +38,7 @@ Exit status is 0 when every pair passes, 1 when a pair fails, 2 for a usage or c
 
 ## Config
 
-See `examples/pairs.json`. Unknown fields are rejected. A pair needs `name`, `target`, `audience`, at least one scope and `probe.path`; `probe.method` defaults to GET and `probe.ok_status` to 200. `other_audience` (default `connect-matrix-other`) is the audience of the wrong-audience token.
+See `examples/pairs.json`. Unknown fields are rejected. Targets and issuer URLs must be absolute http(s) URLs with no userinfo, query or fragment (a secret cannot ride in a URL into a report or error; reports show scheme and host only). `probe.ok_status` must be a 2xx status: `accepted` has to show the target admitted the token, so a target that answers 401 to everything cannot pass. A pair needs `name`, `target`, `audience`, at least one scope and `probe.path`; `probe.method` defaults to GET and `probe.ok_status` to 200. `other_audience` (default `connect-matrix-other`) is the audience of the wrong-audience token.
 
 ## Development
 

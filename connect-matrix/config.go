@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -91,9 +92,18 @@ func (c *Config) Validate() error {
 		if c.Issuer.URL == "" {
 			return errors.New("config: issuer.url is required for type mock")
 		}
+		if err := plainURL("issuer.url", c.Issuer.URL); err != nil {
+			return err
+		}
 	case "http":
 		if c.Issuer.MintURL == "" || c.Issuer.RevokeURL == "" || c.Issuer.CredentialFile == "" {
 			return errors.New("config: issuer.mint_url, revoke_url and credential_file are required for type http")
+		}
+		if err := plainURL("issuer.mint_url", c.Issuer.MintURL); err != nil {
+			return err
+		}
+		if err := plainURL("issuer.revoke_url", c.Issuer.RevokeURL); err != nil {
+			return err
 		}
 	default:
 		return fmt.Errorf("config: issuer.type %q (want mock or http)", c.Issuer.Type)
@@ -117,6 +127,9 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("config: duplicate pair %q", p.Name)
 		}
 		seen[p.Name] = true
+		if err := plainURL(fmt.Sprintf("pair %q target", p.Name), p.Target); err != nil {
+			return err
+		}
 		if len(p.Scopes) == 0 {
 			return fmt.Errorf("config: pair %q needs at least one scope", p.Name)
 		}
@@ -125,6 +138,12 @@ func (c *Config) Validate() error {
 		}
 		if p.Probe.OKStatus == 0 {
 			p.Probe.OKStatus = 200
+		}
+		// "accepted" must show the target ADMITTED the token. A 401 or 403 is a
+		// refusal, and a target that answers 401 to everything would otherwise
+		// satisfy every check.
+		if p.Probe.OKStatus < 200 || p.Probe.OKStatus > 299 {
+			return fmt.Errorf("config: pair %q probe.ok_status must be a 2xx status (got %d): a refusal is not proof of connectivity", p.Name, p.Probe.OKStatus)
 		}
 		if p.OtherAudience == "" {
 			p.OtherAudience = "connect-matrix-other"
@@ -143,3 +162,17 @@ func (c Config) Bound() time.Duration { return time.Duration(c.RevokeBoundSecond
 func (c Config) Poll() time.Duration { return time.Duration(c.PollIntervalMillis) * time.Millisecond }
 
 func (p Pair) enforcing() bool { return p.Enforcing == nil || *p.Enforcing }
+
+// plainURL requires an absolute http(s) URL with no userinfo, query or
+// fragment, so a secret cannot ride in a configured URL into a report or an
+// error. The message names the field, never the value.
+func plainURL(field, raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("config: %s must be an absolute http(s) URL", field)
+	}
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("config: %s must not contain credentials, a query or a fragment; pass secrets by file or header, not in the URL", field)
+	}
+	return nil
+}

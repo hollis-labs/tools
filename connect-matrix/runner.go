@@ -2,9 +2,11 @@ package connectmatrix
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -37,9 +39,10 @@ type Runner struct {
 	Issuer Issuer
 	Client *http.Client
 	Cfg    Config
-	// Now and Sleep are replaceable for tests.
+	// Now and Sleep are replaceable for tests. Sleep must return early when ctx
+	// is done.
 	Now   func() time.Time
-	Sleep func(time.Duration)
+	Sleep func(ctx context.Context, d time.Duration)
 }
 
 // Run proves each pair (or only those named) and returns the results in
@@ -52,7 +55,7 @@ func (r *Runner) Run(ctx context.Context, only map[string]bool) []PairResult {
 		r.Now = time.Now
 	}
 	if r.Sleep == nil {
-		r.Sleep = time.Sleep
+		r.Sleep = sleepCtx
 	}
 	var out []PairResult
 	for _, p := range r.Cfg.Pairs {
@@ -64,8 +67,28 @@ func (r *Runner) Run(ctx context.Context, only map[string]bool) []PairResult {
 	return out
 }
 
-func (r *Runner) runPair(ctx context.Context, p Pair) PairResult {
-	res := PairResult{Name: p.Name, Target: p.Target, Pass: true}
+func sleepCtx(ctx context.Context, d time.Duration) {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+	case <-t.C:
+	}
+}
+
+// SafeTarget is the target as it may appear in a report: scheme and host only.
+// Userinfo, path, query and fragment can carry secrets and are dropped; a value
+// that does not parse is replaced, never echoed.
+func SafeTarget(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.Scheme == "" {
+		return "<invalid target>"
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+func (r *Runner) runPair(ctx context.Context, p Pair) (res PairResult) {
+	res = PairResult{Name: p.Name, Target: SafeTarget(p.Target), Pass: true}
 	add := func(c CheckResult) bool {
 		res.Checks = append(res.Checks, c)
 		if c.Result == Fail {
@@ -78,53 +101,93 @@ func (r *Runner) runPair(ctx context.Context, p Pair) PairResult {
 	if !add(check("mint", err, "issuer minted a service token")) {
 		return res
 	}
+	// Whatever happens next, the token is revoked on the way out and the
+	// outcome is recorded: a long-lived token must never be left behind
+	// silently. The enforcing path revokes it deliberately (and records
+	// "revoke"); this only covers every other exit.
+	goodRevoked := false
+	defer func() {
+		if !goodRevoked {
+			add(check("cleanup", r.Issuer.Revoke(ctx, good), "issuer revoked the token on exit"))
+		}
+	}()
+
 	st, err := r.probe(ctx, p, good.Token)
 	if !add(expectStatus("accepted", st, err, p.Probe.OKStatus)) {
-		_ = r.Issuer.Revoke(ctx, good) // do not leave a live token behind
 		return res
 	}
 
 	if !p.enforcing() {
 		add(CheckResult{Name: "wrong_audience", Result: Skip, Detail: "pair is not enforcing"})
 		add(CheckResult{Name: "revoked", Result: Skip, Detail: "pair is not enforcing"})
-		_ = r.Issuer.Revoke(ctx, good)
 		return res
 	}
 
 	other, err := r.Issuer.Mint(ctx, MintRequest{Name: p.Name + "-other", Audience: p.OtherAudience, Scopes: p.Scopes})
-	if check("mint_other", err, "").Result == Fail {
-		add(check("wrong_audience", err, ""))
+	if err != nil {
+		add(CheckResult{Name: "wrong_audience", Result: Fail, Detail: "could not mint the other-audience token: " + err.Error()})
 	} else {
 		st, err = r.probe(ctx, p, other.Token)
 		add(expectRejected("wrong_audience", st, err))
-		_ = r.Issuer.Revoke(ctx, other)
+		add(check("cleanup_other", r.Issuer.Revoke(ctx, other), "issuer revoked the other-audience token"))
 	}
 
-	if err := r.Issuer.Revoke(ctx, good); !add(check("revoke", err, "issuer revoked the token")) {
+	err = r.Issuer.Revoke(ctx, good)
+	goodRevoked = err == nil // a failed revoke is retried by the deferred cleanup
+	if !add(check("revoke", err, "issuer revoked the token")) {
 		return res
 	}
+	add(r.waitRevoked(ctx, p, good))
+	return res
+}
+
+// waitRevoked polls until the target refuses the revoked token. It passes only
+// if the refusal is observed within the configured wait, measured on the
+// runner's clock when the answer arrives; each probe is capped by the time
+// left and the wait between probes ends early when ctx is done.
+func (r *Runner) waitRevoked(ctx context.Context, p Pair, m Minted) CheckResult {
 	start := r.Now()
-	deadline := start.Add(r.Cfg.Bound())
+	bound := r.Cfg.Bound()
+	deadline := start.Add(bound)
+	lastStatus := 0
+	var lastErr error
 	for {
-		st, err = r.probe(ctx, p, good.Token)
-		if err == nil && (st == http.StatusUnauthorized || st == http.StatusForbidden) {
-			add(CheckResult{Name: "revoked", Result: Pass, Seconds: r.Now().Sub(start).Seconds(),
-				Detail: fmt.Sprintf("target answered %d", st)})
-			return res
+		left := deadline.Sub(r.Now())
+		if left <= 0 || ctx.Err() != nil {
+			detail := fmt.Sprintf("not refused within %s (is the target polling the deny-list successfully?)", bound)
+			switch {
+			case lastErr != nil:
+				detail = "probe error: " + lastErr.Error()
+			case lastStatus != 0:
+				detail = fmt.Sprintf("still answered %d after %s (is the target polling the deny-list successfully?)", lastStatus, bound)
+			}
+			return CheckResult{Name: "revoked", Result: Fail, Seconds: r.Now().Sub(start).Seconds(), Detail: detail}
 		}
-		if !r.Now().Before(deadline) || ctx.Err() != nil {
-			detail := fmt.Sprintf("still answered %d after %s (is the target polling the deny-list successfully?)", st, r.Cfg.Bound())
+		pctx, cancel := context.WithTimeout(ctx, left)
+		st, err := r.probe(pctx, p, m.Token)
+		cancel()
+		lastStatus, lastErr = st, err
+		elapsed := r.Now().Sub(start)
+		switch {
+		case err == nil && (st == http.StatusUnauthorized || st == http.StatusForbidden):
+			if elapsed > bound {
+				return CheckResult{Name: "revoked", Result: Fail, Seconds: elapsed.Seconds(),
+					Detail: fmt.Sprintf("target answered %d only after %.1fs, over the %s wait", st, elapsed.Seconds(), bound)}
+			}
+			return CheckResult{Name: "revoked", Result: Pass, Seconds: elapsed.Seconds(), Detail: fmt.Sprintf("target answered %d", st)}
+		case elapsed >= bound:
+			detail := fmt.Sprintf("still answered %d after %s (is the target polling the deny-list successfully?)", st, bound)
 			if err != nil {
 				detail = "probe error: " + err.Error()
 			}
-			add(CheckResult{Name: "revoked", Result: Fail, Seconds: r.Now().Sub(start).Seconds(), Detail: detail})
-			return res
+			return CheckResult{Name: "revoked", Result: Fail, Seconds: elapsed.Seconds(), Detail: detail}
 		}
-		r.Sleep(r.Cfg.Poll())
+		r.Sleep(ctx, r.Cfg.Poll())
 	}
 }
 
 // probe makes the pair's request with token ("" = no Authorization header).
+// Errors never carry the target URL, which may hold a secret.
 func (r *Runner) probe(ctx context.Context, p Pair, token string) (int, error) {
 	var body io.Reader
 	if p.Probe.Body != "" {
@@ -132,7 +195,7 @@ func (r *Runner) probe(ctx context.Context, p Pair, token string) (int, error) {
 	}
 	req, err := http.NewRequestWithContext(ctx, p.Probe.Method, strings.TrimRight(p.Target, "/")+p.Probe.Path, body)
 	if err != nil {
-		return 0, err
+		return 0, errors.New("invalid target URL")
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -142,7 +205,7 @@ func (r *Runner) probe(ctx context.Context, p Pair, token string) (int, error) {
 	}
 	resp, err := r.Client.Do(req) // #nosec G704 -- operator-supplied target
 	if err != nil {
-		return 0, fmt.Errorf("%s", scrub(err))
+		return 0, errors.New(scrub(err))
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 	_ = resp.Body.Close()
