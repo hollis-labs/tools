@@ -8,7 +8,7 @@ Proves that one app can call another app's API with a service token, and that re
 | `accepted` | the target answered the probe request with the expected status |
 | `wrong_audience` | a token meant for another audience is refused (401 or 403) |
 | `revoke` | the issuer accepted the revocation |
-| `revoked` | the target starts refusing the token, and how many seconds that took (must be within `revoke_bound_seconds`, default 45: a 30s deny-list poll plus slack) |
+| `revoked` | the target starts refusing the token, and how many seconds that took. The check waits up to `revoke_bound_seconds` (default 45: one 30s deny-list poll interval plus slack) for the effect; a target that has not refused by then fails. This is a test patience, not a guarantee about the target: revocation takes effect within one poll interval after a successful poll, and if the issuer or deny-list is unreachable the target keeps the last list (stale) |
 
 `wrong_audience` and `revoked` only mean something when the target is enforcing. Set `"enforcing": false` for a target that admits anonymous callers and those two checks are skipped; claiming `enforcing` on a target that is not fails with a hint. Tokens and credentials are never printed or written to the JSON report.
 

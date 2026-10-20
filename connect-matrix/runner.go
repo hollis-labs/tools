@@ -113,7 +113,7 @@ func (r *Runner) runPair(ctx context.Context, p Pair) PairResult {
 			return res
 		}
 		if !r.Now().Before(deadline) || ctx.Err() != nil {
-			detail := fmt.Sprintf("still answered %d after %s", st, r.Cfg.Bound())
+			detail := fmt.Sprintf("still answered %d after %s (is the target polling the deny-list successfully?)", st, r.Cfg.Bound())
 			if err != nil {
 				detail = "probe error: " + err.Error()
 			}

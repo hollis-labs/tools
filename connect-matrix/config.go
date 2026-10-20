@@ -1,7 +1,7 @@
 // Package connectmatrix proves app-to-app API connectivity: for each pair it
 // obtains a service token from an issuer, calls the target with it, checks the
 // target refuses a token meant for someone else, revokes the token and checks
-// the target stops accepting it within a bound. It never prints a token.
+// the target stops accepting it within the check's wait. It never prints a token.
 package connectmatrix
 
 import (
@@ -16,8 +16,11 @@ import (
 // Config is the JSON file `connect-matrix run` reads.
 type Config struct {
 	Issuer IssuerConfig `json:"issuer"`
-	// RevokeBoundSeconds is how long after revocation a target may still
-	// accept the token. Default 45 (a 30s deny-list poll plus slack).
+	// RevokeBoundSeconds is how long the revoked check waits for the target to
+	// start refusing the token. Default 45 (one 30s deny-list poll interval
+	// plus slack). It is the check's patience, not a property of the target: a
+	// target whose deny-list poll fails keeps the last list (stale) and will
+	// fail this check.
 	RevokeBoundSeconds int `json:"revoke_bound_seconds"`
 	// PollIntervalMillis is how often a revoked token is retried. Default 500.
 	PollIntervalMillis int    `json:"poll_interval_ms"`
