@@ -13,6 +13,7 @@ on:
       node_version:  { type: string,  required: false, default: "", description: "set to install node for ui_cmd/test_cmd" }
       ldflags_var:   { type: string,  required: false, default: "main.version", description: "-X target for the version; empty = none" }
       extra_files:   { type: string,  required: false, default: "", description: "space-separated paths added to the tarball" }
+      migrations_glob: { type: string, required: false, default: "", description: "glob of numbered migration files; highest number goes in build-info.json (omitted when empty)" }
     outputs:
       version:       { value: "${{ jobs.build.outputs.version }}" }
       artifact:      { value: "${{ jobs.build.outputs.artifact }}" }
@@ -77,14 +78,26 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
           LDVAR: ${{ inputs.ldflags_var }}
           EXTRA: ${{ inputs.extra_files }}
+          MIGGLOB: ${{ inputs.migrations_glob }}
         run: |
           set -euo pipefail
           rm -rf dist && mkdir -p dist
           ld="-s -w"; [ -n "$LDVAR" ] && ld="$ld -X $LDVAR=$VERSION"
+          python3 - dist/build-info.json "$APP" "$VERSION" "$TARGETS" "$MIGGLOB" "$GITHUB_SHA" "$(go env GOVERSION)" <<'PY'
+          import json,sys,re,glob,datetime
+          out,app,ver,targets,mig,sha,gov=sys.argv[1:8]
+          d={"schema":"fleet-build-info/v1","app":app,"commit":sha,"sha12":sha[:12],"version":ver,"go_version":gov,
+             "built_at":datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),"targets":json.loads(targets)}
+          if mig:
+              nums=[int(m.group(1)) for f in glob.glob(mig) for m in [re.match(r"(\d+)",f.split("/")[-1])] if m]
+              if nums: d["migrations_max"]=max(nums)
+          json.dump(d,open(out,"w"),indent=2)
+          PY
           for t in $(echo "$TARGETS" | python3 -c 'import json,sys;print(" ".join(json.load(sys.stdin)))'); do
             os=${t%/*}; arch=${t#*/}; st=$(mktemp -d)
             GOOS=$os GOARCH=$arch go build -trimpath -ldflags "$ld" -o "$st/$BIN" "$PKG"
             [ -n "$EXTRA" ] && cp -r $EXTRA "$st/"
+            cp dist/build-info.json "$st/"
             tar -C "$st" -czf "dist/${APP}_${VERSION}_${os}_${arch}.tar.gz" .
             rm -rf "$st"
           done
