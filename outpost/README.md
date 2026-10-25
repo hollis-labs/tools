@@ -7,7 +7,7 @@ plugin failures leave healthy siblings running.
 
 > **Pre-release.** Outpost is new and being built in the open. This documentation
 > describes what exists today; interfaces and behavior can change without notice,
-> and there are no compatibility guarantees or tagged releases yet.
+> and there are no compatibility guarantees before 1.0 (releases are tagged `0.x`).
 
 Outpost builds on the public [app-host](https://github.com/hollis-labs/libs/tree/main/app/app-host),
 [plugin-mcp](https://github.com/hollis-labs/libs/tree/main/mcp/plugin-mcp) and

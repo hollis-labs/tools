@@ -13,7 +13,7 @@ Go tools and other command-line utilities from Hollis Labs. One public repositor
 
 > **Pre-release.** These are new tools being built in the open. Their documentation
 > describes what exists today; interfaces and behavior can change without notice,
-> and there are no compatibility guarantees or tagged releases yet.
+> and there are no compatibility guarantees before 1.0 (releases are tagged `0.x`).
 
 ```sh
 go install github.com/hollis-labs/tools/caster/cmd/caster@latest
@@ -38,7 +38,7 @@ A Go module is released on its own with the tag `<name>/vX.Y.Z`; install with
 directive. Non-Go tools are plain directories.
 
 Releasing: write `<name>/CHANGELOG.md` with a `## vX.Y.Z` section, then `scripts/release <name> vX.Y.Z` (dry run) and
-`--apply` to create the local tag. The script never pushes.
+`--apply` to create the local tag. The script never pushes; a maintainer pushes the tag and creates the GitHub release.
 
 ## Importing a repository
 

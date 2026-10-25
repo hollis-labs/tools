@@ -9,6 +9,9 @@ section before running the repository release script. No releases are tagged yet
 
 ## Unreleased
 
+## v0.0.1 - 2026-10-25
+
+First tagged release. Pre-1.0: interfaces can change between 0.x versions.
 ### Fixed
 
 - Guard terminal descriptor conversions and retain unsigned parser offsets

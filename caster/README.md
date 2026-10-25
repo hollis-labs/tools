@@ -2,8 +2,8 @@
 
 A content-addressed store and ref resolver for scratchpads, drafts and notes (mostly markdown), that can also pull Torque tasks and Tesseract records by id or key. One store on a **home node**; the CLI on your laptop, a small browser UI, an MCP server for agents and an HTTP API all reach it through the same service layer.
 
-> **Pre-release.** Caster is new, pre-0.1 software with no tagged releases
-> or compatibility guarantees yet. Built in the open: the code, the docs,
+> **Pre-release.** Caster is new, pre-0.1 software. Releases are tagged `0.x`, with no compatibility
+> guarantees before 1.0. Built in the open: the code, the docs,
 > and this README describe what exists today. Interfaces and behavior can
 > change without notice.
 
