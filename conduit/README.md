@@ -3,14 +3,14 @@
 A governed command runtime. Every command becomes an object: a parsed identity, a
 policy decision, a recorded outcome and output you can recall later.
 
-> **Pre-release.** Conduit is new, pre-0.1 software with no tagged releases
-> or compatibility guarantees yet. Built in the open: the code, the docs,
+> **Pre-release.** Conduit is new, pre-0.1 software. Releases are tagged `0.x`, with no compatibility
+> guarantees before 1.0. Built in the open: the code, the docs,
 > and this README describe what exists today. Interfaces and behavior can
 > change without notice.
 
 ## Install
 
-Requires Go 1.26.9 or later. Install the current development version:
+Requires Go 1.26.10 or later. Install the current development version:
 
 ```sh
 go install github.com/hollis-labs/tools/conduit/cmd/conduit@latest

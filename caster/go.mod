@@ -1,6 +1,6 @@
 module github.com/hollis-labs/tools/caster
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/hollis-labs/go-apppaths v0.3.0

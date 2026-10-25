@@ -9,6 +9,13 @@ section before running the repository release script. No releases are tagged yet
 
 ## Unreleased
 
+## v0.0.1 - 2026-10-25
+
+First tagged release. Pre-1.0: interfaces can change between 0.x versions.
+
+### Security
+
+- Require Go 1.26.10 for GO-2026-6809 (crypto/x509); no behavior change.
 ### Changed
 
 - Published in the public `hollis-labs/tools` monorepo with preserved history,
