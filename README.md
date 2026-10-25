@@ -21,7 +21,7 @@ go install github.com/hollis-labs/tools/conduit/cmd/conduit@latest
 go install github.com/hollis-labs/tools/outpost/cmd/outpost@latest
 ```
 
-All three require Go 1.26.9 or later and are independent modules. Conduit can
+All three require Go 1.26.10 or later and are independent modules. Conduit can
 optionally use the Caster binary to store command output. Outpost installs its
 plugin binaries separately; see its README for inventory and pairing setup.
 

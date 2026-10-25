@@ -9,7 +9,7 @@ A content-addressed store and ref resolver for scratchpads, drafts and notes (mo
 
 ## Install
 
-Requires Go 1.26.9 or later. Install the current development version:
+Requires Go 1.26.10 or later. Install the current development version:
 
 ```sh
 go install github.com/hollis-labs/tools/caster/cmd/caster@latest

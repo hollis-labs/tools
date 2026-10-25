@@ -10,7 +10,7 @@ policy decision, a recorded outcome and output you can recall later.
 
 ## Install
 
-Requires Go 1.26.9 or later. Install the current development version:
+Requires Go 1.26.10 or later. Install the current development version:
 
 ```sh
 go install github.com/hollis-labs/tools/conduit/cmd/conduit@latest
