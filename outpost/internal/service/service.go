@@ -61,10 +61,10 @@ func Run(ctx context.Context, cfg Config, version string) error {
 		return err
 	}
 	defer func() { _ = ln.Close() }()
-	return runWithListener(ctx, cfg, version, ln)
+	return runWithListener(ctx, cfg, version, ln, mode)
 }
 
-func runWithListener(ctx context.Context, cfg Config, version string, ln net.Listener) error {
+func runWithListener(ctx context.Context, cfg Config, version string, ln net.Listener, mode auth.Mode) error {
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
