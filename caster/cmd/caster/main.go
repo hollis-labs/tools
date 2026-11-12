@@ -21,6 +21,9 @@ import (
 	"github.com/hollis-labs/substrate/boot"
 	"github.com/hollis-labs/substrate/module"
 	"github.com/hollis-labs/substrate/modules/cli"
+	"github.com/hollis-labs/substrate/modules/database"
+
+	"github.com/hollis-labs/tools/caster/internal/storage"
 )
 
 func main() {
@@ -108,11 +111,19 @@ func runWith(ctx context.Context, args []string, stdout io.Writer, ready func(ne
 	if err != nil {
 		return fmt.Errorf("resolve paths: %w", err)
 	}
+	database.UseMigrationFS(storage.Migrations())
+	hooks := map[string]boot.Hook{}
+	if slices.Contains(modules, "database") { // a hook for a module that is not started is an error
+		// Before the database module creates caster.db: refuse a data directory that still has
+		// only the old main.db.
+		hooks["database"] = func(_ context.Context, app *module.App) error { return guardLegacy(app, layout) }
+	}
 	started, err := boot.StartWith(ctx, substrateApp, modules, substrateConfigJSON, boot.Options{
 		AfterConfig: func(_ context.Context, app *module.App) error {
 			resolvePaths(app, layout)
 			return nil
 		},
+		Before: hooks,
 	})
 	if err != nil {
 		return err
