@@ -109,6 +109,24 @@ func TestWhoamiReportsTheCaller(t *testing.T) {
 	}
 }
 
+func TestLocalPrincipalIsNarrow(t *testing.T) {
+	p := LocalPrincipal()
+	if p.ID != LocalPrincipalID || !p.Verified {
+		t.Fatalf("%+v", p)
+	}
+	ctx := WithPrincipal(context.Background(), p)
+	if can(ctx, ScopeAdmin) || can(ctx, ScopeAct) {
+		t.Fatal("the local principal passed an admin or act check")
+	}
+	if !can(ctx, ScopeWrite) || !can(ctx, ScopeRead) {
+		t.Fatal("the local principal lost a scope it should hold")
+	}
+	p.Scopes[0] = "*" // a copy: changing it must not widen the package list
+	if LocalScopes[0] == "*" || LocalPrincipal().Scopes[0] == "*" {
+		t.Fatal("LocalPrincipal shares its scope slice")
+	}
+}
+
 func TestLocalScopesNeverHoldAdminOrAct(t *testing.T) {
 	for _, s := range LocalScopes {
 		if s == ScopeAdmin || s == ScopeAct || s == "*" || s == "caster.*" {

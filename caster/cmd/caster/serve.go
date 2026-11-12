@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 
@@ -17,7 +18,9 @@ import (
 	"github.com/hollis-labs/substrate/modules/identity"
 
 	"github.com/hollis-labs/tools/caster/internal/api"
+	"github.com/hollis-labs/tools/caster/internal/client"
 	"github.com/hollis-labs/tools/caster/internal/hostguard"
+	"github.com/hollis-labs/tools/caster/internal/mcptools"
 	"github.com/hollis-labs/tools/caster/internal/resolver"
 	"github.com/hollis-labs/tools/caster/internal/service"
 	"github.com/hollis-labs/tools/caster/internal/settings"
@@ -28,9 +31,14 @@ import (
 // caster is what the commands share: the started framework app and the resolved data layout.
 // ready, when set, learns the bound address (tests listen on port 0).
 type caster struct {
-	app    *module.App
-	layout paths.Layout
-	ready  func(net.Addr)
+	app     *module.App
+	layout  paths.Layout
+	ready   func(net.Addr)
+	profile *client.Profile // the home node this machine is a client of, or nil for the local store
+	kind    int             // what plan decided this command line is
+	in      io.Reader
+	out     io.Writer
+	errw    io.Writer
 }
 
 func (c *caster) serveCmd(ctx context.Context) *cobra.Command {
@@ -88,6 +96,9 @@ func (c *caster) serve(ctx context.Context) error {
 	}
 	defer closeGW()
 	api.RegisterScopes(auth.ScopeTable(c.app))
+	// The same tools the stdio server has, at /mcp for a caller with an identity key (caster.mcp, then
+	// the per-tool scope).
+	mcptools.Register(c.app, svc, auth.ScopeTable(c.app))
 	assets, err := webui.Assets()
 	if err != nil {
 		return fmt.Errorf("ui assets: %w", err)

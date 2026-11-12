@@ -7,7 +7,7 @@ GOWORK=off golangci-lint run --config .golangci.transport.yml ./...
 ```
 
 The dedicated config rejects direct `storage.Storage` method calls and raw
-`database/sql` operations in `internal/api`, `internal/mcp` and `internal/cli`.
+`database/sql` operations in `internal/api`, `internal/cli`, `internal/client` and `internal/mcptools`.
 Transports decode requests, call the service layer and encode results. The
 composition root under `cmd/` opens the storage and wires the service.
 

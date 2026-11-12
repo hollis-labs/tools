@@ -16,13 +16,15 @@ says which slice it covers.
 ## Layout (S0, S1)
 
 - `cmd/caster`: `substrate.yaml` (manifest), the generated `substrate_wiring.go`, `main.go`,
-  `config.go` (data paths), `guard.go` (the legacy guard), `serve.go`.
-- `internal/api`: the HTTP transport (S3), `internal/webui`: the embedded browser UI (S3).
+  `config.go` (data paths), `guard.go` (the legacy guard), `serve.go`, `client.go` (data commands, login,
+  remote), `mcp.go`.
+- `internal/api`: the HTTP transport (S3), `internal/webui`: the embedded browser UI (S3), `internal/cli`,
+  `internal/client`, `internal/mcptools` (S4).
 - `internal/settings`: the `caster:` config block. `internal/hostguard`: Host allow-list.
 - `internal/storage`: the database schema (one embedded goose migration), the blob tree and every
   query; `storagetest.Open(t)` gives the tests a throwaway one. It replaces the old `internal/store`.
 - `internal/service`: the service layer (S2): notes, refs, actions, shadow mode, whoami. It is the
-  one place business rules and authorization live; the transports (HTTP in S3, CLI and MCP in S4)
+  one place business rules and authorization live; the transports (HTTP, CLI, MCP)
   only stamp the caller and call it. `internal/resolver` and `internal/ref` are unchanged apart from
   taking the context into the local store.
 
@@ -105,7 +107,29 @@ The old tables survive only as `legacy_devices` and `legacy_grants` history.
 - Host check (`internal/hostguard`): loopback names plus `caster.allowed_hosts`; a listed name is believed
   only from a loopback peer carrying exactly one `X-Forwarded-Proto: https`.
 
-## Removed until their slice
+## CLI, MCP and the client (S4)
 
-The old CLI, remote client and MCP server (`internal/cli`, `internal/client`, `internal/mcp`) were deleted in
-S2; S4 re-ports them from the reference clone with their tests.
+- Which command opens what is decided before boot, in `cmd/caster/main.go` `plan`:
+
+  | Command | Modules | May create |
+  |---|---|---|
+  | `serve` (exactly that) | all | database, `cas/`, signing key (only when the database holds no identity rows) |
+  | `identity setup`, `identity key create` | config, logging, secrets, auth, database, identity, cli | the same |
+  | `put`, `get`, `ls`, ... (the data commands) and `mcp`, on the local store | config, logging, secrets, database, (mcp), cli | `caster.db`, `cas/`; never the signing key (no identity module) |
+  | the same as a client of a home node | config, logging, (mcp), cli | nothing |
+  | `login`, `logout`, `remote`, `paths` | config, logging, health, cli | `remote.json` and the stored key (`login` only) |
+  | bare `caster`, help, version, config, health, completion, unknown, bad flag | config, logging, health, cli | nothing |
+
+  Every one of them runs the legacy guard before the database opens: a directory that has only `main.db`
+  is refused, naming `caster migrate`.
+- Two ways to reach the data, chosen per process (`client.Active`): a client of a home node (`CASTER_REMOTE`
+  and a key, or the profile `caster login` saved; every operation is an HTTP call that carries the key, so the
+  service decides) or the local store. In the local store the caller is `service.LocalPrincipal()`
+  (`local:operator`, `caster.read/resolve/write/observe`): it can never act or read the shadow report.
+- `internal/cli` keeps the old argv, stdout and exit codes (Conduit uses `put` and `get`). `internal/client`
+  is the HTTP client behind the `service` interfaces. `internal/mcptools` is the tool set, registered on the
+  mcp module's server and served both over stdio and at `/mcp`; every tool has its scope in `ToolScopes`
+  (the ref tools ask for authentication only and the service applies the scope of the ref's scheme).
+- One service process and any number of CLI or stdio processes share one SQLite file (WAL, one write
+  connection per process); the signing key is created only by `serve` or `identity setup` and only when the
+  database has no identity rows. `TestServiceAndCLIAreTwoProcessesOnOneStore` runs both against one directory.

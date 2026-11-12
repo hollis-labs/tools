@@ -43,6 +43,20 @@ var AllScopes = []string{ScopeRead, ScopeResolve, ScopeWrite, ScopeAct, ScopeObs
 // list to that.
 var LocalScopes = []string{ScopeRead, ScopeResolve, ScopeWrite, ScopeObserve}
 
+// LocalPrincipalID is the id of the local principal. It has the same "local:" prefix the framework's
+// own local principal has, which no identity-issued id ("user:", "key:") can equal, so an audit line
+// tells a local run from an authenticated caller.
+const LocalPrincipalID = "local:operator"
+
+// LocalPrincipal is who a CLI command or stdio MCP process is when it runs on the home node's own
+// data without a key: verified by filesystem trust, holding exactly LocalScopes.
+func LocalPrincipal() auth.Principal {
+	return auth.Principal{
+		Verified: true, ID: LocalPrincipalID, Kind: auth.KindOperator,
+		Display: "local operator (filesystem trust)", Scopes: append([]string{}, LocalScopes...), Audience: "caster",
+	}
+}
+
 // WithPrincipal stamps a verified identity (the HTTP transport does this from
 // the identity middleware).
 func WithPrincipal(ctx context.Context, p auth.Principal) context.Context {

@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -23,6 +24,7 @@ import (
 	"github.com/hollis-labs/substrate/modules/cli"
 	"github.com/hollis-labs/substrate/modules/database"
 
+	"github.com/hollis-labs/tools/caster/internal/client"
 	"github.com/hollis-labs/tools/caster/internal/storage"
 )
 
@@ -30,17 +32,32 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, "caster:", err)
 		stop()
+		// A command that already printed its own message (the helper-protocol exit codes) only sets
+		// the code.
+		var st exitStatus
+		if errors.As(err, &st) {
+			os.Exit(int(st))
+		}
+		fmt.Fprintln(os.Stderr, "caster:", err)
 		os.Exit(1)
 	}
 }
+
+// exitStatus is a command's own exit code (0 ok, 2 not found, 3 denied, 64 bad input: the Hollis
+// helper protocol), returned as an error so the deferred cleanup still runs.
+type exitStatus int
+
+func (e exitStatus) Error() string { return fmt.Sprintf("exit status %d", int(e)) }
 
 // Command kinds, from what a command may create.
 const (
 	kindFull     = iota // serve: every module
 	kindIdentity        // identity setup, identity key create: the database, the signing key, an owner or a key; no listener
 	kindReadOnly        // help, version, config, health, unknown words: no module that opens or creates a file
+	kindData            // put, get, ls, ...: the local store (may create caster.db and cas/, never a signing key), or the home node over HTTP
+	kindMCP             // mcp: the stdio server over the local store or the home node
+	kindClient          // login, logout, remote, paths: the link to a home node; no module that opens a file
 )
 
 // The module sets, in manifest order. A module that opens or creates a file (database, secrets,
@@ -50,13 +67,24 @@ var (
 	// the database, the identity module and the auth module it requires; secrets because the boot
 	// hook places its directory.
 	identityModules = []string{"config", "logging", "secrets", "auth", "database", "identity", "cli"}
+	// the local store for a CLI command: no auth, no identity (so no signing key), no listener. The
+	// caller is the local principal the command stamps itself.
+	dataModules = []string{"config", "logging", "secrets", "database", "cli"}
+	// the stdio MCP server over the local store, and over the home node (nothing opens a file).
+	mcpLocalModules  = []string{"config", "logging", "secrets", "database", "mcp", "cli"}
+	mcpRemoteModules = []string{"config", "logging", "mcp", "cli"}
 )
+
+// dataVerbs are the commands that read or write notes; they take the old CLI's arguments verbatim
+// (Conduit calls `caster put` and `caster get`).
+var dataVerbs = []string{"put", "get", "resolve", "head", "snap", "ls", "log", "search", "scan", "expand", "actions", "act", "shadow", "whoami"}
 
 // plan decides, from the command line, which modules to start, before anything is booted. Only the
 // commands that must open or create files get a module that does: serve (exactly `caster serve`,
-// nothing after it) and the identity bootstrap commands. Everything else, including bare `caster`
-// (it prints help: a typo or an empty command never starts a server), help, version, config, health,
-// completion, an unknown command and a bad flag, starts the read-only set.
+// nothing after it), the identity bootstrap commands, and the data commands and `mcp` (the local
+// store, or none when this machine is a client of a home node). Everything else, including bare
+// `caster` (it prints help: a typo or an empty command never starts a server), help at any level,
+// version, config, health, completion, an unknown command and a bad flag, starts the read-only set.
 //
 // Every argument that does not start with "-" counts as a command word. That is right only while the
 // root command has no global flag that takes a value (cobra's -h/--help is the one flag):
@@ -75,9 +103,18 @@ func plan(args []string) (modules []string, kind int) {
 		}
 	}
 	// A command word must come first: `--bogus identity setup` is a bad flag, not a bootstrap.
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") && len(words) > 1 && words[0] == "identity" &&
-		(words[1] == "setup" || (words[1] == "key" && len(words) > 2 && words[2] == "create")) {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") || len(words) == 0 {
+		return pickModules(readOnlyModules), kindReadOnly
+	}
+	switch {
+	case words[0] == "identity" && len(words) > 1 && (words[1] == "setup" || (words[1] == "key" && len(words) > 2 && words[2] == "create")):
 		return pickModules(identityModules), kindIdentity
+	case words[0] == "mcp" && len(words) == 1:
+		return pickModules(mcpLocalModules), kindMCP
+	case slices.Contains(dataVerbs, words[0]):
+		return pickModules(dataModules), kindData
+	case slices.Contains([]string{"login", "logout", "remote", "paths"}, words[0]):
+		return pickModules(readOnlyModules), kindClient
 	}
 	return pickModules(readOnlyModules), kindReadOnly
 }
@@ -103,13 +140,32 @@ func runWith(ctx context.Context, args []string, stdout io.Writer, ready func(ne
 	modules, kind := plan(args)
 	// Only the commands that write create the data directories; the rest resolve the layout
 	// without creating anything.
-	var opts []paths.Option
-	if kind == kindReadOnly {
-		opts = append(opts, paths.WithoutMaterialize())
-	}
-	layout, err := paths.Resolve(appName, opts...)
+	layout, err := paths.Resolve(appName, paths.WithoutMaterialize())
 	if err != nil {
 		return fmt.Errorf("resolve paths: %w", err)
+	}
+	var profile *client.Profile
+	switch kind {
+	case kindFull, kindIdentity:
+		if layout, err = paths.Resolve(appName); err != nil {
+			return fmt.Errorf("resolve paths: %w", err)
+		}
+	case kindData, kindMCP:
+		// A machine that is a client of a home node has no store of its own: nothing opens a file.
+		// Otherwise this is the local store, which may be created (never the signing key).
+		if profile, err = client.Active(layout.ConfigDir(), os.Getenv); err != nil {
+			return err
+		}
+		switch {
+		case profile != nil && kind == kindMCP:
+			modules = pickModules(mcpRemoteModules)
+		case profile != nil:
+			modules = pickModules(readOnlyModules)
+		default:
+			if layout, err = paths.Resolve(appName); err != nil {
+				return fmt.Errorf("resolve paths: %w", err)
+			}
+		}
 	}
 	database.UseMigrationFS(storage.Migrations())
 	hooks := map[string]boot.Hook{}
@@ -130,14 +186,15 @@ func runWith(ctx context.Context, args []string, stdout io.Writer, ready func(ne
 	}
 	defer func() { _ = started.Stop(context.Background()) }()
 
-	c := &caster{app: started.App, layout: layout, ready: ready}
+	c := &caster{app: started.App, layout: layout, ready: ready, profile: profile, kind: kind, in: os.Stdin, out: stdout, errw: os.Stderr}
 	root := cli.Root(started.App)
 	root.SetOut(stdout)
-	serve := c.serveCmd(ctx)
+	root.SilenceErrors = true // main prints an error once
 	// Bare `caster` prints help (plan starts no server module for it).
 	root.Args = cobra.NoArgs
 	root.RunE = func(cmd *cobra.Command, _ []string) error { return cmd.Help() }
-	root.AddCommand(serve)
+	root.AddCommand(c.serveCmd(ctx), c.mcpCmd(ctx), c.loginCmd(), c.logoutCmd(), c.remoteCmd(), c.pathsCmd())
+	root.AddCommand(c.dataCmds(ctx)...)
 	root.SetArgs(args)
 	return root.ExecuteContext(ctx)
 }
