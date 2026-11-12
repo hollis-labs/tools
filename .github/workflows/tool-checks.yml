@@ -64,10 +64,6 @@ jobs:
       - name: build Caster for Conduit integration
         if: matrix.module == 'conduit'
         working-directory: caster
-        # Conduit's job installs Go from conduit/go.mod; Caster's floor is higher and the job pins
-        # GOTOOLCHAIN=local, so let this one build fetch the toolchain Caster's go.mod asks for.
-        env:
-          GOTOOLCHAIN: auto
         run: |
           mkdir -p "$RUNNER_TEMP/tools-bin"
           go build -o "$RUNNER_TEMP/tools-bin/caster" ./cmd/caster

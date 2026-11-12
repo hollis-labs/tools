@@ -8,6 +8,9 @@
 // other forwarding header is dropped, because none of them may choose the host, origin or
 // caller identity, and X-Forwarded-Proto is passed on (for the identity module's trusted_proxy)
 // only for such a validated request.
+//
+// This is an app-local copy of Loom's package. The framework request for a shared Host check is
+// open and held; this copy stays until it lands.
 package hostguard
 
 import (

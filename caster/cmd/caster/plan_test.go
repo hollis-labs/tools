@@ -19,7 +19,7 @@ func TestPlan(t *testing.T) {
 		args []string
 		kind int
 	}{
-		{nil, kindFull},
+		{nil, kindReadOnly},
 		{[]string{"serve"}, kindFull},
 		{[]string{"serve", "--bogus"}, kindReadOnly},
 		{[]string{"--nosuchflag"}, kindReadOnly},
@@ -88,7 +88,7 @@ func TestPrintOnlyCommandsCreateNothing(t *testing.T) {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
 	for _, args := range [][]string{
-		{"--help"}, {"help"}, {"version"}, {"config"}, {"health"}, {"completion", "bash"},
+		{}, {"--help"}, {"help"}, {"version"}, {"config"}, {"health"}, {"completion", "bash"},
 		{"serve", "--help"}, {"identity", "--help"},
 		{"bogus"}, {"--nosuchflag"}, {"serve", "--nosuchflag"}, {"--nosuchflag", "identity", "setup"},
 	} {

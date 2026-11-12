@@ -35,7 +35,7 @@ func main() {
 
 // Command kinds, from what a command may create.
 const (
-	kindFull     = iota // serve (the default): every module
+	kindFull     = iota // serve: every module
 	kindIdentity        // identity setup, identity key create: the database, the signing key, an owner or a key; no listener
 	kindReadOnly        // help, version, config, health, unknown words: no module that opens or creates a file
 )
@@ -50,16 +50,16 @@ var (
 )
 
 // plan decides, from the command line, which modules to start, before anything is booted. Only the
-// commands that must open or create files get a module that does: serve (exactly `caster` or
-// `caster serve`, nothing after it) and the identity bootstrap commands. Everything else, including
-// help, version, config, health, completion, an unknown command and a bad flag (a lone `--nosuchflag`
-// has no command word and must not fall through to serve), starts the read-only set.
+// commands that must open or create files get a module that does: serve (exactly `caster serve`,
+// nothing after it) and the identity bootstrap commands. Everything else, including bare `caster`
+// (it prints help: a typo or an empty command never starts a server), help, version, config, health,
+// completion, an unknown command and a bad flag, starts the read-only set.
 //
 // Every argument that does not start with "-" counts as a command word. That is right only while the
 // root command has no global flag that takes a value (cobra's -h/--help is the one flag):
 // TestRootHasNoValueFlags fails when such a flag is added, and then plan must learn it.
 func plan(args []string) (modules []string, kind int) {
-	if len(args) == 0 || (len(args) == 1 && args[0] == "serve") {
+	if len(args) == 1 && args[0] == "serve" {
 		return substrateModules, kindFull
 	}
 	var words []string
@@ -72,7 +72,7 @@ func plan(args []string) (modules []string, kind int) {
 		}
 	}
 	// A command word must come first: `--bogus identity setup` is a bad flag, not a bootstrap.
-	if !strings.HasPrefix(args[0], "-") && len(words) > 1 && words[0] == "identity" &&
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") && len(words) > 1 && words[0] == "identity" &&
 		(words[1] == "setup" || (words[1] == "key" && len(words) > 2 && words[2] == "create")) {
 		return pickModules(identityModules), kindIdentity
 	}
@@ -123,9 +123,9 @@ func runWith(ctx context.Context, args []string, stdout io.Writer, ready func(ne
 	root := cli.Root(started.App)
 	root.SetOut(stdout)
 	serve := c.serveCmd(ctx)
-	// `caster` with no command serves, like `caster serve`.
-	root.RunE = func(cmd *cobra.Command, args []string) error { return serve.RunE(cmd, args) }
+	// Bare `caster` prints help (plan starts no server module for it).
 	root.Args = cobra.NoArgs
+	root.RunE = func(cmd *cobra.Command, _ []string) error { return cmd.Help() }
 	root.AddCommand(serve)
 	root.SetArgs(args)
 	return root.ExecuteContext(ctx)
