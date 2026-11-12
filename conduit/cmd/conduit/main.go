@@ -124,6 +124,12 @@ func run(ctx context.Context, getenv func(string) string, args []string) (int, e
 	rootCmd.Short = "Governed command runtime"
 	if !pl.app {
 		addCommands(rootCmd, nil)
+		// The identity commands come from the module when it started; otherwise `identity` is not in the tree and
+		// the framework's help is not shown. serve and mcp are described by the usage text only.
+		for _, name := range []string{"serve", "mcp"} {
+			rootCmd.AddCommand(&cobra.Command{Use: name, Short: map[string]string{"serve": "Serve the REST API and the MCP endpoint", "mcp": "Serve the MCP tools on stdio for an agent launched locally"}[name],
+				DisableFlagParsing: true, RunE: func(cmd *cobra.Command, _ []string) error { conduitcli.PrintUsage(cmd.OutOrStdout()); return nil }})
+		}
 		return execute(ctx, rootCmd, args)
 	}
 
@@ -138,6 +144,9 @@ func run(ctx context.Context, getenv func(string) string, args []string) (int, e
 	// `conduit panics show <ref>` has the detail.
 	panics.SetDefault(panics.Config{Reporter: panicReporter{svc: svc, logf: logf}, Redact: rd.Text})
 	addCommands(rootCmd, &forwarder{ctx: ctx, svc: svc, describe: describe})
+	if !pl.noStore {
+		rootCmd.AddCommand(serveCmd(ctx, app, svc), mcpCmd(ctx, app, svc))
+	}
 	return execute(ctx, rootCmd, args)
 }
 
@@ -211,8 +220,6 @@ var legacy = []struct{ name, short string }{
 	{"pick", "Fuzzy picker over command history"},
 	{"init", "Shell integration for bash or zsh"},
 	{"pending", "Runs waiting for approval"},
-	{"approve", "Review the parsed command and approve it"},
-	{"reject", "Reject a pending run"},
 	{"cancel", "Cancel a run"},
 	{"runbooks", "Named operations: fixed argv, typed parameters"},
 	{"reap", "Clean up after a crash: fail orphaned runs, stop their process groups"},

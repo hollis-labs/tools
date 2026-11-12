@@ -1,8 +1,8 @@
-// Package api is conduit's HTTP transport: the addressable "run this on this
-// host" surface. Every route authenticates a bearer token and checks a scope
-// bound to this host; every run is attributed to the token's principal and
-// passes the same policy as a local one. The approval routes need a scope that
-// agent tokens are not given, and a principal cannot approve its own run.
+// Package api is conduit's HTTP transport: the addressable "run this on this host" surface. The identity module has
+// authenticated the caller and the auth guard has checked the route's scope before a handler runs (RegisterScopes);
+// every run is attributed to the verified principal and passes the same policy as a local one. The approval routes
+// need a scope that agent keys are not given AND a signed-in person (a session or a user token): an API key is never a
+// person, and a principal cannot approve its own run.
 package api
 
 import (
@@ -10,14 +10,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/hollis-labs/libs/core/panics"
 	"github.com/hollis-labs/libs/core/panics/httpguard"
+	libauth "github.com/hollis-labs/libs/security/auth"
+
 	"github.com/hollis-labs/tools/conduit/internal/runbook"
 	"github.com/hollis-labs/tools/conduit/internal/service"
 	"github.com/hollis-labs/tools/conduit/internal/store"
@@ -27,21 +27,20 @@ const maxBody = 1 << 20
 
 // Config configures the handler.
 type Config struct {
-	// AllowDirs are the roots a caller's working directory must sit under. A
-	// request with no dir runs in the first one. At least one is required.
+	// AllowDirs are the roots a caller's working directory must sit under. A request with no dir runs in the first one.
+	// At least one is required.
 	AllowDirs []string
 	// RatePerMinute caps requests per principal (default 240).
 	RatePerMinute int
 }
 
-type server struct {
-	svc  *service.Service
-	cfg  Config
-	host string
+// Server is the HTTP transport.
+type Server struct {
+	svc *service.Service
+	cfg Config
 
-	mu       sync.Mutex
-	window   map[string]*bucket // per principal
-	failures map[string]*bucket // per remote address, failed auth only
+	mu     sync.Mutex
+	window map[string]*bucket // per principal
 }
 
 type bucket struct {
@@ -49,9 +48,8 @@ type bucket struct {
 	n     int
 }
 
-// New returns the API handler and starts the loop that executes runs approved
-// from outside this process (the operator's CLI) for as long as ctx lives.
-func New(ctx context.Context, svc *service.Service, cfg Config) (http.Handler, error) {
+// New returns the API server. It starts nothing: Run starts the loop that executes approved runs.
+func New(svc *service.Service, cfg Config) (*Server, error) {
 	if len(cfg.AllowDirs) == 0 {
 		return nil, errors.New("api: at least one allowed directory is required")
 	}
@@ -63,132 +61,102 @@ func New(ctx context.Context, svc *service.Service, cfg Config) (http.Handler, e
 	if cfg.RatePerMinute <= 0 {
 		cfg.RatePerMinute = 240
 	}
-	s := &server{svc: svc, cfg: cfg, host: svc.Host(), window: map[string]*bucket{}, failures: map[string]*bucket{}}
+	return &Server{svc: svc, cfg: cfg, window: map[string]*bucket{}}, nil
+}
 
-	go func() {
-		t := time.NewTicker(time.Second)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				// contained per tick: a panic in one pass must not end the loop
-				_ = panics.Call("api start-approved", func() error {
-					for _, p := range s.owners() {
-						_, _ = svc.StartApproved(p)
-					}
-					return nil
-				})
-			}
+// Run executes the runs a person approved, which the daemon owns, until ctx ends.
+func (s *Server) Run(ctx context.Context) {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			// contained per tick: a panic in one pass must not end the loop
+			_ = panics.Call("api start-approved", func() error { _, err := s.svc.StartApprovedRemote(); return err })
 		}
-	}()
+	}
+}
 
+type handler func(w http.ResponseWriter, r *http.Request, p libauth.Principal)
+
+type route struct {
+	Method, Pattern, Scope string
+	h                      handler
+}
+
+func (s *Server) routes() []route {
+	return []route{
+		{"POST", "/api/check", service.ScopeRead, s.check},
+		{"POST", "/api/exec", service.ScopeRun, s.exec},
+		{"GET", "/api/runs", service.ScopeRead, s.list},
+		{"GET", "/api/runs/{id}", service.ScopeRead, s.get},
+		{"GET", "/api/runs/{id}/output", service.ScopeRead, s.output},
+		{"POST", "/api/runs/{id}/cancel", service.ScopeRun, s.cancel},
+		{"GET", "/api/approvals", service.ScopeApprove, s.pending},
+		{"POST", "/api/runs/{id}/approve", service.ScopeApprove, s.approve},
+		{"POST", "/api/runs/{id}/reject", service.ScopeApprove, s.reject},
+		{"GET", "/api/runbooks", service.ScopeRead, s.runbooks},
+	}
+}
+
+// Handler is the route set, for httphost.Options.Routes.
+func (s *Server) Handler() *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, 200, map[string]any{"ok": true, "host": s.host})
-	})
-	mux.Handle("POST /v1/check", s.auth(service.ScopeReadOwn, s.check))
-	mux.Handle("POST /v1/exec", s.auth(service.ScopeRun, s.exec))
-	mux.Handle("GET /v1/runs", s.auth(service.ScopeReadOwn, s.list))
-	mux.Handle("GET /v1/runs/{id}", s.auth(service.ScopeReadOwn, s.get))
-	mux.Handle("GET /v1/runs/{id}/output", s.auth(service.ScopeReadOwn, s.output))
-	mux.Handle("POST /v1/runs/{id}/cancel", s.auth(service.ScopeRun, s.cancel))
-	mux.Handle("GET /v1/approvals", s.auth(service.ScopeApprove, s.pending))
-	mux.Handle("POST /v1/runs/{id}/approve", s.auth(service.ScopeApprove, s.approve))
-	mux.Handle("POST /v1/runs/{id}/reject", s.auth(service.ScopeApprove, s.reject))
-	mux.Handle("GET /v1/runbooks", s.auth(service.ScopeReadOwn, s.runbooks))
-	return httpguard.Handler(mux), nil
+	for _, rt := range s.routes() {
+		mux.Handle(rt.Method+" "+rt.Pattern, httpguard.Handler(s.wrap(rt.h)))
+	}
+	return mux
 }
 
-// owners are the principals whose approved runs this daemon starts: every token
-// principal. (Runs of other principals, such as an MCP server, are started by
-// their own process.)
-func (s *server) owners() []string {
-	toks, err := s.svc.Tokens()
-	if err != nil {
-		return nil
+// RegisterScopes declares each route's scope on the table the auth guard enforces. A route not listed is refused in
+// enforce mode.
+func (s *Server) RegisterScopes(t *libauth.ScopeTable) {
+	for _, rt := range s.routes() {
+		t.Route(rt.Method, rt.Pattern, rt.Scope)
 	}
-	out := make([]string, 0, len(toks))
-	for _, t := range toks {
-		out = append(out, "token:"+t.Name)
-	}
-	return out
 }
 
-type handler func(w http.ResponseWriter, r *http.Request, p *service.Principal)
-
-func (s *server) auth(scope string, h handler) http.Handler {
+// wrap reads the principal the guard verified, rate limits per principal and marks the context.
+func (s *Server) wrap(h handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		remote := remoteKey(r.RemoteAddr)
-		tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		var p *service.Principal
-		err := service.ErrUnauthenticated
-		if ok {
-			p, err = s.svc.Authenticate(tok)
-		}
-		if err != nil {
-			if errors.Is(err, service.ErrUnauthenticated) {
-				// Only failures are throttled: a valid token is never locked out by
-				// someone else's bad guesses from the same address.
-				if s.throttled(s.failures, remote, 10) {
-					writeErr(w, 429, "rate_limited", "too many failed authentication attempts")
-					return
-				}
-				s.count(s.failures, remote)
-				w.Header().Set("WWW-Authenticate", `Bearer realm="conduit"`)
-				writeErr(w, 401, "unauthenticated", "a valid bearer token is required")
-				return
-			}
-			writeErr(w, 500, "internal", "authentication failed")
+		p, ok := libauth.FromContext(r.Context())
+		if !ok || !p.Verified {
+			// The guard has already refused an unauthenticated route in enforce mode; this is the second lock.
+			writeErr(w, 401, "unauthenticated", "a verified caller is required")
 			return
 		}
-		if !p.Can(scope, s.host) {
-			writeErr(w, 403, "forbidden", fmt.Sprintf("token %q lacks scope %s for host %s", p.Name, scope, s.host))
-			return
-		}
-		if s.throttled(s.window, p.Name, s.cfg.RatePerMinute) {
+		if s.throttled(p.ID) {
 			writeErr(w, 429, "rate_limited", "request rate exceeded")
 			return
 		}
-		s.count(s.window, p.Name)
+		ctx := service.As(r.Context(), p.ID)
+		if p.Kind == "user" {
+			ctx = service.AsPerson(r.Context(), p.ID)
+		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
-		h(w, r.WithContext(service.As(r.Context(), p.ID())), p)
+		h(w, r.WithContext(ctx), p)
 	})
 }
 
-// remoteKey keys throttling by client address without the ephemeral port, so
-// opening a new connection does not reset the count.
-func remoteKey(addr string) string {
-	if host, _, err := net.SplitHostPort(addr); err == nil {
-		return host
-	}
-	return addr
-}
-
-func (s *server) throttled(m map[string]*bucket, key string, limit int) bool {
+func (s *Server) throttled(key string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	b := m[key]
-	return b != nil && time.Since(b.start) < time.Minute && b.n >= limit
-}
-
-func (s *server) count(m map[string]*bucket, key string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	b := m[key]
+	b := s.window[key]
 	if b == nil || time.Since(b.start) >= time.Minute {
-		if len(m) > 4096 { // drop expired windows so the maps cannot grow without bound
-			for k, v := range m {
+		if len(s.window) > 4096 { // drop expired windows so the map cannot grow without bound
+			for k, v := range s.window {
 				if time.Since(v.start) >= time.Minute {
-					delete(m, k)
+					delete(s.window, k)
 				}
 			}
 		}
 		b = &bucket{start: time.Now()}
-		m[key] = b
+		s.window[key] = b
 	}
 	b.n++
+	return b.n > s.cfg.RatePerMinute
 }
 
 func decode(r *http.Request, v any) error {
@@ -225,6 +193,8 @@ func fail(w http.ResponseWriter, err error) {
 		writeErr(w, 404, "not_found", err.Error())
 	case errors.Is(err, service.ErrBadRequest), errors.Is(err, runbook.ErrParam), errors.Is(err, service.ErrNoRunbook):
 		writeErr(w, 400, "invalid_request", err.Error())
+	case errors.Is(err, service.ErrNotPerson):
+		writeErr(w, 403, "not_a_person", err.Error())
 	case errors.Is(err, service.ErrSelfApproval):
 		writeErr(w, 403, "self_approval", err.Error())
 	case errors.Is(err, service.ErrForbidden):
@@ -246,9 +216,9 @@ func fail(w http.ResponseWriter, err error) {
 }
 
 // dir validates a caller-supplied working directory against the allowed roots.
-func (s *server) dir(d string) (string, error) { return service.ResolveDir(s.cfg.AllowDirs, d) }
+func (s *Server) dir(d string) (string, error) { return service.ResolveDir(s.cfg.AllowDirs, d) }
 
-func (s *server) check(w http.ResponseWriter, r *http.Request, _ *service.Principal) {
+func (s *Server) check(w http.ResponseWriter, r *http.Request, _ libauth.Principal) {
 	var a struct {
 		Command string `json:"command"`
 	}
@@ -260,7 +230,7 @@ func (s *server) check(w http.ResponseWriter, r *http.Request, _ *service.Princi
 	writeJSON(w, 200, map[string]any{"parsed": p, "decision": d})
 }
 
-func (s *server) exec(w http.ResponseWriter, r *http.Request, _ *service.Principal) {
+func (s *Server) exec(w http.ResponseWriter, r *http.Request, _ libauth.Principal) {
 	var a service.ExecRequest
 	if err := decode(r, &a); err != nil {
 		fail(w, err)
@@ -291,11 +261,11 @@ func (s *server) exec(w http.ResponseWriter, r *http.Request, _ *service.Princip
 	writeJSON(w, code, v)
 }
 
-func (s *server) list(w http.ResponseWriter, r *http.Request, p *service.Principal) {
+func (s *Server) list(w http.ResponseWriter, r *http.Request, p libauth.Principal) {
 	q := r.URL.Query()
 	limit := 20
 	fmt.Sscanf(q.Get("limit"), "%d", &limit) //nolint:errcheck // a bad limit keeps the default
-	runs, err := s.svc.ListFor(p.ID(), p.SeesAll(s.host), q.Get("session"), q.Get("state"), min(max(limit, 1), 200))
+	runs, err := s.svc.ListFor(p.ID, p.HasScope(service.ScopeReadAll), q.Get("session"), q.Get("state"), min(max(limit, 1), 200))
 	if err != nil {
 		fail(w, err)
 		return
@@ -307,8 +277,8 @@ func (s *server) list(w http.ResponseWriter, r *http.Request, p *service.Princip
 	writeJSON(w, 200, map[string]any{"runs": out})
 }
 
-func (s *server) get(w http.ResponseWriter, r *http.Request, p *service.Principal) {
-	run, err := s.svc.GetFor(r.PathValue("id"), p.ID(), p.SeesAll(s.host))
+func (s *Server) get(w http.ResponseWriter, r *http.Request, p libauth.Principal) {
+	run, err := s.svc.GetFor(r.PathValue("id"), p.ID, p.HasScope(service.ScopeReadAll))
 	if err != nil {
 		fail(w, err)
 		return
@@ -318,13 +288,13 @@ func (s *server) get(w http.ResponseWriter, r *http.Request, p *service.Principa
 	writeJSON(w, 200, s.svc.View(r.Context(), run, service.ClampBytes(n)))
 }
 
-func (s *server) output(w http.ResponseWriter, r *http.Request, p *service.Principal) {
+func (s *Server) output(w http.ResponseWriter, r *http.Request, p libauth.Principal) {
 	q := r.URL.Query()
 	attempt, off, n := 0, 0, 0
 	fmt.Sscanf(q.Get("attempt"), "%d", &attempt) //nolint:errcheck // absent means the last attempt
 	fmt.Sscanf(q.Get("offset"), "%d", &off)      //nolint:errcheck // absent means 0
 	fmt.Sscanf(q.Get("max_bytes"), "%d", &n)     //nolint:errcheck // absent means default
-	b, err := s.svc.RecallFor(r.Context(), r.PathValue("id"), q.Get("stream"), attempt, p.ID(), p.SeesAll(s.host))
+	b, err := s.svc.RecallFor(r.Context(), r.PathValue("id"), q.Get("stream"), attempt, p.ID, p.HasScope(service.ScopeReadAll))
 	if err != nil {
 		fail(w, err)
 		return
@@ -334,8 +304,8 @@ func (s *server) output(w http.ResponseWriter, r *http.Request, p *service.Princ
 	writeJSON(w, 200, map[string]any{"output": string(b[off:end]), "offset": off, "returned": end - off, "total": len(b), "more": end < len(b), "output_trust": "untrusted"})
 }
 
-func (s *server) cancel(w http.ResponseWriter, r *http.Request, p *service.Principal) {
-	run, err := s.svc.Cancel(r.Context(), r.PathValue("id"), p.Can(service.ScopeAdmin, s.host))
+func (s *Server) cancel(w http.ResponseWriter, r *http.Request, p libauth.Principal) {
+	run, err := s.svc.Cancel(r.Context(), r.PathValue("id"), p.HasScope(service.ScopeAdmin))
 	if err != nil {
 		if run != nil && !errors.Is(err, service.ErrForbidden) {
 			writeErr(w, 409, "conflict", err.Error())
@@ -347,7 +317,7 @@ func (s *server) cancel(w http.ResponseWriter, r *http.Request, p *service.Princ
 	writeJSON(w, 200, s.svc.View(r.Context(), run, 0))
 }
 
-func (s *server) pending(w http.ResponseWriter, r *http.Request, _ *service.Principal) {
+func (s *Server) pending(w http.ResponseWriter, r *http.Request, _ libauth.Principal) {
 	runs, err := s.svc.Pending()
 	if err != nil {
 		fail(w, err)
@@ -360,8 +330,8 @@ func (s *server) pending(w http.ResponseWriter, r *http.Request, _ *service.Prin
 	writeJSON(w, 200, map[string]any{"pending": out})
 }
 
-func (s *server) approve(w http.ResponseWriter, r *http.Request, _ *service.Principal) {
-	run, err := s.svc.Approve(r.Context(), r.PathValue("id"), "api")
+func (s *Server) approve(w http.ResponseWriter, r *http.Request, _ libauth.Principal) {
+	run, err := s.svc.Approve(r.Context(), r.PathValue("id"))
 	if err != nil {
 		fail(w, err)
 		return
@@ -369,7 +339,7 @@ func (s *server) approve(w http.ResponseWriter, r *http.Request, _ *service.Prin
 	writeJSON(w, 200, s.svc.View(r.Context(), run, 0))
 }
 
-func (s *server) reject(w http.ResponseWriter, r *http.Request, _ *service.Principal) {
+func (s *Server) reject(w http.ResponseWriter, r *http.Request, _ libauth.Principal) {
 	run, err := s.svc.Reject(r.Context(), r.PathValue("id"))
 	if err != nil {
 		fail(w, err)
@@ -378,6 +348,6 @@ func (s *server) reject(w http.ResponseWriter, r *http.Request, _ *service.Princ
 	writeJSON(w, 200, s.svc.View(r.Context(), run, 0))
 }
 
-func (s *server) runbooks(w http.ResponseWriter, _ *http.Request, _ *service.Principal) {
+func (s *Server) runbooks(w http.ResponseWriter, _ *http.Request, _ libauth.Principal) {
 	writeJSON(w, 200, map[string]any{"runbooks": s.svc.Runbooks()})
 }

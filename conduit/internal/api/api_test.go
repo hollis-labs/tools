@@ -15,24 +15,53 @@ import (
 	"time"
 
 	"github.com/hollis-labs/libs/core/panics"
+	libauth "github.com/hollis-labs/libs/security/auth"
 	"github.com/hollis-labs/libs/security/redact"
+
 	"github.com/hollis-labs/tools/conduit/internal/blob"
 	"github.com/hollis-labs/tools/conduit/internal/runbook"
 	"github.com/hollis-labs/tools/conduit/internal/service"
 	"github.com/hollis-labs/tools/conduit/internal/store"
 )
 
-// every request on a fresh connection, so per-address logic cannot hide behind a reused port
+// every request on a fresh connection
 var noKeepAlive = &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
 
+// callers are the verified principals a test can act as; the header X-Test-Principal names one. The test identity stands
+// where the identity module and the auth guard stand in the server: it verifies the caller and refuses a route whose
+// scope the caller lacks (the table is the one RegisterScopes fills). The real guard is exercised by the binary test.
+var callers = map[string]libauth.Principal{
+	"agent":    {Verified: true, ID: "key:agent", Kind: "service", Scopes: []string{service.ScopeRun, service.ScopeRead}},
+	"oper":     {Verified: true, ID: "user:oper", Kind: "user", Scopes: []string{service.ScopeApprove, service.ScopeRead}},
+	"keyoper":  {Verified: true, ID: "key:keyoper", Kind: "service", Scopes: []string{service.ScopeApprove, service.ScopeRead}},
+	"reader":   {Verified: true, ID: "key:reader", Kind: "service", Scopes: []string{service.ScopeRead, service.ScopeReadAll}},
+	"own":      {Verified: true, ID: "key:own", Kind: "service", Scopes: []string{service.ScopeRead}},
+	"runner":   {Verified: true, ID: "key:runner", Kind: "service", Scopes: []string{service.ScopeRun, service.ScopeRead}},
+	"other":    {Verified: true, ID: "key:other", Kind: "service", Scopes: []string{service.ScopeRun, service.ScopeRead}},
+	"admin":    {Verified: true, ID: "key:root", Kind: "service", Scopes: []string{service.ScopeAdmin, service.ScopeRun, service.ScopeRead}},
+	"selfboth": {Verified: true, ID: "user:both", Kind: "user", Scopes: []string{service.ScopeRun, service.ScopeApprove, service.ScopeRead}},
+}
+
+func testIdentity(table *libauth.ScopeTable, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, ok := callers[r.Header.Get("X-Test-Principal")]
+		if !ok {
+			writeErr(w, 401, "unauthenticated", "a verified caller is required")
+			return
+		}
+		if scope, known := table.ForRoute(r.Method, r.URL.Path); !known || !p.HasScope(scope) {
+			writeErr(w, 403, "forbidden", "scope required")
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(libauth.WithPrincipal(r.Context(), p)))
+	})
+}
+
 type env struct {
-	t      *testing.T
-	svc    *service.Service
-	ts     *httptest.Server
-	root   string
-	agent  string // exec.run + exec.read
-	oper   string // exec.approve + exec.read
-	reader string // exec.read
+	t    *testing.T
+	svc  *service.Service
+	ts   *httptest.Server
+	root string
 }
 
 func setup(t *testing.T, opts ...service.Option) *env {
@@ -43,29 +72,30 @@ func setup(t *testing.T, opts ...service.Option) *env {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	bl, _ := blob.NewLocal(filepath.Join(t.TempDir(), "b"))
-	svc := service.New(st, append([]service.Option{service.WithBlobs(bl)}, opts...)...)
+	return setupWith(t, service.New(st, append([]service.Option{service.WithBlobs(bl)}, opts...)...))
+}
+
+// setupWith builds an env around an existing service (shared store).
+func setupWith(t *testing.T, svc *service.Service) *env {
+	t.Helper()
 	root := t.TempDir()
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	h, err := New(ctx, svc, Config{AllowDirs: []string{root}})
+	srv, err := New(svc, Config{AllowDirs: []string{root}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts := httptest.NewServer(h)
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	wg.Go(func() { srv.Run(ctx) })
+	t.Cleanup(func() { cancel(); wg.Wait() })
+	table := libauth.NewScopeTable()
+	srv.RegisterScopes(table)
+	ts := httptest.NewServer(testIdentity(table, srv.Handler()))
 	t.Cleanup(ts.Close)
-	mk := func(name string, scopes ...string) string {
-		sec, _, err := svc.CreateToken(name, scopes)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return sec
-	}
-	return &env{t: t, svc: svc, ts: ts, root: root,
-		agent: mk("agent", service.ScopeRun, service.ScopeRead), oper: mk("oper", service.ScopeApprove, service.ScopeRead),
-		reader: mk("reader", service.ScopeRead)}
+	return &env{t: t, svc: svc, ts: ts, root: root}
 }
 
-func (e *env) do(method, path, token string, body any) (int, map[string]any) {
+// do sends a request as the named caller ("" sends no identity).
+func (e *env) do(method, path, who string, body any) (int, map[string]any) {
 	e.t.Helper()
 	var rd io.Reader
 	if body != nil {
@@ -78,8 +108,8 @@ func (e *env) do(method, path, token string, body any) (int, map[string]any) {
 		}
 	}
 	req, _ := http.NewRequest(method, e.ts.URL+path, rd)
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+	if who != "" {
+		req.Header.Set("X-Test-Principal", who)
 	}
 	resp, err := noKeepAlive.Do(req)
 	if err != nil {
@@ -98,53 +128,49 @@ func errCode(m map[string]any) string {
 	return ""
 }
 
-func TestHealthzNeedsNoAuthEverythingElseDoes(t *testing.T) {
+func TestEveryRouteHasAScopeAndNeedsACaller(t *testing.T) {
 	e := setup(t)
-	if code, m := e.do("GET", "/healthz", "", nil); code != 200 || m["ok"] != true {
-		t.Fatalf("%d %v", code, m)
+	srv, _ := New(e.svc, Config{AllowDirs: []string{e.root}})
+	table := libauth.NewScopeTable()
+	srv.RegisterScopes(table)
+	for _, rt := range srv.routes() {
+		path := strings.NewReplacer("{id}", "x").Replace(rt.Pattern)
+		if scope, known := table.ForRoute(rt.Method, path); !known || scope == "" {
+			t.Errorf("%s %s has no scope", rt.Method, rt.Pattern)
+		}
+		if code, m := e.do(rt.Method, path, "", nil); code != 401 || errCode(m) != "unauthenticated" {
+			t.Errorf("%s %s without a caller: %d %v", rt.Method, rt.Pattern, code, m)
+		}
 	}
-	for _, p := range []string{"/v1/runs", "/v1/runbooks", "/v1/approvals"} {
-		if code, m := e.do("GET", p, "", nil); code != 401 || errCode(m) != "unauthenticated" {
-			t.Errorf("%s without token: %d %v", p, code, m)
-		}
-		if code, _ := e.do("GET", p, "cdt_bogus", nil); code != 401 {
-			t.Errorf("%s bad token: %d", p, code)
-		}
+	// the handler's own lock: a request that reaches it without a verified principal is refused
+	req := httptest.NewRequest("GET", "/api/runs", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != 401 {
+		t.Errorf("handler without a principal: %d", rec.Code)
 	}
 }
 
 func TestScopesAreEnforced(t *testing.T) {
 	e := setup(t)
-	if code, m := e.do("POST", "/v1/exec", e.reader, map[string]any{"command": "echo hi"}); code != 403 || errCode(m) != "forbidden" {
-		t.Errorf("reader running: %d %v", code, m)
+	if code, m := e.do("POST", "/api/exec", "own", map[string]any{"command": "echo hi"}); code != 403 || errCode(m) != "forbidden" {
+		t.Errorf("read-only caller running: %d %v", code, m)
 	}
-	if code, _ := e.do("GET", "/v1/approvals", e.agent, nil); code != 403 {
+	if code, _ := e.do("GET", "/api/approvals", "agent", nil); code != 403 {
 		t.Errorf("agent listing approvals: %d", code)
 	}
-	if code, _ := e.do("POST", "/v1/runs/x/approve", e.agent, nil); code != 403 {
+	if code, _ := e.do("POST", "/api/runs/x/approve", "agent", nil); code != 403 {
 		t.Errorf("agent approving: %d", code)
 	}
-	if code, _ := e.do("GET", "/v1/runs", e.reader, nil); code != 200 {
+	if code, _ := e.do("GET", "/api/runs", "own", nil); code != 200 {
 		t.Errorf("reader listing: %d", code)
-	}
-}
-
-func TestHostScopedTokenOnlyWorksForThatHost(t *testing.T) {
-	e := setup(t)
-	here, _, _ := e.svc.CreateToken("here", []string{"exec.run:" + e.svc.Host(), "exec.read:" + e.svc.Host()})
-	elsewhere, _, _ := e.svc.CreateToken("elsewhere", []string{"exec.run:some-other-host"})
-	if code, _ := e.do("POST", "/v1/exec", here, map[string]any{"command": "echo hi"}); code != 200 {
-		t.Errorf("own host: %d", code)
-	}
-	if code, _ := e.do("POST", "/v1/exec", elsewhere, map[string]any{"command": "echo hi"}); code != 403 {
-		t.Errorf("other host: %d", code)
 	}
 }
 
 func TestExecAllowedRunsAndIsAttributed(t *testing.T) {
 	e := setup(t)
-	code, m := e.do("POST", "/v1/exec", e.agent, map[string]any{"command": "echo hello && pwd"})
-	if code != 200 || m["state"] != "done" || !strings.HasPrefix(m["stdout"].(string), "hello\n") || m["principal"] != "token:agent" {
+	code, m := e.do("POST", "/api/exec", "agent", map[string]any{"command": "echo hello && pwd"})
+	if code != 200 || m["state"] != "done" || !strings.HasPrefix(m["stdout"].(string), "hello\n") || m["principal"] != "key:agent" {
 		t.Fatalf("%d %v", code, m)
 	}
 	realRoot, _ := filepath.EvalSymlinks(e.root)
@@ -153,10 +179,10 @@ func TestExecAllowedRunsAndIsAttributed(t *testing.T) {
 	}
 }
 
-func TestAskIs202ThenOperatorApprovesAndItRuns(t *testing.T) {
+func TestAskIs202ThenAPersonApprovesAndItRuns(t *testing.T) {
 	e := setup(t)
 	marker := filepath.Join(e.root, "ran")
-	code, m := e.do("POST", "/v1/exec", e.agent, map[string]any{"command": "touch " + marker})
+	code, m := e.do("POST", "/api/exec", "agent", map[string]any{"command": "touch " + marker})
 	if code != 202 || m["state"] != "pending" {
 		t.Fatalf("%d %v", code, m)
 	}
@@ -165,19 +191,19 @@ func TestAskIs202ThenOperatorApprovesAndItRuns(t *testing.T) {
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("ran while pending")
 	}
-	if code, p := e.do("GET", "/v1/approvals", e.oper, nil); code != 200 || len(p["pending"].([]any)) != 1 {
+	if code, p := e.do("GET", "/api/approvals", "oper", nil); code != 200 || len(p["pending"].([]any)) != 1 {
 		t.Fatalf("%d %v", code, p)
 	}
-	if code, m := e.do("POST", "/v1/runs/"+id+"/approve", e.oper, nil); code != 200 || m["state"] != "approved" || m["approved_by"] != "token:oper" {
+	if code, m := e.do("POST", "/api/runs/"+id+"/approve", "oper", nil); code != 200 || m["state"] != "approved" || m["approved_by"] != "user:oper" {
 		t.Fatalf("%d %v", code, m)
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, m := e.do("GET", "/v1/runs/"+id, e.reader, nil); m["state"] == "done" {
+		if _, m := e.do("GET", "/api/runs/"+id, "reader", nil); m["state"] == "done" {
 			if _, err := os.Stat(marker); err != nil {
 				t.Error("approved run did not execute")
 			}
-			if code, _ := e.do("POST", "/v1/runs/"+id+"/approve", e.oper, nil); code != 409 {
+			if code, _ := e.do("POST", "/api/runs/"+id+"/approve", "oper", nil); code != 409 {
 				t.Errorf("second approve: %d", code)
 			}
 			return
@@ -187,22 +213,36 @@ func TestAskIs202ThenOperatorApprovesAndItRuns(t *testing.T) {
 	t.Fatal("approved run never finished")
 }
 
-func TestSelfApprovalRefusedEvenWithBothScopes(t *testing.T) {
+// An API key is never a person: it may hold the approve scope and still cannot approve or reject.
+func TestAPIKeyWithApproveScopeCannotApprove(t *testing.T) {
 	e := setup(t)
-	both, _, _ := e.svc.CreateToken("both", []string{service.ScopeRun, service.ScopeApprove})
-	_, m := e.do("POST", "/v1/exec", both, map[string]any{"command": "touch " + filepath.Join(e.root, "x")})
-	if code, r := e.do("POST", "/v1/runs/"+m["id"].(string)+"/approve", both, nil); code != 403 || errCode(r) != "self_approval" {
+	_, m := e.do("POST", "/api/exec", "agent", map[string]any{"command": "touch " + filepath.Join(e.root, "x")})
+	id := m["id"].(string)
+	for _, what := range []string{"approve", "reject"} {
+		if code, r := e.do("POST", "/api/runs/"+id+"/"+what, "keyoper", nil); code != 403 || errCode(r) != "not_a_person" {
+			t.Errorf("%s by a key: %d %v", what, code, r)
+		}
+	}
+	if _, r := e.do("GET", "/api/runs/"+id, "reader", nil); r["state"] != "pending" {
+		t.Errorf("run left pending: %v", r["state"])
+	}
+}
+
+func TestSelfApprovalRefusedEvenForAPerson(t *testing.T) {
+	e := setup(t)
+	_, m := e.do("POST", "/api/exec", "selfboth", map[string]any{"command": "touch " + filepath.Join(e.root, "x")})
+	if code, r := e.do("POST", "/api/runs/"+m["id"].(string)+"/approve", "selfboth", nil); code != 403 || errCode(r) != "self_approval" {
 		t.Fatalf("%d %v", code, r)
 	}
 }
 
 func TestRejectAndDeny(t *testing.T) {
 	e := setup(t)
-	_, m := e.do("POST", "/v1/exec", e.agent, map[string]any{"command": "touch " + filepath.Join(e.root, "x")})
-	if code, r := e.do("POST", "/v1/runs/"+m["id"].(string)+"/reject", e.oper, nil); code != 200 || r["state"] != "denied" {
+	_, m := e.do("POST", "/api/exec", "agent", map[string]any{"command": "touch " + filepath.Join(e.root, "x")})
+	if code, r := e.do("POST", "/api/runs/"+m["id"].(string)+"/reject", "oper", nil); code != 200 || r["state"] != "denied" {
 		t.Fatalf("%d %v", code, r)
 	}
-	if code, r := e.do("POST", "/v1/exec", e.agent, map[string]any{"command": "rm -rf ~"}); code != 403 || r["state"] != "denied" {
+	if code, r := e.do("POST", "/api/exec", "agent", map[string]any{"command": "rm -rf ~"}); code != 403 || r["state"] != "denied" {
 		t.Fatalf("%d %v", code, r)
 	}
 }
@@ -211,14 +251,14 @@ func TestDirectoryAllowList(t *testing.T) {
 	e := setup(t)
 	sub := filepath.Join(e.root, "sub")
 	_ = os.Mkdir(sub, 0o750)
-	if code, m := e.do("POST", "/v1/exec", e.agent, map[string]any{"command": "pwd", "dir": sub}); code != 200 || !strings.Contains(m["stdout"].(string), "sub") {
+	if code, m := e.do("POST", "/api/exec", "agent", map[string]any{"command": "pwd", "dir": sub}); code != 200 || !strings.Contains(m["stdout"].(string), "sub") {
 		t.Fatalf("%d %v", code, m)
 	}
 	// symlink inside the root pointing out of it must not be a way out
 	link := filepath.Join(e.root, "escape")
 	_ = os.Symlink("/etc", link)
 	for _, d := range []string{"/etc", "/", link, e.root + "/../..", "relative/dir", filepath.Join(e.root, "missing")} {
-		if code, m := e.do("POST", "/v1/exec", e.agent, map[string]any{"command": "pwd", "dir": d}); code != 400 {
+		if code, m := e.do("POST", "/api/exec", "agent", map[string]any{"command": "pwd", "dir": d}); code != 400 {
 			t.Errorf("dir %q accepted: %d %v", d, code, m)
 		}
 	}
@@ -226,69 +266,77 @@ func TestDirectoryAllowList(t *testing.T) {
 
 func TestRequestHygiene(t *testing.T) {
 	e := setup(t)
-	if code, _ := e.do("POST", "/v1/exec", e.agent, `{"command":"ls","bogus":1}`); code != 400 {
+	if code, _ := e.do("POST", "/api/exec", "agent", `{"command":"ls","bogus":1}`); code != 400 {
 		t.Errorf("unknown field: %d", code)
 	}
-	if code, _ := e.do("POST", "/v1/exec", e.agent, `not json`); code != 400 {
+	if code, _ := e.do("POST", "/api/exec", "agent", `not json`); code != 400 {
 		t.Errorf("bad json: %d", code)
 	}
-	if code, _ := e.do("POST", "/v1/exec", e.agent, map[string]any{}); code != 400 {
+	if code, _ := e.do("POST", "/api/exec", "agent", map[string]any{}); code != 400 {
 		t.Errorf("neither command nor runbook: %d", code)
 	}
-	if code, _ := e.do("POST", "/v1/exec", e.agent, map[string]any{"command": strings.Repeat("a", 2<<20)}); code != 413 {
+	if code, _ := e.do("POST", "/api/exec", "agent", map[string]any{"command": strings.Repeat("a", 2<<20)}); code != 413 {
 		t.Errorf("oversized body: %d", code)
 	}
-	if code, _ := e.do("GET", "/v1/runs/zzzz", e.reader, nil); code != 404 {
+	if code, _ := e.do("GET", "/api/runs/zzzz", "reader", nil); code != 404 {
 		t.Errorf("missing run: %d", code)
 	}
-	if code, _ := e.do("POST", "/v1/exec", e.agent, map[string]any{"command": "ls", "sandbox": "fortress"}); code == 200 {
+	if code, _ := e.do("POST", "/api/exec", "agent", map[string]any{"command": "ls", "sandbox": "fortress"}); code == 200 {
 		t.Errorf("unknown sandbox accepted")
 	}
 }
 
-func TestFailedAuthThrottle(t *testing.T) {
-	e := setup(t)
+func TestRateLimitIsPerPrincipal(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "c.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	svc := service.New(st)
+	srv, _ := New(svc, Config{AllowDirs: []string{t.TempDir()}, RatePerMinute: 3})
+	table := libauth.NewScopeTable()
+	srv.RegisterScopes(table)
+	ts := httptest.NewServer(testIdentity(table, srv.Handler()))
+	t.Cleanup(ts.Close)
+	e := &env{t: t, svc: svc, ts: ts}
 	last := 0
-	for i := 0; i < 14; i++ {
-		last, _ = e.do("GET", "/v1/runs", "cdt_wrong", nil)
+	for i := 0; i < 5; i++ {
+		last, _ = e.do("GET", "/api/runbooks", "agent", nil)
 	}
 	if last != 429 {
-		t.Errorf("expected throttling after repeated failures, got %d", last)
+		t.Errorf("expected throttling after the limit, got %d", last)
 	}
-	// the throttle holds off guessers, not legitimate clients on the same address
-	if code, _ := e.do("GET", "/v1/runs", e.reader, nil); code != 200 {
-		t.Errorf("valid token locked out by bad guesses from the same address: %d", code)
+	if code, _ := e.do("GET", "/api/runbooks", "reader", nil); code != 200 {
+		t.Errorf("another principal was throttled: %d", code)
 	}
 }
 
 func TestOutputPagingAndCancel(t *testing.T) {
 	e := setup(t)
-	_, m := e.do("POST", "/v1/exec", e.agent, map[string]any{"command": "seq 1 2000", "max_bytes": 10})
+	_, m := e.do("POST", "/api/exec", "agent", map[string]any{"command": "seq 1 2000", "max_bytes": 10})
 	if m["output_truncated"] != true {
 		t.Fatalf("%v", m)
 	}
-	_, pg := e.do("GET", "/v1/runs/"+m["id"].(string)+"/output?offset=10&max_bytes=5", e.reader, nil)
+	_, pg := e.do("GET", "/api/runs/"+m["id"].(string)+"/output?offset=10&max_bytes=5", "reader", nil)
 	if pg["returned"].(float64) != 5 || pg["more"] != true {
 		t.Fatalf("%v", pg)
 	}
-	_, slow := e.do("POST", "/v1/exec", e.agent, map[string]any{"command": "sleep 30", "wait_sec": 0})
+	_, slow := e.do("POST", "/api/exec", "agent", map[string]any{"command": "sleep 30", "wait_sec": 0})
 	id := slow["id"].(string)
 	time.Sleep(200 * time.Millisecond)
-	if code, _ := e.do("POST", "/v1/runs/"+id+"/cancel", e.reader, nil); code != 403 {
+	if code, _ := e.do("POST", "/api/runs/"+id+"/cancel", "own", nil); code != 403 {
 		t.Errorf("reader (no run scope) cancel: %d", code)
 	}
-	// a token that HAS exec.run but did not submit the run must still be refused
-	other, _, _ := e.svc.CreateToken("other", []string{service.ScopeRun, service.ScopeRead})
-	if code, m := e.do("POST", "/v1/runs/"+id+"/cancel", other, nil); code != 403 || errCode(m) != "forbidden" {
-		t.Errorf("non-owner with exec.run cancel: %d %v", code, m)
+	// a caller that HAS conduit.run but did not submit the run must still be refused
+	if code, m := e.do("POST", "/api/runs/"+id+"/cancel", "other", nil); code != 403 || errCode(m) != "forbidden" {
+		t.Errorf("non-owner with conduit.run cancel: %d %v", code, m)
 	}
-	admin, _, _ := e.svc.CreateToken("root", []string{service.ScopeAdmin})
-	_, other2 := e.do("POST", "/v1/exec", e.agent, map[string]any{"command": "sleep 30", "wait_sec": 0})
+	_, other2 := e.do("POST", "/api/exec", "agent", map[string]any{"command": "sleep 30", "wait_sec": 0})
 	time.Sleep(200 * time.Millisecond)
-	if code, _ := e.do("POST", "/v1/runs/"+other2["id"].(string)+"/cancel", admin, nil); code != 200 {
+	if code, _ := e.do("POST", "/api/runs/"+other2["id"].(string)+"/cancel", "admin", nil); code != 200 {
 		t.Errorf("admin cancel of another's run: %d", code)
 	}
-	if code, _ := e.do("POST", "/v1/runs/"+id+"/cancel", e.agent, nil); code != 200 {
+	if code, _ := e.do("POST", "/api/runs/"+id+"/cancel", "agent", nil); code != 200 {
 		t.Errorf("owner cancel: %d", code)
 	}
 }
@@ -296,38 +344,15 @@ func TestOutputPagingAndCancel(t *testing.T) {
 func TestRunbooksOverHTTP(t *testing.T) {
 	set, _ := runbook.NewSet(&runbook.Runbook{Name: "say", Argv: []string{"echo", "{{m}}"}, Verdict: "allow", Params: map[string]runbook.Param{"m": {Required: true}}})
 	e := setup(t, service.WithRunbooks(set))
-	if code, m := e.do("GET", "/v1/runbooks", e.reader, nil); code != 200 || len(m["runbooks"].([]any)) != 1 {
+	if code, m := e.do("GET", "/api/runbooks", "reader", nil); code != 200 || len(m["runbooks"].([]any)) != 1 {
 		t.Fatalf("%d %v", code, m)
 	}
-	code, m := e.do("POST", "/v1/exec", e.agent, map[string]any{"runbook": "say", "params": map[string]string{"m": "a; id"}})
+	code, m := e.do("POST", "/api/exec", "agent", map[string]any{"runbook": "say", "params": map[string]string{"m": "a; id"}})
 	if code != 200 || m["stdout"] != "a; id\n" {
 		t.Fatalf("%d %v", code, m)
 	}
-	if code, _ := e.do("POST", "/v1/exec", e.agent, map[string]any{"runbook": "say", "params": map[string]string{}}); code != 400 {
+	if code, _ := e.do("POST", "/api/exec", "agent", map[string]any{"runbook": "say", "params": map[string]string{}}); code != 400 {
 		t.Errorf("missing required param: %d", code)
-	}
-}
-
-func TestListenRefusesNonLoopback(t *testing.T) {
-	for _, addr := range []string{"0.0.0.0:0", "192.168.1.5:0", ":0"} {
-		if ln, err := (Listen{Addr: addr}).Bind(); err == nil {
-			_ = ln.Close()
-			t.Errorf("%s bound without -unsafe-bind", addr)
-		}
-	}
-	ln, err := (Listen{Addr: "127.0.0.1:0"}).Bind()
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = ln.Close()
-	sock := filepath.Join(t.TempDir(), "c.sock")
-	ln, err = (Listen{Unix: sock}).Bind()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	if fi, _ := os.Stat(sock); fi.Mode().Perm() != 0o600 {
-		t.Errorf("socket mode %v", fi.Mode().Perm())
 	}
 }
 
@@ -340,17 +365,17 @@ func TestRunbookDirIsHonouredOverHTTP(t *testing.T) {
 		&runbook.Runbook{Name: "here", Argv: []string{"pwd"}, Verdict: "allow"},
 	)
 	e := setup(t, service.WithRunbooks(set))
-	_, m := e.do("POST", "/v1/exec", e.agent, map[string]any{"runbook": "where"})
+	_, m := e.do("POST", "/api/exec", "agent", map[string]any{"runbook": "where"})
 	if !strings.Contains(m["stdout"].(string), realFixed) {
 		t.Errorf("runbook dir ignored: %v", m["stdout"])
 	}
 	realRoot, _ := filepath.EvalSymlinks(e.root)
-	_, m = e.do("POST", "/v1/exec", e.agent, map[string]any{"runbook": "here"})
+	_, m = e.do("POST", "/api/exec", "agent", map[string]any{"runbook": "here"})
 	if !strings.Contains(m["stdout"].(string), realRoot) {
 		t.Errorf("runbook without dir should use the default root: %v", m["stdout"])
 	}
 	// a caller-supplied dir is still validated for a runbook
-	if code, _ := e.do("POST", "/v1/exec", e.agent, map[string]any{"runbook": "here", "dir": "/etc"}); code != 400 {
+	if code, _ := e.do("POST", "/api/exec", "agent", map[string]any{"runbook": "here", "dir": "/etc"}); code != 400 {
 		t.Errorf("caller dir outside roots accepted for a runbook: %d", code)
 	}
 }
@@ -381,14 +406,12 @@ func TestHandlerPanicBecomesA500WithARefAndTheServerSurvives(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	blobReal, _ := blob.NewLocal(filepath.Join(t.TempDir(), "b"))
-	svc := service.New(st, service.WithBlobs(blobReal))
-	e := setupWith(t, svc, "a-")
-	_, m := e.do("POST", "/v1/exec", e.agent, map[string]any{"command": "echo hi", "max_bytes": 1})
+	e := setupWith(t, service.New(st, service.WithBlobs(blobReal)))
+	_, m := e.do("POST", "/api/exec", "agent", map[string]any{"command": "echo hi", "max_bytes": 1})
 	id := m["id"].(string)
 
-	svcPanicky := service.New(st, service.WithBlobs(getPanics{blobReal}))
-	e2 := setupWith(t, svcPanicky, "b-")
-	code, body := e2.do("GET", "/v1/runs/"+id+"/output", e2.reader, nil)
+	e2 := setupWith(t, service.New(st, service.WithBlobs(getPanics{blobReal})))
+	code, body := e2.do("GET", "/api/runs/"+id+"/output", "reader", nil)
 	if code != 500 || errCode(body) != "internal" {
 		t.Fatalf("%d %v", code, body)
 	}
@@ -401,10 +424,7 @@ func TestHandlerPanicBecomesA500WithARefAndTheServerSurvives(t *testing.T) {
 		t.Error("the panic was not reported")
 	}
 	// the very next request is served normally
-	if code, _ := e2.do("GET", "/healthz", "", nil); code != 200 {
-		t.Errorf("server did not survive: %d", code)
-	}
-	if code, _ := e2.do("GET", "/v1/runs", e2.reader, nil); code != 200 {
+	if code, _ := e2.do("GET", "/api/runs", "reader", nil); code != 200 {
 		t.Errorf("authenticated route broken after a panic: %d", code)
 	}
 }
@@ -413,80 +433,40 @@ type nopReporter struct{}
 
 func (nopReporter) Report(panics.Record) {}
 
-// setupWith builds an env around an existing service (shared store).
-func setupWith(t *testing.T, svc *service.Service, prefix string) *env {
-	t.Helper()
-	root := t.TempDir()
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	h, err := New(ctx, svc, Config{AllowDirs: []string{root}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ts := httptest.NewServer(h)
-	t.Cleanup(ts.Close)
-	mk := func(name string, scopes ...string) string {
-		sec, _, err := svc.CreateToken(prefix+name, scopes)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return sec
-	}
-	return &env{t: t, svc: svc, ts: ts, root: root,
-		agent: mk("agent", service.ScopeRun, service.ScopeRead), oper: mk("oper", service.ScopeApprove, service.ScopeRead), reader: mk("reader", service.ScopeRead)}
-}
-
 func TestReadScopesOwnVersusAll(t *testing.T) {
 	e := setup(t)
-	own, _, _ := e.svc.CreateToken("own-only", []string{service.ScopeReadOwn})
-	runner, _, _ := e.svc.CreateToken("runner", []string{service.ScopeRun}) // exec.run implies reading its own runs
-	_, mine := e.do("POST", "/v1/exec", runner, map[string]any{"command": "echo mine"})
-	_, theirs := e.do("POST", "/v1/exec", e.agent, map[string]any{"command": "echo theirs"})
+	_, mine := e.do("POST", "/api/exec", "runner", map[string]any{"command": "echo mine"})
+	_, theirs := e.do("POST", "/api/exec", "agent", map[string]any{"command": "echo theirs"})
 
 	// the runner sees its own run, and only that
-	if code, m := e.do("GET", "/v1/runs/"+mine["id"].(string), runner, nil); code != 200 || m["id"] != mine["id"] {
+	if code, m := e.do("GET", "/api/runs/"+mine["id"].(string), "runner", nil); code != 200 || m["id"] != mine["id"] {
 		t.Fatalf("own run: %d %v", code, m)
 	}
-	_, list := e.do("GET", "/v1/runs", runner, nil)
+	_, list := e.do("GET", "/api/runs", "runner", nil)
 	runs := list["runs"].([]any)
 	if len(runs) != 1 || runs[0].(map[string]any)["id"] != mine["id"] {
 		t.Fatalf("list leaked other principals' runs: %v", list)
 	}
 	// another principal's run is 404, not 403: its existence is not revealed
 	id := theirs["id"].(string)
-	for _, path := range []string{"/v1/runs/" + id, "/v1/runs/" + id + "/output"} {
-		if code, m := e.do("GET", path, runner, nil); code != 404 {
+	for _, path := range []string{"/api/runs/" + id, "/api/runs/" + id + "/output"} {
+		if code, m := e.do("GET", path, "runner", nil); code != 404 {
 			t.Errorf("%s: %d %v", path, code, m)
 		}
 	}
-	// a token with only read.own and no runs of its own sees nothing
-	if _, l := e.do("GET", "/v1/runs", own, nil); len(l["runs"].([]any)) != 0 {
+	// a caller with only conduit.read and no runs of its own sees nothing
+	if _, l := e.do("GET", "/api/runs", "own", nil); len(l["runs"].([]any)) != 0 {
 		t.Errorf("%v", l)
 	}
-	// exec.read still sees everything
-	if _, l := e.do("GET", "/v1/runs", e.reader, nil); len(l["runs"].([]any)) != 2 {
-		t.Errorf("exec.read should see all: %v", l)
+	// conduit.read.all sees everything
+	if _, l := e.do("GET", "/api/runs", "reader", nil); len(l["runs"].([]any)) != 2 {
+		t.Errorf("conduit.read.all should see all: %v", l)
 	}
-	if code, _ := e.do("GET", "/v1/runs/"+id+"/output", e.reader, nil); code != 200 {
-		t.Errorf("exec.read output: %d", code)
+	if code, _ := e.do("GET", "/api/runs/"+id+"/output", "reader", nil); code != 200 {
+		t.Errorf("read.all output: %d", code)
 	}
-	// but read.own alone cannot run or approve
-	if code, _ := e.do("POST", "/v1/exec", own, map[string]any{"command": "echo x"}); code != 403 {
-		t.Errorf("read.own ran a command: %d", code)
-	}
-}
-
-func TestReadOwnScopeSyntax(t *testing.T) {
-	e := setup(t)
-	if _, _, err := e.svc.CreateToken("ok1", []string{"exec.read.own"}); err != nil {
-		t.Error(err)
-	}
-	if _, _, err := e.svc.CreateToken("ok2", []string{"exec.read.own:" + e.svc.Host()}); err != nil {
-		t.Error(err)
-	}
-	for _, bad := range []string{"exec.read.owner", "exec.read.own.x", "exec.reads.own", "exec.read.own exec.admin"} {
-		if _, _, err := e.svc.CreateToken("bad", []string{bad}); err == nil {
-			t.Errorf("accepted %q", bad)
-		}
+	// but read alone cannot run
+	if code, _ := e.do("POST", "/api/exec", "own", map[string]any{"command": "echo x"}); code != 403 {
+		t.Errorf("read-only caller ran a command: %d", code)
 	}
 }

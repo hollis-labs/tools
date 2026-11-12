@@ -108,7 +108,7 @@ func New(st *store.Store, opts ...Option) *Service {
 		base: context.Background(), running: map[string]context.CancelFunc{}, canceled: map[string]bool{},
 		heartbeatEvery: 5 * time.Second, staleAfter: 30 * time.Second}
 	if u, err := user.Current(); err == nil {
-		s.principal = "user:" + u.Username
+		s.principal = "local:" + u.Username
 	}
 	s.host, _ = os.Hostname()
 	for _, o := range opts {

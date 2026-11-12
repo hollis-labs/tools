@@ -29,8 +29,6 @@ func newSvc(t *testing.T, opts ...Option) *Service {
 	return New(st, append([]Option{WithBlobs(bl)}, opts...)...)
 }
 
-func approveAll(context.Context, Preview) (bool, string) { return true, "test" }
-
 func TestAllowedRunIsRecordedWithRecallableOutput(t *testing.T) {
 	s := newSvc(t)
 	run, err := s.Run(context.Background(), RunRequest{Command: "echo hello; echo oops >&2"})
@@ -53,14 +51,14 @@ func TestAllowedRunIsRecordedWithRecallableOutput(t *testing.T) {
 	}
 }
 
-func TestAskWithoutApproverIsDeniedAndNothingRuns(t *testing.T) {
+func TestAskLeavesRunPendingAndNothingRuns(t *testing.T) {
 	s := newSvc(t)
 	marker := filepath.Join(t.TempDir(), "ran")
 	run, err := s.Run(context.Background(), RunRequest{Command: "touch " + marker})
 	if !errors.Is(err, ErrNotAsked) {
 		t.Fatalf("err %v", err)
 	}
-	if run.State != store.StateDenied || len(run.Attempts) != 0 {
+	if run.State != store.StatePending || len(run.Attempts) != 0 {
 		t.Fatalf("%+v", run)
 	}
 	if _, statErr := os.Stat(marker); statErr == nil {
@@ -71,52 +69,32 @@ func TestAskWithoutApproverIsDeniedAndNothingRuns(t *testing.T) {
 func TestApprovedAskRuns(t *testing.T) {
 	s := newSvc(t)
 	marker := filepath.Join(t.TempDir(), "ran")
-	var seen Preview
-	run, err := s.Run(context.Background(), RunRequest{Command: "touch " + marker, Approve: func(_ context.Context, p Preview) (bool, string) {
-		seen = p
-		return true, "tty"
-	}})
+	run, err := runApproved(s, RunRequest{Command: "touch " + marker})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, statErr := os.Stat(marker); statErr != nil {
 		t.Fatal("approved command did not run")
 	}
-	if run.Approval != "tty" || run.State != store.StateDone {
+	if run.Approval != "person" || run.State != store.StateDone {
 		t.Fatalf("%+v", run)
 	}
-	if seen.Parsed == nil || seen.Decision.Verdict != policy.Ask {
-		t.Errorf("approver saw %+v", seen)
+	if _, dec := s.Check(run.Command); dec.Verdict != policy.Ask {
+		t.Errorf("verdict %v", dec.Verdict)
 	}
 }
 
-func TestDenyIsNotOverridableByApprover(t *testing.T) {
+func TestDenyIsNotOverridable(t *testing.T) {
 	s := newSvc(t)
-	called := false
-	run, err := s.Run(context.Background(), RunRequest{Command: "rm -rf /", Approve: func(context.Context, Preview) (bool, string) {
-		called = true
-		return true, "flag"
-	}})
-	if !errors.Is(err, ErrDenied) || called {
-		t.Fatalf("err=%v approverCalled=%v", err, called)
+	run, err := s.Run(context.Background(), RunRequest{Command: "rm -rf /"})
+	if !errors.Is(err, ErrDenied) {
+		t.Fatalf("err=%v", err)
 	}
 	if run.State != store.StateDenied || len(run.Attempts) != 0 {
 		t.Fatalf("%+v", run)
 	}
-}
-
-func TestShadowModeStillBlocksDeny(t *testing.T) {
-	s := newSvc(t)
-	marker := filepath.Join(t.TempDir(), "ran")
-	run, err := s.Run(context.Background(), RunRequest{Command: "touch " + marker, Shadow: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if run.PolicyMode != "shadow" || run.PolicyVerdict != "ask" || run.State != store.StateDone {
-		t.Fatalf("%+v", run)
-	}
-	if _, err := s.Run(context.Background(), RunRequest{Command: "rm -rf ~", Shadow: true}); !errors.Is(err, ErrDenied) {
-		t.Fatalf("shadow must not run a deny: %v", err)
+	if _, err := s.Approve(human(context.Background()), run.ID); !errors.Is(err, ErrNotPending) {
+		t.Fatalf("a person approving a denied run: %v", err)
 	}
 }
 
@@ -135,7 +113,7 @@ func TestFailureAndTimeoutAreRecorded(t *testing.T) {
 	if run.State != store.StateFailed || run.Attempts[0].ExitCode != 1 {
 		t.Fatalf("%+v", run)
 	}
-	run, _ = s.Run(context.Background(), RunRequest{Command: "sleep 30", Timeout: 150 * time.Millisecond, Approve: approveAll})
+	run, _ = runApproved(s, RunRequest{Command: "sleep 30", Timeout: 150 * time.Millisecond})
 	if run.State != store.StateFailed || run.Attempts[0].Class != "timeout" {
 		t.Fatalf("%+v", run.Attempts)
 	}
@@ -146,7 +124,7 @@ func TestRetryIsLinkedAttemptAndOnlyForReadOnly(t *testing.T) {
 	flag := filepath.Join(t.TempDir(), "n")
 	// fails with a transient error the first time, then succeeds
 	cmd := `if [ -e ` + flag + ` ]; then echo ok; else touch ` + flag + `; echo "connection refused" >&2; exit 1; fi`
-	run, err := s.Run(context.Background(), RunRequest{Command: cmd, Retries: 1, Approve: approveAll})
+	run, err := runApproved(s, RunRequest{Command: cmd, Retries: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

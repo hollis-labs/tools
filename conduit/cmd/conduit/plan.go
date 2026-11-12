@@ -35,7 +35,7 @@ var (
 // the tree only reads an existing one.
 var (
 	stateless = []string{"check", "parse", "runbooks", "init", "paths"}
-	writers   = []string{"run", "approve", "reject", "cancel", "reap"}
+	writers   = []string{"run", "cancel", "reap"}
 )
 
 // plan decides, from the command line, which modules to start and what may be created. Only `serve`, `migrate-legacy`,
@@ -65,6 +65,8 @@ func plan(args []string, commands []string) runPlan {
 	switch {
 	case words[0] == "serve":
 		return full(persistence.Create, true)
+	case words[0] == "mcp":
+		return full(persistence.ReadExisting, false)
 	case words[0] == "migrate-legacy":
 		return full(persistence.CreateForMigration, true)
 	case words[0] == "identity" && len(words) > 1 && (words[1] == "setup" || (words[1] == "key" && len(words) > 2 && words[2] == "create")):

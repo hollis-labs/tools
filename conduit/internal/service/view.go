@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hollis-labs/tools/conduit/internal/policy"
@@ -75,7 +76,7 @@ func (s *Service) View(ctx context.Context, r *store.Run, maxBytes int) *RunView
 	v.FailureClass, v.FailureMessage, v.PanicRef = r.FailureClass, r.FailureMessage, r.PanicRef
 	switch r.State {
 	case store.StatePending:
-		v.Hint = fmt.Sprintf("awaiting operator approval: `conduit approve %s` (expires %s after submission)", v.Short, s.approvalTTL)
+		v.Hint = fmt.Sprintf("awaiting approval by a signed-in person in the web UI or API (run %s, expires %s after submission)", v.Short, s.approvalTTL)
 	case store.StateDenied:
 		v.Hint = "denied; this command will not run"
 	case store.StateExpired:
@@ -151,17 +152,27 @@ func (s *Service) Wait(ctx context.Context, idFrag string, d time.Duration, unti
 	}
 }
 
-// StartApproved starts every approved, not yet started run submitted by
-// principal. A run approved from another process (the operator's CLI) is
-// executed by the process that owns it.
+// StartApproved starts every approved, not yet started run submitted by principal: a local process starts the runs a
+// person approved elsewhere for the principal it runs as.
 func (s *Service) StartApproved(principal string) (int, error) {
+	return s.startApproved(func(p string) bool { return p == principal })
+}
+
+// StartApprovedRemote starts every approved, not yet started run submitted by an authenticated caller (an identity
+// key or a person), which is what the daemon owns. Runs a local process submitted (principal "local:...") are started
+// by that process.
+func (s *Service) StartApprovedRemote() (int, error) {
+	return s.startApproved(func(p string) bool { return strings.HasPrefix(p, "key:") || strings.HasPrefix(p, "user:") })
+}
+
+func (s *Service) startApproved(match func(string) bool) (int, error) {
 	runs, err := s.store.ListRuns(store.Filter{State: store.StateApproved, Limit: 100})
 	if err != nil {
 		return 0, err
 	}
 	n := 0
 	for _, r := range runs {
-		if r.Principal != principal {
+		if !match(r.Principal) {
 			continue
 		}
 		if err := s.Start(r.ID, ExecOpts{}); err == nil {

@@ -24,7 +24,8 @@ import (
 // Errors a transport maps to exit codes or status codes.
 var (
 	ErrDenied       = errors.New("denied by policy")
-	ErrNotAsked     = errors.New("approval required and none given")
+	ErrNotAsked     = errors.New("approval required: a signed-in person must approve this run")
+	ErrNotPerson    = errors.New("only a signed-in person may approve a run")
 	ErrNoBlobs      = errors.New("no output store configured")
 	ErrNotPending   = errors.New("run is not awaiting approval")
 	ErrNotRunnable  = errors.New("run is not approved to execute")
@@ -43,10 +44,6 @@ type Preview struct {
 	Decision policy.Decision
 }
 
-// Approver decides an Ask. kind records how approval was obtained ("tty",
-// "flag"); ok=false refuses. It is never consulted for a Deny.
-type Approver func(ctx context.Context, p Preview) (ok bool, kind string)
-
 // RunRequest is one command to run.
 type RunRequest struct {
 	Command string
@@ -54,14 +51,12 @@ type RunRequest struct {
 	Session string
 	Parent  string
 	Timeout time.Duration
-	Shadow  bool     // record the verdict but do not require approval; Deny still blocks
 	PassEnv []string // credential-looking variables allowed through the scrub
 	Retries int      // extra attempts for transient failures of read-only commands
 	Sandbox string   // confinement profile; a policy obligation can raise it, never lower it
 	// DefaultTimeout applies when, after any runbook has had its say, no timeout
 	// is set. Transports for remote callers set it so nothing runs unbounded.
 	DefaultTimeout time.Duration
-	Approve        Approver // used by Run only; Submit leaves an Ask pending
 	Stdout         io.Writer
 	Stderr         io.Writer
 }
@@ -120,7 +115,7 @@ func (s *Service) Check(cmd string) (*cmdparse.Parsed, policy.Decision) {
 }
 
 // Submit records a run and decides it. The returned run is in one of:
-// approved (allowed, or an Ask under shadow mode), pending (an Ask waiting for
+// approved (allowed), pending (an Ask waiting for
 // a human) or denied (also reported as ErrDenied). Nothing executes here.
 func (s *Service) Submit(ctx context.Context, rq RunRequest) (*store.Run, error) {
 	return s.submit(ctx, rq, nil)
@@ -171,9 +166,6 @@ func (s *Service) submit(ctx context.Context, rq RunRequest, rb *runbook.Runbook
 	rj, _ := json.Marshal(dec.Reasons)
 	ep, _ := json.Marshal(execParams{Timeout: rq.Timeout, PassEnv: rq.PassEnv, Retries: rq.Retries})
 	mode := "enforce"
-	if rq.Shadow {
-		mode = "shadow"
-	}
 	run := &store.Run{
 		ID: newID(), Session: rq.Session, Parent: rq.Parent, Principal: principal, Host: s.host, Cwd: dir,
 		Command: rq.Command, Parsed: string(pj), Effect: string(dec.Effect),
@@ -186,8 +178,6 @@ func (s *Service) submit(ctx context.Context, rq RunRequest, rb *runbook.Runbook
 		run.EndedAt = run.CreatedAt
 	case dec.Verdict == policy.Allow:
 		run.State, run.Approval, run.ApprovedAt = store.StateApproved, "auto", run.CreatedAt
-	case rq.Shadow:
-		run.State, run.Approval, run.ApprovedAt = store.StateApproved, "shadow", run.CreatedAt
 	}
 	if err := s.store.InsertRun(run); err != nil {
 		return nil, err
@@ -211,41 +201,20 @@ func (s *Service) Run(ctx context.Context, rq RunRequest) (*store.Run, error) {
 		return run, err
 	}
 	if run.State == store.StatePending {
-		if rq.Approve == nil {
-			return s.refuse(run, "none")
-		}
-		parsed, dec := s.Check(run.Command)
-		ok, kind := rq.Approve(ctx, Preview{Command: run.Command, Parsed: parsed, Decision: dec})
-		if !ok {
-			return s.refuse(run, "refused")
-		}
-		moved, err := s.store.Approve(run.ID, kind, s.principalOf(ctx))
-		if err != nil || !moved {
-			return nil, errors.Join(err, ErrNotPending)
-		}
+		// Nothing approves a run from here: approval belongs to a signed-in person (Approve).
+		return run, ErrNotAsked
 	}
 	return s.Execute(ctx, run.ID, ExecOpts{Stdout: rq.Stdout, Stderr: rq.Stderr})
-}
-
-func (s *Service) refuse(run *store.Run, why string) (*store.Run, error) {
-	if _, err := s.store.Transition(run.ID, store.StatePending, store.StateDenied); err != nil {
-		return nil, err
-	}
-	if err := s.store.UpdateRun(run.ID, store.StateDenied, why, time.Now()); err != nil {
-		return nil, err
-	}
-	full, err := s.store.GetRun(run.ID)
-	if err != nil {
-		return nil, err
-	}
-	return full, ErrNotAsked
 }
 
 // Approve moves a pending run to approved. The approval is re-decided against
 // the current policy (a rule added since submission can still deny it), must
 // arrive inside the approval window, and cannot come from the principal that
-// submitted the run. kind records how it was obtained ("tty", "api").
-func (s *Service) Approve(ctx context.Context, idFrag, kind string) (*store.Run, error) {
+// submitted the run. Only a context marked by AsPerson can approve: no local-trust path reaches this.
+func (s *Service) Approve(ctx context.Context, idFrag string) (*store.Run, error) {
+	if !isPerson(ctx) {
+		return nil, ErrNotPerson
+	}
 	by := s.principalOf(ctx)
 	run, err := s.Get(idFrag)
 	if err != nil {
@@ -267,7 +236,7 @@ func (s *Service) Approve(ctx context.Context, idFrag, kind string) (*store.Run,
 		full, _ := s.store.GetRun(run.ID)
 		return full, ErrDenied
 	}
-	moved, err := s.store.Approve(run.ID, kind, by)
+	moved, err := s.store.Approve(run.ID, "person", by)
 	if err != nil {
 		return nil, err
 	}
@@ -279,6 +248,9 @@ func (s *Service) Approve(ctx context.Context, idFrag, kind string) (*store.Run,
 
 // Reject refuses a pending run.
 func (s *Service) Reject(ctx context.Context, idFrag string) (*store.Run, error) {
+	if !isPerson(ctx) {
+		return nil, ErrNotPerson
+	}
 	by := s.principalOf(ctx)
 	run, err := s.Get(idFrag)
 	if err != nil {
@@ -402,7 +374,7 @@ func (s *Service) execute(ctx context.Context, runID string, opts ExecOpts) (*st
 	if run.State == store.StateApproved {
 		// Approval is not a bearer token for later: a human approval goes stale,
 		// and a Deny added to the policy since stops a run that was approved before it.
-		if (run.Approval != "auto" && run.Approval != "shadow") && time.Since(run.ApprovedAt) > s.approvalTTL {
+		if run.Approval != "auto" && time.Since(run.ApprovedAt) > s.approvalTTL {
 			s.settle(runID, store.StateApproved, store.StateExpired)
 			full, _ := s.store.GetRun(runID)
 			return full, ErrExpired

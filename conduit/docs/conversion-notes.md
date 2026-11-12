@@ -24,4 +24,4 @@ Status: in progress (branch `feat/conduit-substrate`). Pinned to Substrate `da9f
 
 ## Command plan
 
-Help, version, config, health, an unknown word and `--help` at any level start no module that opens a file and create nothing. `check`, `parse`, `runbooks`, `init` and `paths` build the service without a database. `run`, `approve`, `reject`, `cancel` and `reap` may create the database (never beside only the old one); every other command needs an existing new-layout database.
+Help, version, config, health, an unknown word and `--help` at any level start no module that opens a file and create nothing. `check`, `parse`, `runbooks`, `init` and `paths` build the service without a database. `run`, `cancel` and `reap` may create the database (never beside only the old one); every other command needs an existing new-layout database.

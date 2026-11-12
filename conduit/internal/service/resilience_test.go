@@ -55,7 +55,7 @@ func TestPanicDuringExecutionFailsTheRunAndKeepsTheProcessAlive(t *testing.T) {
 	rep := captured(t)
 	s := newSvc(t)
 	s.blobs = panicBlobs{s.blobs}
-	run, err := s.Submit(context.Background(), RunRequest{Command: "echo hello", Shadow: true})
+	run, err := submitApproved(s, RunRequest{Command: "echo hello"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestPanicInStartedRunIsContainedAndNeverStaysRunning(t *testing.T) {
 	captured(t)
 	s := newSvc(t)
 	s.blobs = panicBlobs{s.blobs}
-	run, _ := s.Submit(context.Background(), RunRequest{Command: "echo hello", Shadow: true})
+	run, _ := submitApproved(s, RunRequest{Command: "echo hello"})
 	if err := s.Start(run.ID, ExecOpts{}); err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestPolicyPanicDeniesAndNeverAllows(t *testing.T) {
 
 func TestHeartbeatAdvancesWhileARunIsRunning(t *testing.T) {
 	s := newSvc(t, WithLiveness(50*time.Millisecond, time.Minute))
-	run, _ := s.Submit(context.Background(), RunRequest{Command: "sleep 1", Shadow: true})
+	run, _ := submitApproved(s, RunRequest{Command: "sleep 1"})
 	if err := s.Start(run.ID, ExecOpts{}); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestHeartbeatAdvancesWhileARunIsRunning(t *testing.T) {
 
 func TestProcessGroupIsRecordedForTheReaper(t *testing.T) {
 	s := newSvc(t)
-	run, _ := s.Submit(context.Background(), RunRequest{Command: "sleep 2", Shadow: true})
+	run, _ := submitApproved(s, RunRequest{Command: "sleep 2"})
 	if err := s.Start(run.ID, ExecOpts{}); err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestReapExpiresStaleApprovedAndPending(t *testing.T) {
 func TestShutdownWaitsForExecutionsToRecord(t *testing.T) {
 	s := newSvc(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	run, _ := s.Submit(context.Background(), RunRequest{Command: "sleep 30", Shadow: true})
+	run, _ := submitApproved(s, RunRequest{Command: "sleep 30"})
 	go func() { _, _ = s.Execute(ctx, run.ID, ExecOpts{}) }()
 	waitState(t, s, run.ID, store.StateRunning)
 	time.Sleep(100 * time.Millisecond)
