@@ -58,6 +58,7 @@ const (
 	kindData            // put, get, ls, ...: the local store (may create caster.db and cas/, never a signing key), or the home node over HTTP
 	kindMCP             // mcp: the stdio server over the local store or the home node
 	kindClient          // login, logout, remote, paths: the link to a home node; no module that opens a file
+	kindMigrate         // migrate: the new database and the blob tree, built beside the old files; no identity, no listener
 )
 
 // The module sets, in manifest order. A module that opens or creates a file (database, secrets,
@@ -109,6 +110,8 @@ func plan(args []string) (modules []string, kind int) {
 	switch {
 	case words[0] == "identity" && len(words) > 1 && (words[1] == "setup" || (words[1] == "key" && len(words) > 2 && words[2] == "create")):
 		return pickModules(identityModules), kindIdentity
+	case words[0] == "migrate":
+		return pickModules(dataModules), kindMigrate
 	case words[0] == "mcp" && len(words) == 1:
 		return pickModules(mcpLocalModules), kindMCP
 	case slices.Contains(dataVerbs, words[0]):
@@ -146,7 +149,7 @@ func runWith(ctx context.Context, args []string, stdout io.Writer, ready func(ne
 	}
 	var profile *client.Profile
 	switch kind {
-	case kindFull, kindIdentity:
+	case kindFull, kindIdentity, kindMigrate:
 		if layout, err = paths.Resolve(appName); err != nil {
 			return fmt.Errorf("resolve paths: %w", err)
 		}
@@ -169,7 +172,13 @@ func runWith(ctx context.Context, args []string, stdout io.Writer, ready func(ne
 	}
 	database.UseMigrationFS(storage.Migrations())
 	hooks := map[string]boot.Hook{}
-	if slices.Contains(modules, "database") { // a hook for a module that is not started is an error
+	var mig *migration
+	if kind == kindMigrate {
+		// migrate is the one command that may build the new store beside the old files: it works in
+		// staging names and renames them into place when the copy is proved.
+		mig = &migration{verifyOnly: slices.Contains(args, "--verify-only")}
+		hooks["database"] = func(_ context.Context, app *module.App) error { return mig.prepare(app) }
+	} else if slices.Contains(modules, "database") { // a hook for a module that is not started is an error
 		// Before the database module creates caster.db: refuse a data directory that still has
 		// only the old main.db.
 		hooks["database"] = func(_ context.Context, app *module.App) error { return guardLegacy(app, layout) }
@@ -184,17 +193,33 @@ func runWith(ctx context.Context, args []string, stdout io.Writer, ready func(ne
 	if err != nil {
 		return err
 	}
-	defer func() { _ = started.Stop(context.Background()) }()
+	stopped := false
+	stop := func() {
+		if !stopped {
+			stopped = true
+			_ = started.Stop(context.Background())
+		}
+	}
+	defer stop()
 
-	c := &caster{app: started.App, layout: layout, ready: ready, profile: profile, kind: kind, in: os.Stdin, out: stdout, errw: os.Stderr}
+	c := &caster{app: started.App, layout: layout, ready: ready, profile: profile, kind: kind, in: os.Stdin, out: stdout, errw: os.Stderr, mig: mig}
 	root := cli.Root(started.App)
 	root.SetOut(stdout)
 	root.SilenceErrors = true // main prints an error once
 	// Bare `caster` prints help (plan starts no server module for it).
 	root.Args = cobra.NoArgs
 	root.RunE = func(cmd *cobra.Command, _ []string) error { return cmd.Help() }
-	root.AddCommand(c.serveCmd(ctx), c.mcpCmd(ctx), c.loginCmd(), c.logoutCmd(), c.remoteCmd(), c.pathsCmd())
+	root.AddCommand(c.serveCmd(ctx), c.mcpCmd(ctx), c.loginCmd(), c.logoutCmd(), c.remoteCmd(), c.pathsCmd(), c.migrateCmd())
 	root.AddCommand(c.dataCmds(ctx)...)
 	root.SetArgs(args)
-	return root.ExecuteContext(ctx)
+	runErr := root.ExecuteContext(ctx)
+	if c.finish != nil {
+		// The modules are stopped first: the database is closed (and its log checkpointed) before
+		// the staged files are renamed into place.
+		stop()
+		if ferr := c.finish(runErr == nil); runErr == nil {
+			runErr = ferr
+		}
+	}
+	return runErr
 }
