@@ -1,0 +1,23 @@
+name: conduit-build
+# Builds conduit through the shared go-app-build workflow so nobody builds it on the host by hand.
+# Artifact: conduit-<sha12> (linux/amd64 tarball with deploy.yaml, SHA256SUMS, build-info.json). Nothing is tagged,
+# released or installed; `fleet-install` reads the artifact. Linux only: process identity and orphan reaping use /proc.
+on:
+  push:
+    branches: [main]
+    paths: ["conduit/**", ".github/workflows/go-app-build.yml", ".github/workflows/conduit-build.yml"]
+  pull_request:
+    paths: ["conduit/**", ".github/workflows/go-app-build.yml", ".github/workflows/conduit-build.yml"]
+  workflow_dispatch:
+permissions: { contents: read }
+jobs:
+  build:
+    uses: ./.github/workflows/go-app-build.yml
+    with:
+      app: conduit
+      main_pkg: ./cmd/conduit
+      working_directory: conduit
+      targets: '["linux/amd64"]'
+      ldflags_var: ""            # the version is read from the build info, not set with -X
+      extra_files: deploy.yaml
+      migrations_glob: "internal/persistence/migrations/sqlite/*.sql"

@@ -9,3 +9,6 @@ go.work.sum
 .DS_Store
 .idea/
 .vscode/
+
+# The shared build workflow writes dist/ into the checkout before go build; untracked, it would stamp the binary +dirty.
+/dist/

@@ -5,15 +5,17 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite" // registers the "sqlite" database/sql driver
+	cstore "github.com/hollis-labs/libs/core/store"
+	"github.com/hollis-labs/libs/core/store/migrate"
+
+	"github.com/hollis-labs/tools/conduit/internal/persistence"
 )
 
 // ErrNotFound is returned for a missing or ambiguous run id.
@@ -65,7 +67,9 @@ type Run struct {
 	State          string
 	CreatedAt      time.Time
 	EndedAt        time.Time
-	Attempts       []Attempt
+	// Legacy marks a row migrate-legacy copied from the pre-Substrate database: history only (see the migration).
+	Legacy   bool
+	Attempts []Attempt
 }
 
 // Attempt is one execution of a run; a retry is a new linked attempt.
@@ -96,69 +100,53 @@ type Filter struct {
 	Limit     int
 }
 
-// Store is the store handle.
+// Store is the store handle over the framework's database module store (one write connection, a read-only pool).
 type Store struct {
-	db   *sql.DB
+	cs   *cstore.Store
 	path string
 }
 
-const schema = `
-CREATE TABLE IF NOT EXISTS runs(
-  id TEXT PRIMARY KEY, session TEXT NOT NULL DEFAULT '', parent TEXT NOT NULL DEFAULT '',
-  principal TEXT NOT NULL DEFAULT '', host TEXT NOT NULL DEFAULT '', cwd TEXT NOT NULL DEFAULT '',
-  command TEXT NOT NULL, parsed TEXT NOT NULL, effect TEXT NOT NULL,
-  policy_verdict TEXT NOT NULL, policy_reasons TEXT NOT NULL, policy_mode TEXT NOT NULL,
-  approval TEXT NOT NULL DEFAULT '', state TEXT NOT NULL,
-  created_at TEXT NOT NULL, ended_at TEXT NOT NULL DEFAULT '');
-CREATE INDEX IF NOT EXISTS runs_session ON runs(session, created_at);
-CREATE INDEX IF NOT EXISTS runs_created ON runs(created_at);
-CREATE TABLE IF NOT EXISTS attempts(
-  run_id TEXT NOT NULL REFERENCES runs(id), n INTEGER NOT NULL, retry_of INTEGER NOT NULL DEFAULT 0,
-  started TEXT NOT NULL, ended TEXT NOT NULL, exit_code INTEGER NOT NULL, signal TEXT NOT NULL DEFAULT '',
-  class TEXT NOT NULL, start_err TEXT NOT NULL DEFAULT '',
-  stdout_ref TEXT NOT NULL DEFAULT '', stderr_ref TEXT NOT NULL DEFAULT '',
-  stdout_bytes INTEGER NOT NULL DEFAULT 0, stderr_bytes INTEGER NOT NULL DEFAULT 0,
-  truncated INTEGER NOT NULL DEFAULT 0, redactions INTEGER NOT NULL DEFAULT 0, scrubbed TEXT NOT NULL DEFAULT '[]',
-  PRIMARY KEY(run_id, n));
-`
+// New wraps the database module's store. The module has already applied the migrations.
+func New(cs *cstore.Store, path string) *Store { return &Store{cs: cs, path: path} }
 
-// Open opens (creating) the database at path.
+// Open opens a database file for tests and for the migration command and applies the embedded migrations. The server
+// uses New over the module's store. The read pool has ONE connection, so a statement issued while a cursor is open
+// hangs a test instead of passing by luck of pool size.
 func Open(path string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, err
-	}
-	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+	ctx := context.Background()
+	cfg := cstore.Config{Driver: cstore.DriverSQLite, SQLite: cstore.SQLiteConfig{Path: path, CreateParentDir: true, ReadConns: 1}}
+	cs, err := cstore.Open(ctx, cfg)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open database: %w", err)
 	}
-	if _, err := db.Exec(schema); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("init schema: %w", err)
+	fsys, root := persistence.Migrations()
+	if err := migrate.Ensure(ctx, cfg, cs, migrate.Source{FS: fsys, Root: root}); err != nil {
+		_ = cs.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	// Columns added after the first release; the error for an existing column is expected.
-	for _, col := range []string{
-		"sandbox TEXT NOT NULL DEFAULT ''", "request TEXT NOT NULL DEFAULT ''", "approved_by TEXT NOT NULL DEFAULT ''", "approved_at TEXT NOT NULL DEFAULT ''",
-		"heartbeat_at TEXT NOT NULL DEFAULT ''", "owner_pid INTEGER NOT NULL DEFAULT 0", "owner_start INTEGER NOT NULL DEFAULT 0",
-		"pgid INTEGER NOT NULL DEFAULT 0", "pgid_start INTEGER NOT NULL DEFAULT 0",
-		"failure_class TEXT NOT NULL DEFAULT ''", "failure_message TEXT NOT NULL DEFAULT ''", "panic_ref TEXT NOT NULL DEFAULT ''",
-	} {
-		if _, err := db.Exec(`ALTER TABLE runs ADD COLUMN ` + col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
-			_ = db.Close()
-			return nil, fmt.Errorf("migrate: %w", err)
-		}
-	}
-	if _, err := db.Exec(tokenSchema + panicSchema); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("init token schema: %w", err)
-	}
-	return &Store{db: db, path: path}, nil
+	return &Store{cs: cs, path: path}, nil
+}
+
+// Framework is the underlying framework store, for the migration command.
+func (s *Store) Framework() *cstore.Store { return s.cs }
+
+func (s *Store) exec(q string, args ...any) (sql.Result, error) {
+	return s.cs.ExecContext(context.Background(), q, args...)
+}
+
+func (s *Store) query(q string, args ...any) (*sql.Rows, error) {
+	return s.cs.Reader().QueryContext(context.Background(), q, args...)
+}
+
+func (s *Store) queryRow(q string, args ...any) *sql.Row {
+	return s.cs.Reader().QueryRowContext(context.Background(), q, args...)
 }
 
 // Path returns the database path.
 func (s *Store) Path() string { return s.path }
 
 // Close releases the store.
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error { return s.cs.Close() }
 
 func ts(t time.Time) string {
 	if t.IsZero() {
@@ -174,7 +162,7 @@ func parseTS(s string) time.Time {
 
 // InsertRun records a new run.
 func (s *Store) InsertRun(r *Run) error {
-	_, err := s.db.Exec(`INSERT INTO runs(id,session,parent,principal,host,cwd,command,parsed,effect,
+	_, err := s.exec(`INSERT INTO runs(id,session,parent,principal,host,cwd,command,parsed,effect,
 		policy_verdict,policy_reasons,policy_mode,approval,state,created_at,ended_at,sandbox,request,approved_by,approved_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.Session, r.Parent, r.Principal, r.Host, r.Cwd, r.Command, r.Parsed, r.Effect,
@@ -184,14 +172,14 @@ func (s *Store) InsertRun(r *Run) error {
 
 // UpdateRun sets the mutable fields of a run: approval, state, end time.
 func (s *Store) UpdateRun(id, state, approval string, ended time.Time) error {
-	_, err := s.db.Exec(`UPDATE runs SET state=?, approval=CASE WHEN ?<>'' THEN ? ELSE approval END, ended_at=? WHERE id=?`,
+	_, err := s.exec(`UPDATE runs SET state=?, approval=CASE WHEN ?<>'' THEN ? ELSE approval END, ended_at=? WHERE id=? AND legacy=0`,
 		state, approval, approval, ts(ended), id)
 	return err
 }
 
 // InsertAttempt records one attempt.
 func (s *Store) InsertAttempt(a *Attempt) error {
-	_, err := s.db.Exec(`INSERT INTO attempts(run_id,n,retry_of,started,ended,exit_code,signal,class,start_err,
+	_, err := s.exec(`INSERT INTO attempts(run_id,n,retry_of,started,ended,exit_code,signal,class,start_err,
 		stdout_ref,stderr_ref,stdout_bytes,stderr_bytes,truncated,redactions,scrubbed)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.RunID, a.N, a.RetryOf, ts(a.Started), ts(a.Ended), a.ExitCode, a.Signal, a.Class, a.StartErr,
@@ -206,17 +194,19 @@ func orJSON(s string) string {
 	return s
 }
 
-const runCols = `id,session,parent,principal,host,cwd,command,parsed,effect,policy_verdict,policy_reasons,policy_mode,approval,state,created_at,ended_at,sandbox,request,approved_by,approved_at,heartbeat_at,owner_pid,owner_start,pgid,pgid_start,failure_class,failure_message,panic_ref`
+const runCols = `id,session,parent,principal,host,cwd,command,parsed,effect,policy_verdict,policy_reasons,policy_mode,approval,state,created_at,ended_at,sandbox,request,approved_by,approved_at,heartbeat_at,owner_pid,owner_start,pgid,pgid_start,failure_class,failure_message,panic_ref,legacy`
 
 func scanRun(sc interface{ Scan(...any) error }) (*Run, error) {
 	var r Run
 	var created, ended, approvedAt, heartbeat string
+	var legacy int
 	if err := sc.Scan(&r.ID, &r.Session, &r.Parent, &r.Principal, &r.Host, &r.Cwd, &r.Command, &r.Parsed, &r.Effect,
 		&r.PolicyVerdict, &r.PolicyReasons, &r.PolicyMode, &r.Approval, &r.State, &created, &ended, &r.Sandbox, &r.Request, &r.ApprovedBy, &approvedAt, &heartbeat, &r.OwnerPID, &r.OwnerStart, &r.PGID, &r.PGIDStart,
-		&r.FailureClass, &r.FailureMessage, &r.PanicRef); err != nil {
+		&r.FailureClass, &r.FailureMessage, &r.PanicRef, &legacy); err != nil {
 		return nil, err
 	}
 	r.CreatedAt, r.EndedAt, r.ApprovedAt, r.HeartbeatAt = parseTS(created), parseTS(ended), parseTS(approvedAt), parseTS(heartbeat)
+	r.Legacy = legacy == 1
 	return &r, nil
 }
 
@@ -227,7 +217,7 @@ func (s *Store) ResolveID(frag string) (string, error) {
 		return "", ErrNotFound
 	}
 	esc := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(frag)
-	rows, err := s.db.Query(`SELECT id FROM runs WHERE id=? OR id LIKE ? ESCAPE '\' OR id LIKE ? ESCAPE '\' LIMIT 2`, frag, esc+"%", "%"+esc)
+	rows, err := s.query(`SELECT id FROM runs WHERE id=? OR id LIKE ? ESCAPE '\' OR id LIKE ? ESCAPE '\' LIMIT 2`, frag, esc+"%", "%"+esc)
 	if err != nil {
 		return "", err
 	}
@@ -253,14 +243,14 @@ func (s *Store) ResolveID(frag string) (string, error) {
 
 // GetRun loads a run with its attempts.
 func (s *Store) GetRun(id string) (*Run, error) {
-	r, err := scanRun(s.db.QueryRow(`SELECT `+runCols+` FROM runs WHERE id=?`, id))
+	r, err := scanRun(s.queryRow(`SELECT `+runCols+` FROM runs WHERE id=?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(`SELECT run_id,n,retry_of,started,ended,exit_code,signal,class,start_err,stdout_ref,stderr_ref,
+	rows, err := s.query(`SELECT run_id,n,retry_of,started,ended,exit_code,signal,class,start_err,stdout_ref,stderr_ref,
 		stdout_bytes,stderr_bytes,truncated,redactions,scrubbed FROM attempts WHERE run_id=? ORDER BY n`, id)
 	if err != nil {
 		return nil, err
@@ -294,13 +284,17 @@ func (s *Store) ListRuns(f Filter) ([]*Run, error) {
 	if f.State != "" {
 		q += ` AND state=?`
 		args = append(args, f.State)
+		// A migrated row is history: it is never listed as work to approve, start, reap or expire.
+		if f.State == StatePending || f.State == StateApproved || f.State == StateRunning {
+			q += ` AND legacy=0`
+		}
 	}
 	if f.Limit <= 0 {
 		f.Limit = 50
 	}
 	q += ` ORDER BY created_at DESC, id DESC LIMIT ?`
 	args = append(args, f.Limit)
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +335,7 @@ func (s *Store) History(limit int) ([]HistoryEntry, error) {
 	if limit <= 0 {
 		limit = 500
 	}
-	rows, err := s.db.Query(`SELECT r.command, COUNT(*), SUM(r.state='done'), MAX(r.created_at),
+	rows, err := s.query(`SELECT r.command, COUNT(*), SUM(r.state='done'), MAX(r.created_at),
 		(SELECT x.effect FROM runs x WHERE x.command=r.command AND x.state IN('done','failed') ORDER BY x.created_at DESC LIMIT 1)
 		FROM runs r WHERE r.state IN('done','failed') GROUP BY r.command ORDER BY MAX(r.created_at) DESC LIMIT ?`, limit)
 	if err != nil {
@@ -364,7 +358,7 @@ func (s *Store) History(limit int) ([]HistoryEntry, error) {
 // Approve moves a pending run to approved, atomically: it only succeeds when
 // the run is still pending, so two approvals cannot both win.
 func (s *Store) Approve(id, kind, by string) (bool, error) {
-	res, err := s.db.Exec(`UPDATE runs SET state=?, approval=?, approved_by=?, approved_at=? WHERE id=? AND state=?`,
+	res, err := s.exec(`UPDATE runs SET state=?, approval=?, approved_by=?, approved_at=? WHERE id=? AND state=? AND legacy=0`,
 		StateApproved, kind, by, ts(time.Now()), id, StatePending)
 	if err != nil {
 		return false, err
@@ -376,7 +370,7 @@ func (s *Store) Approve(id, kind, by string) (bool, error) {
 // Transition moves a run from one state to another only if it is in the
 // expected state, so concurrent callers cannot double-start a run.
 func (s *Store) Transition(id, from, to string) (bool, error) {
-	res, err := s.db.Exec(`UPDATE runs SET state=? WHERE id=? AND state=?`, to, id, from)
+	res, err := s.exec(`UPDATE runs SET state=? WHERE id=? AND state=? AND legacy=0`, to, id, from)
 	if err != nil {
 		return false, err
 	}
@@ -388,7 +382,7 @@ func (s *Store) Transition(id, from, to string) (bool, error) {
 // approved and not yet started, or running.
 func (s *Store) CountActive(principal string) (int, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM runs WHERE principal=? AND state IN(?,?,?)`,
+	err := s.queryRow(`SELECT COUNT(*) FROM runs WHERE principal=? AND legacy=0 AND state IN(?,?,?)`,
 		principal, StatePending, StateApproved, StateRunning).Scan(&n)
 	return n, err
 }

@@ -1,0 +1,26 @@
+# Conduit on Substrate. The manifest is the shell: modules and config.
+# Secure by default: the auth guard enforces, and the app is its own identity provider.
+app: conduit
+variant: app-host
+profiles: [minimal]
+modules:
+  add: [httphost, secrets, auth, database, identity, mcp, cli]
+config:
+  logging: { level: info, format: text }
+  httphost: { addr: "127.0.0.1:7421" }
+  # Paths here are defaults relative to the working directory. The binary resolves the data directory (XDG data home or
+  # CONDUIT_DATA_DIR) after the config is loaded and replaces them with absolute paths before the modules start.
+  database:
+    sqlite: { path: conduit.db }
+  auth: { mode: enforce }
+  identity: { key_file: identity-signing.key, session_ttl: 12h }
+  secrets: { state_dir: secrets }
+  mcp: { scope: conduit.read }
+  # The app's own block (internal/settings). Operators override any key in the YAML file named by SUBSTRATE_CONFIG.
+  conduit:
+    allowed_hosts: []
+    allow_dirs: []
+    policy_file: ""
+    runbooks_file: ""
+    blobs: ""
+    rate_per_minute: 240

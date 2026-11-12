@@ -3,3 +3,4 @@ home-path-linux conduit/internal/fuzzy/fuzzy_test.go Generic fixture path used o
 aws-access-key conduit/internal/cmdrun/cmdrun_test.go Historical redaction fixture built from an alphabet sequence rather than an issued credential
 aws-access-token conduit/internal/cmdrun/cmdrun_test.go Historical redaction fixture built from an alphabet sequence rather than an issued credential
 credentials-in-url conduit/internal/redact/text_test.go Historical redaction fixture uses an example-domain URL and dummy password
+agent-box-host conduit/deploy.yaml the fleet-deploy/v1 inventory label naming the deploy target (a name in the fleet tool's own inventory, not an address, port or credential)

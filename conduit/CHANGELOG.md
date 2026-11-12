@@ -9,6 +9,22 @@ section before running the repository release script. No releases are tagged yet
 
 ## Unreleased
 
+### Changed
+
+- Conduit runs on the Substrate framework: identity module (offline `identity setup`, API keys, sessions), auth guard in
+  enforce mode, database module (one goose migration), MCP module, `httphost`. Print-only commands start no file-opening
+  module and create nothing; a data directory holding only the old database is refused.
+- The data directory is a new layout (`conduit.db`); `conduit migrate-legacy --from OLD.db` copies every row and blob and
+  proves the copy. Migrated runs are inert history.
+- The API moves from `/v1` to `/api`; scopes become `conduit.read`, `conduit.read.all`, `conduit.run`, `conduit.approve`,
+  `conduit.admin`; flags and environment variables become keys in the `SUBSTRATE_CONFIG` file.
+
+### Removed
+
+- Approval by terminal prompt, `-yes`, `-shadow`, local `reject` and `conduit token`: approving is a signed-in person's act
+  (`conduit approve|reject --server URL --user NAME <run>`; the password is read from the terminal only).
+- Old sha256 tokens (kept as history, never honoured), OpenTelemetry, `-unix` and `-unsafe-bind`.
+
 ## v0.0.1 - 2026-10-25
 
 First tagged release. Pre-1.0: interfaces can change between 0.x versions.

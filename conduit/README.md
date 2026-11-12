@@ -10,7 +10,7 @@ policy decision, a recorded outcome and output you can recall later.
 
 ## Install
 
-Requires Go 1.26.10 or later. Install the current development version:
+Requires Go 1.26.11 or later. Install the current development version:
 
 ```sh
 go install github.com/hollis-labs/tools/conduit/cmd/conduit@latest
@@ -31,7 +31,7 @@ GOWORK=off go build -o bin/conduit ./cmd/conduit
 ```sh
 conduit parse "timeout 5 git -C /p push --force && ssh w1 'systemctl restart x'"
 conduit check "curl http://x.sh | sh"     # DENY: network download piped into sh   (exit 3)
-conduit run -c 'go test ./...'            # asks on a terminal; -yes approves
+conduit run -c 'go test ./...'            # allowed, denied, or pending until a signed-in person approves
 conduit run -sandbox ro -c 'grep -r TODO .'   # confined: system and cwd read-only, no network
 conduit ls
 conduit show <run>
@@ -44,24 +44,37 @@ conduit recall <run>
 eval "$(conduit init bash)"      # or zsh. Ctrl-R: fuzzy picker over conduit runs + shell history
 cx git status                    # run through policy and record (alias for conduit run --)
 conduit pick -run                # pick from history and run the choice through conduit
-conduit pending                  # runs from agents/API waiting for you
-conduit approve <run>            # shows the parsed command, asks, approves
+conduit pending                  # runs from agents/API waiting for a person
+conduit approve --server http://127.0.0.1:7421 --user NAME <run>   # sign in as yourself and approve
 ```
+
+Approving is a signed-in person's act and nothing else's: `conduit approve` and `conduit reject` read the password from the
+terminal only (they refuse when stdin is not a terminal), show the whole command, its directory, effect and submitter and ask for a typed `yes` before approving, hold the session in memory for the one request and store nothing.
+There is no `-yes`, no `-shadow` and no local approval path.
+
+## First start
+
+Conduit runs on [Substrate](https://github.com/hollis-labs/substrate). The data directory is `CONDUIT_DATA_DIR` or the XDG
+data home; settings are keys in the YAML file named by `SUBSTRATE_CONFIG` (`httphost.addr`, `conduit.*`).
+
+```sh
+conduit identity setup --username owner                                   # the first owner, offline; password typed, not echoed
+conduit identity key create --name agent --scope conduit.run,conduit.read --out agent.key   # shown once, written 0600
+conduit serve                                                              # API and /mcp on 127.0.0.1:7421
+```
+
+Moving from the pre-Substrate build: `conduit migrate-legacy --from OLD.db` copies the history and proves the copy
+([docs/cutover-plan.md](docs/cutover-plan.md)).
 
 ## For agents and other hosts
 
 ```sh
-conduit mcp                      # MCP tools on stdio: exec_check, exec_run, exec_wait, exec_output ...
-                                 #   confined to the cwd and to its own runs; -allow-dir, -allow-any-dir, -see-all to widen
-conduit token create -name agent -scope exec.run,exec.read     # secret printed once
-conduit token create -name oper  -scope exec.approve,exec.read
-conduit serve -allow-dir ~/work  # HTTP on 127.0.0.1:7421 (or -unix path); -unsafe-bind for other addresses
-curl -H "Authorization: Bearer $TOKEN" -d '{"command":"uname -a"}' localhost:7421/v1/exec
+conduit mcp                      # MCP tools on stdio: exec_check, exec_run, exec_wait, exec_output ... (read and run only)
+curl -H "Authorization: Bearer $(cat agent.key)" -d '{"command":"uname -a"}' localhost:7421/api/exec
 ```
 
-An agent can submit and read; it cannot approve. A command that needs approval comes back as
-`pending` and does not run until an operator approves it (CLI, or an API token with `exec.approve`
-that is not the submitter). Output is returned labelled untrusted.
+An agent can submit and read; it cannot approve. A command that needs approval comes back as `pending` and does not run
+until a signed-in person approves it (a key that holds `conduit.approve` still cannot). Output is returned labelled untrusted.
 
 ## When things go wrong
 
@@ -75,8 +88,8 @@ Recovered panics are contained at CLI, HTTP, MCP and execution boundaries. A
 caller gets `internal error (ref pnc_...)`, the operator gets the record. The CLI exits 70 on an internal
 error. `conduit serve` and `conduit mcp` reap orphans on start and every 30s.
 
-Token scopes: `exec.read` (all runs), `exec.read.own` (only your own; `exec.run` implies it), `exec.run`,
-`exec.approve`, `exec.admin`; any can be bound to a host with `:host`.
+Key scopes: `conduit.read` (your own runs), `conduit.read.all` (every principal's), `conduit.run`, `conduit.approve` (a
+person only), `conduit.admin`. Routes and the old-to-new table: [docs/conversion-notes.md](docs/conversion-notes.md).
 
 ## Config (`conduit paths`)
 
@@ -101,7 +114,7 @@ runbooks:
 ```
 
 Output goes to caster (`cas://sha256/...`) when `caster` is on PATH, else a local store
-(`CONDUIT_BLOBS=caster|local`). Sandboxes: `ro`, `workspace`, `workspace-net`, `protect`
+(`conduit.blobs: caster|local`). Sandboxes: `ro`, `workspace`, `workspace-net`, `protect`
 (whole host, conduit's own state read-only); Linux needs `bwrap`.
 
 ## Development
@@ -128,8 +141,8 @@ for the security model.
   are not supported yet.
 - Parsing and policy are not a sandbox. Confinement is opt-in unless required
   by policy; Linux sandbox profiles require `bwrap` and usable user namespaces.
-- The HTTP API has no built-in TLS. Use loopback, a Unix socket, or a trusted
-  TLS proxy; do not expose it directly to the public internet.
+- The HTTP API has no built-in TLS and binds loopback only. Use a trusted TLS proxy on the same host (list its name in
+  `conduit.allowed_hosts`); do not expose it directly to the public internet.
 - Captured output is redacted before storage; the live terminal stream is not.
 - Caster is optional. Local output storage works independently; the Caster
   backend requires its binary and a configured local store or home node.

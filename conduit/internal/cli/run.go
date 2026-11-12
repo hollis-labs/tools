@@ -1,11 +1,8 @@
 package cli
 
 import (
-	"bufio"
-	"context"
 	"flag"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -21,8 +18,6 @@ func (c *cmd) run(args []string) int {
 		timeout = fs.Duration("timeout", 0, "kill the command's process group after this long")
 		session = fs.String("session", "", "session label")
 		parent  = fs.String("parent", "", "parent reference (turn, tool call, message)")
-		shadow  = fs.Bool("shadow", false, "record the verdict but do not require approval (deny still blocks)")
-		yes     = fs.Bool("yes", false, "approve an ask verdict without prompting (recorded as flag approval)")
 		retries = fs.Int("retries", 0, "extra attempts for transient failures of read-only commands")
 		quiet   = fs.Bool("q", false, "do not echo the command's output live")
 		dashC   = fs.String("c", "", "command string")
@@ -40,12 +35,11 @@ func (c *cmd) run(args []string) int {
 
 	rq := service.RunRequest{
 		Command: command, Dir: *dir, Session: *session, Parent: *parent, Timeout: *timeout,
-		Shadow: *shadow, PassEnv: pass, Retries: *retries, Sandbox: *sbx,
+		PassEnv: pass, Retries: *retries, Sandbox: *sbx,
 	}
 	if !*quiet {
 		rq.Stdout, rq.Stderr = c.out, c.err
 	}
-	rq.Approve = c.approver(*yes)
 
 	run, err := c.svc.Run(c.ctx, rq)
 	if run == nil {
@@ -66,29 +60,6 @@ func (c *cmd) run(args []string) int {
 		return a.ExitCode // a signal death is already 128+signal
 	}
 	return ExitOK
-}
-
-// approver asks the operator on the terminal. A prompt is read from /dev/tty so
-// piped stdin cannot answer it; with no terminal and no -yes, nothing is approved.
-func (c *cmd) approver(yes bool) service.Approver {
-	return func(ctx context.Context, p service.Preview) (bool, string) {
-		if yes {
-			return true, "flag"
-		}
-		tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-		if err != nil {
-			fmt.Fprintln(c.err, "conduit: approval needed but no terminal; pass -yes to approve")
-			return false, ""
-		}
-		defer func() { _ = tty.Close() }()
-		fmt.Fprintf(tty, "\n%s\n", renderPreview(p))
-		fmt.Fprint(tty, "run it? [y/N] ")
-		line, _ := bufio.NewReader(tty).ReadString('\n')
-		if strings.EqualFold(strings.TrimSpace(line), "y") || strings.EqualFold(strings.TrimSpace(line), "yes") {
-			return true, "tty"
-		}
-		return false, ""
-	}
 }
 
 func renderPreview(p service.Preview) string {

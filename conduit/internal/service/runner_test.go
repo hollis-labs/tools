@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -16,8 +15,29 @@ import (
 	"github.com/hollis-labs/tools/conduit/internal/store"
 )
 
-func agent(ctx context.Context) context.Context { return As(ctx, "token:agent") }
-func human(ctx context.Context) context.Context { return As(ctx, "token:human") }
+func agent(ctx context.Context) context.Context { return As(ctx, "key:agent") }
+
+// human is a signed-in person: the only kind of context that can approve.
+func human(ctx context.Context) context.Context { return AsPerson(ctx, "user:human") }
+
+// submitApproved is how an approved run exists now: an agent submits, a person approves. A run the policy allows is
+// returned as approved already.
+func submitApproved(s *Service, rq RunRequest) (*store.Run, error) {
+	run, err := s.Submit(agent(context.Background()), rq)
+	if err != nil || run.State != store.StatePending {
+		return run, err
+	}
+	return s.Approve(human(context.Background()), run.ID)
+}
+
+// runApproved is submitApproved followed by the execution.
+func runApproved(s *Service, rq RunRequest) (*store.Run, error) {
+	run, err := submitApproved(s, rq)
+	if err != nil {
+		return run, err
+	}
+	return s.Execute(agent(context.Background()), run.ID, ExecOpts{})
+}
 
 func waitState(t *testing.T, s *Service, id string, want ...string) *store.Run {
 	t.Helper()
@@ -42,7 +62,7 @@ func waitState(t *testing.T, s *Service, id string, want ...string) *store.Run {
 func TestSubmitLeavesAskPendingAndDoesNotExecute(t *testing.T) {
 	s := newSvc(t)
 	run, err := s.Submit(agent(context.Background()), RunRequest{Command: "touch /tmp/never"})
-	if err != nil || run.State != store.StatePending || run.Principal != "token:agent" || len(run.Attempts) != 0 {
+	if err != nil || run.State != store.StatePending || run.Principal != "key:agent" || len(run.Attempts) != 0 {
 		t.Fatalf("%v %+v", err, run)
 	}
 	if _, err := s.Execute(context.Background(), run.ID, ExecOpts{}); !errors.Is(err, ErrNotRunnable) {
@@ -58,8 +78,8 @@ func TestApproveThenExecute(t *testing.T) {
 	s := newSvc(t)
 	marker := filepath.Join(t.TempDir(), "ran")
 	run, _ := s.Submit(agent(context.Background()), RunRequest{Command: "touch " + marker})
-	ap, err := s.Approve(human(context.Background()), run.ID, "api")
-	if err != nil || ap.State != store.StateApproved || ap.ApprovedBy != "token:human" || ap.Approval != "api" {
+	ap, err := s.Approve(human(context.Background()), run.ID)
+	if err != nil || ap.State != store.StateApproved || ap.ApprovedBy != "user:human" || ap.Approval != "person" {
 		t.Fatalf("%v %+v", err, ap)
 	}
 	done, err := s.Execute(context.Background(), run.ID, ExecOpts{})
@@ -76,8 +96,8 @@ func TestApproveThenExecute(t *testing.T) {
 
 func TestAgentCannotApproveItsOwnRun(t *testing.T) {
 	s := newSvc(t)
-	run, _ := s.Submit(agent(context.Background()), RunRequest{Command: "touch /tmp/never"})
-	if _, err := s.Approve(agent(context.Background()), run.ID, "api"); !errors.Is(err, ErrSelfApproval) {
+	run, _ := s.Submit(human(context.Background()), RunRequest{Command: "touch /tmp/never"})
+	if _, err := s.Approve(human(context.Background()), run.ID); !errors.Is(err, ErrSelfApproval) {
 		t.Fatalf("got %v", err)
 	}
 	if r, _ := s.Get(run.ID); r.State != store.StatePending {
@@ -89,7 +109,7 @@ func TestApprovalExpires(t *testing.T) {
 	s := newSvc(t, WithApprovalTTL(50*time.Millisecond))
 	run, _ := s.Submit(agent(context.Background()), RunRequest{Command: "touch /tmp/never"})
 	time.Sleep(120 * time.Millisecond)
-	if _, err := s.Approve(human(context.Background()), run.ID, "api"); !errors.Is(err, ErrExpired) {
+	if _, err := s.Approve(human(context.Background()), run.ID); !errors.Is(err, ErrExpired) {
 		t.Fatalf("got %v", err)
 	}
 	if r, _ := s.Get(run.ID); r.State != store.StateExpired {
@@ -102,7 +122,7 @@ func TestPolicyIsRedecidedAtApproval(t *testing.T) {
 	s := newSvc(t)
 	run, _ := s.Submit(agent(context.Background()), RunRequest{Command: "touch /tmp/never"})
 	s.policy = &policy.Policy{Rules: []policy.Rule{{ID: "no-touch", Bin: "touch", Verdict: policy.Deny}}}
-	if _, err := s.Approve(human(context.Background()), run.ID, "api"); !errors.Is(err, ErrDenied) {
+	if _, err := s.Approve(human(context.Background()), run.ID); !errors.Is(err, ErrDenied) {
 		t.Fatalf("got %v", err)
 	}
 	if r, _ := s.Get(run.ID); r.State != store.StateDenied {
@@ -113,10 +133,10 @@ func TestPolicyIsRedecidedAtApproval(t *testing.T) {
 func TestRejectAndDoubleApprove(t *testing.T) {
 	s := newSvc(t)
 	r1, _ := s.Submit(agent(context.Background()), RunRequest{Command: "touch /tmp/never"})
-	if rej, err := s.Reject(human(context.Background()), r1.ID); err != nil || rej.State != store.StateDenied || rej.Approval != "rejected:token:human" {
+	if rej, err := s.Reject(human(context.Background()), r1.ID); err != nil || rej.State != store.StateDenied || rej.Approval != "rejected:user:human" {
 		t.Fatalf("%v %+v", err, rej)
 	}
-	if _, err := s.Approve(human(context.Background()), r1.ID, "api"); !errors.Is(err, ErrNotPending) {
+	if _, err := s.Approve(human(context.Background()), r1.ID); !errors.Is(err, ErrNotPending) {
 		t.Errorf("approve after reject: %v", err)
 	}
 }
@@ -124,7 +144,7 @@ func TestRejectAndDoubleApprove(t *testing.T) {
 func TestExecuteRunsAtMostOnceUnderRace(t *testing.T) {
 	s := newSvc(t)
 	counter := filepath.Join(t.TempDir(), "count")
-	run, _ := s.Submit(context.Background(), RunRequest{Command: "echo x >> " + counter, Shadow: true})
+	run, _ := submitApproved(s, RunRequest{Command: "echo x >> " + counter})
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	ok := 0
@@ -148,7 +168,7 @@ func TestExecuteRunsAtMostOnceUnderRace(t *testing.T) {
 
 func TestStartAsyncAndCancelRunning(t *testing.T) {
 	s := newSvc(t)
-	run, _ := s.Submit(context.Background(), RunRequest{Command: "sleep 30", Shadow: true})
+	run, _ := submitApproved(s, RunRequest{Command: "sleep 30"})
 	if err := s.Start(run.ID, ExecOpts{}); err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +196,7 @@ func TestCancelPendingWithdrawsIt(t *testing.T) {
 	if err != nil || c.State != store.StateCancelled {
 		t.Fatalf("%v %+v", err, c)
 	}
-	if _, err := s.Approve(human(context.Background()), run.ID, "api"); !errors.Is(err, ErrNotPending) {
+	if _, err := s.Approve(human(context.Background()), run.ID); !errors.Is(err, ErrNotPending) {
 		t.Errorf("approving a canceled run: %v", err)
 	}
 }
@@ -225,51 +245,12 @@ func TestRunbookAskStaysPending(t *testing.T) {
 	}
 }
 
-func TestTokensScopesAndRevocation(t *testing.T) {
-	s := newSvc(t)
-	secret, tok, err := s.CreateToken("ci", []string{ScopeRun, "exec.read:worker-1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tok.Hash == secret || len(secret) < 40 {
-		t.Errorf("secret handling: %q", secret)
-	}
-	p, err := s.Authenticate(secret)
-	if err != nil || p.Name != "ci" || p.ID() != "token:ci" {
-		t.Fatalf("%v %+v", err, p)
-	}
-	if !p.Can(ScopeRun, "worker-1") || !p.Can(ScopeRead, "worker-1") || p.Can(ScopeRead, "worker-2") || p.Can(ScopeApprove, "worker-1") {
-		t.Errorf("scope check wrong for %+v", p.Scopes)
-	}
-	if _, err := s.Authenticate("cdt_wrong"); !errors.Is(err, ErrUnauthenticated) {
-		t.Errorf("bad secret: %v", err)
-	}
-	if _, err := s.Authenticate(""); !errors.Is(err, ErrUnauthenticated) {
-		t.Errorf("empty: %v", err)
-	}
-	if ok, err := s.RevokeToken("ci"); err != nil || !ok {
-		t.Fatalf("%v %v", ok, err)
-	}
-	if _, err := s.Authenticate(secret); !errors.Is(err, ErrUnauthenticated) {
-		t.Error("revoked token still authenticates")
-	}
-	admin := &Principal{Scopes: []string{ScopeAdmin}}
-	if !admin.Can(ScopeApprove, "x") {
-		t.Error("admin covers everything")
-	}
-	for _, bad := range [][]string{nil, {"exec.root"}, {"read"}} {
-		if _, _, err := s.CreateToken("x", bad); err == nil {
-			t.Errorf("accepted scopes %v", bad)
-		}
-	}
-}
-
 // Approval is not a bearer token for later: the run is re-checked when it executes.
 func TestExecuteRechecksPolicyAfterApproval(t *testing.T) {
 	s := newSvc(t)
 	marker := filepath.Join(t.TempDir(), "ran")
 	run, _ := s.Submit(agent(context.Background()), RunRequest{Command: "touch " + marker})
-	if _, err := s.Approve(human(context.Background()), run.ID, "api"); err != nil {
+	if _, err := s.Approve(human(context.Background()), run.ID); err != nil {
 		t.Fatal(err)
 	}
 	s.policy = &policy.Policy{Rules: []policy.Rule{{ID: "no-touch", Bin: "touch", Verdict: policy.Deny}}}
@@ -286,7 +267,7 @@ func TestStaleHumanApprovalExpiresBeforeExecuting(t *testing.T) {
 	s := newSvc(t, WithApprovalTTL(150*time.Millisecond))
 	marker := filepath.Join(t.TempDir(), "ran")
 	run, _ := s.Submit(agent(context.Background()), RunRequest{Command: "touch " + marker})
-	if _, err := s.Approve(human(context.Background()), run.ID, "api"); err != nil {
+	if _, err := s.Approve(human(context.Background()), run.ID); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(250 * time.Millisecond)
@@ -324,7 +305,7 @@ func TestCancelRequiresOwnerOrAdmin(t *testing.T) {
 func TestSettleNeverOverwritesAnotherProcessesOutcome(t *testing.T) {
 	s := newSvc(t)
 	run, _ := s.Submit(agent(context.Background()), RunRequest{Command: "touch /tmp/never"})
-	if _, err := s.Approve(human(context.Background()), run.ID, "api"); err != nil {
+	if _, err := s.Approve(human(context.Background()), run.ID); err != nil {
 		t.Fatal(err)
 	}
 	s.settle(run.ID, store.StatePending, store.StateExpired) // a stale view: it is approved now
@@ -343,26 +324,12 @@ func TestPerPrincipalActiveCapAndTimeoutBounds(t *testing.T) {
 	if _, err := s.Submit(agent(context.Background()), RunRequest{Command: "touch /tmp/never"}); !errors.Is(err, ErrTooMany) {
 		t.Fatalf("third pending run: %v", err)
 	}
-	if _, err := s.Submit(As(context.Background(), "token:other"), RunRequest{Command: "touch /tmp/never"}); err != nil {
+	if _, err := s.Submit(As(context.Background(), "key:other"), RunRequest{Command: "touch /tmp/never"}); err != nil {
 		t.Errorf("another principal is not affected: %v", err)
 	}
 	for _, d := range []time.Duration{-time.Second, 2 * time.Hour} {
-		if _, err := s.Submit(As(context.Background(), "token:third"), RunRequest{Command: "echo", Timeout: d}); !errors.Is(err, ErrBadRequest) {
+		if _, err := s.Submit(As(context.Background(), "key:third"), RunRequest{Command: "echo", Timeout: d}); !errors.Is(err, ErrBadRequest) {
 			t.Errorf("timeout %v: %v", d, err)
-		}
-	}
-}
-
-func TestScopeStringsCannotSmuggleScopes(t *testing.T) {
-	s := newSvc(t)
-	for _, bad := range []string{"exec.read:h exec.admin", "exec.read exec.admin", "exec.read:", "exec.read:a b", "exec.readx", "EXEC.READ", "exec.read\nexec.admin"} {
-		if _, _, err := s.CreateToken("x", []string{bad}); err == nil {
-			t.Errorf("accepted scope %q", bad)
-		}
-	}
-	for i, good := range []string{"exec.read", "exec.run:worker-1", "exec.approve:*", "exec.admin"} {
-		if _, _, err := s.CreateToken(fmt.Sprintf("good%d", i), []string{good}); err != nil {
-			t.Errorf("rejected scope %q: %v", good, err)
 		}
 	}
 }
@@ -402,5 +369,30 @@ func TestRemoteRequestsAlwaysGetATimeout(t *testing.T) {
 	_ = json.Unmarshal([]byte(r.Request), &ep)
 	if ep.Timeout != DefaultRemoteTimeout {
 		t.Errorf("timeout %v, want the %v default", ep.Timeout, DefaultRemoteTimeout)
+	}
+}
+
+// No local-trust path reaches approve: a context that is not a signed-in person (an agent, an API key, a local process,
+// any CLI context) is refused, for approve and reject, and the run stays pending.
+func TestLocalTrustPrincipalCannotApproveOrReject(t *testing.T) {
+	s := newSvc(t)
+	run, err := s.Submit(agent(context.Background()), RunRequest{Command: "touch /tmp/never"})
+	if err != nil || run.State != store.StatePending {
+		t.Fatalf("%v %+v", err, run)
+	}
+	for name, ctx := range map[string]context.Context{
+		"agent key":  As(context.Background(), "key:other"),
+		"local user": As(context.Background(), "local:operator"),
+		"no context": context.Background(),
+	} {
+		if _, err := s.Approve(ctx, run.ID); !errors.Is(err, ErrNotPerson) {
+			t.Errorf("%s approve: %v", name, err)
+		}
+		if _, err := s.Reject(ctx, run.ID); !errors.Is(err, ErrNotPerson) {
+			t.Errorf("%s reject: %v", name, err)
+		}
+	}
+	if r, _ := s.Get(run.ID); r.State != store.StatePending {
+		t.Fatalf("run left pending state: %s", r.State)
 	}
 }

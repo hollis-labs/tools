@@ -32,7 +32,7 @@ const (
 
 const usage = `conduit — governed command runtime
 
-  conduit run [-C dir] [-timeout 30s] [-session s] [-shadow] [-yes] [-retries n] [-sandbox ro|workspace|workspace-net|protect] [-env NAME]... [-q] (-c "cmd" | -- argv...)
+  conduit run [-C dir] [-timeout 30s] [-session s] [-retries n] [-sandbox ro|workspace|workspace-net|protect] [-env NAME]... [-q] (-c "cmd" | -- argv...)
                               run a command through policy; output is captured, redacted and stored
   conduit check [-json] "cmd"   policy dry run: verdict and reasons (exit 0 allow, 4 ask, 3 deny)
   conduit parse [-json] "cmd"   show how a command is parsed: segments, wrappers, effect classes
@@ -44,17 +44,13 @@ const usage = `conduit — governed command runtime
                               fuzzy picker over command history (prints the choice; -run runs it)
   conduit init bash|zsh [-key K]
                               shell integration: eval "$(conduit init bash)" binds the picker and adds cx
-  conduit pending               runs waiting for approval
-  conduit approve [-yes] [-x] <run>
-                              review the parsed command and approve it (-x runs it here)
-  conduit reject <run> | cancel <run>
+  conduit pending               runs waiting for a signed-in person's approval
+  conduit approve|reject --server URL --user NAME <run>
+                              sign in as a person (password from the terminal only) and approve or reject a pending run
+  conduit cancel <run>
   conduit runbooks              named operations: fixed argv, typed parameters
-  conduit token create -name n -scope exec.run,exec.read | ls | revoke <name>
-  conduit serve [-unix path | -addr 127.0.0.1:7421] [-allow-dir d]...
-                              HTTP API for "run this on this host" (bearer tokens, scoped)
-  conduit mcp [-principal name] [-allow-dir d]... [-allow-any-dir] [-see-all]
-                              MCP tools on stdio for agents (no approval tool, by design;
-                              confined to the current directory and to its own runs by default)
+  conduit serve                 HTTP API and /mcp (identity keys, scoped)
+  conduit mcp                   MCP tools on stdio for an agent launched locally (read and run only)
   conduit reap [-stale 30s]       clean up after a crash: fail orphaned runs, stop their process groups
   conduit panics [-n 20] | show <ref>
                               internal errors conduit recovered from (a ref is all a remote caller sees)
@@ -63,6 +59,9 @@ const usage = `conduit — governed command runtime
 <run> is an id, or any unique prefix or suffix of one.
 Exit: the command's own code for run; 2 not found, 3 denied, 4 needs approval.
 `
+
+// PrintUsage writes the command overview.
+func PrintUsage(w io.Writer) { fmt.Fprint(w, usage) }
 
 // Main runs the CLI and returns the process exit code.
 func Main(ctx context.Context, svc *service.Service, args []string, in *os.File, stdout, stderr io.Writer, paths func() string) int {
@@ -102,20 +101,12 @@ func (c *cmd) dispatch(args []string) int {
 		code = c.initShell(args[1:])
 	case "pending":
 		code = c.pending()
-	case "approve":
-		code = c.approve(args[1:])
-	case "reject":
-		code = c.reject(args[1:])
 	case "cancel":
 		code = c.cancel(args[1:])
+	case "approve", "reject":
+		code = c.remote(args[0], args[1:])
 	case "runbooks":
 		code = c.runbooks()
-	case "token":
-		code = c.token(args[1:])
-	case "mcp":
-		code = c.mcpCmd(args[1:])
-	case "serve":
-		code = c.serve(args[1:])
 	case "panics":
 		code = c.panics(args[1:])
 	case "reap":
