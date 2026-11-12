@@ -1,6 +1,6 @@
 name: caster-build
 # Publishes the Caster release tarballs (workflow artifacts only: no tag, no release, no install)
-# that `fleet-install` reads.
+# that `fleet-install` reads; caster/deploy.yaml rides inside the linux/amd64 one.
 on:
   push:
     branches: [main]
@@ -18,4 +18,5 @@ jobs:
       working_directory: caster
       main_pkg: ./cmd/caster
       test_cmd: "go vet ./... && go test -race -count=1 -timeout=5m ./..."
-      ldflags_var: ""       # cmd/caster's version is a const, not a variable to set with -X
+      ldflags_var: ""       # the version comes from the build info, not a -X variable
+      extra_files: deploy.yaml
