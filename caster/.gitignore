@@ -38,3 +38,6 @@ go.work.sum
 *.db-shm
 *.db-wal
 *.token
+
+# Substrate: the operator's override file is never committed
+substrate.local.yaml

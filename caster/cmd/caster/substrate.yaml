@@ -1,0 +1,21 @@
+# Caster on Substrate. The manifest is the shell: modules and config.
+app: caster
+variant: app-host
+profiles: [minimal]
+modules:
+  add: [secrets, auth, database, identity, mcp, cli]
+config:
+  logging: { level: info, format: text }
+  httphost: { addr: "127.0.0.1:8991" }
+  database:
+    sqlite: { path: caster.db }
+  auth: { mode: enforce }
+  identity: { key_file: identity-signing.key, session_ttl: 12h }
+  # Caster's own block (internal/settings); the SUBSTRATE_CONFIG file overrides it key by key.
+  caster:
+    torque_url: ""
+    tesseract_mcp: ""
+    tesseract_bin: ""
+    allowed_hosts: []
+  secrets: { state_dir: secrets }
+  mcp: { version: "0.4.0", scope: caster.mcp }
