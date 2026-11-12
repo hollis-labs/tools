@@ -10,7 +10,7 @@ require (
 	github.com/hollis-labs/libs/mcp/plugin-mcp v0.6.0
 	github.com/hollis-labs/libs/security/auth v0.3.1
 	github.com/hollis-labs/libs/security/redact v0.2.0
-	github.com/hollis-labs/substrate v0.1.1-0.20261112164520-da9f59bb59b7
+	github.com/hollis-labs/substrate v0.1.1-0.20261112220059-4f82c47f3f4d
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9
 	golang.org/x/term v0.47.0

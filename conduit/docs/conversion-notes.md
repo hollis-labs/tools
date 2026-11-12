@@ -1,13 +1,13 @@
 # Conversion notes: Conduit onto Substrate
 
-Status: ready for review (branch `feat/conduit-substrate`). Pinned to Substrate `da9f59b`, BOM security/auth v0.3.1, Go 1.26.11.
+Status: ready for review (branch `feat/conduit-substrate`). Pinned to Substrate `4f82c47f3f4d`, BOM security/auth v0.3.1, Go 1.26.11.
 The cutover is written and rehearsed on a copy, not run: `docs/cutover-plan.md`. The shape of the port: `docs/architecture.md`.
 
 ## Gaps
 
 Each of these is a framework piece Conduit needed and did not find. None is worked around.
 
-1. **`libs/core/panics` is not in the BOM. Open.** `substrate pins sync --app .` fails: `github.com/hollis-labs/libs/core/panics is a libs module the bom does not pin (add it to app_libs or drop the import)`. Conduit uses `panics` (recovered-panic refs, `Capture`, `Call`, `Clean`) and `panics/httpguard` across the service, CLI, API and MCP transports. The change is one line in Substrate: `github.com/hollis-labs/libs/core/panics` in `app_libs`. It is with the Framework Agent. Until it lands `pins sync` and `pins check` cannot go green for this app, and the branch is not pushed.
+1. **`libs/core/panics` was not in the BOM. Closed.** `substrate pins sync` refused the import until Substrate #31 added `github.com/hollis-labs/libs/core/panics` v0.1.0 to `app_libs`. Conduit is pinned to Substrate `4f82c47f3f4d`; `pins sync` reports it is in step and `pins check` passes (go-sandbox v0.6.0 raised nothing; go-apppaths is not used).
 2. **Telemetry (`go-otel`, opt-in by `CONDUIT_OTEL_ENABLED`, tagged by `CONDUIT_ENV`) has no Substrate counterpart. Ruled: dropped.** It was off in the live unit. The two variables are no longer read.
 3. **Local CLI `approve`. Ruled: approval is a signed-in person's act.** Removed with it: the terminal prompt that approved from `/dev/tty`, `-yes`, `-shadow` (record what would have run, run nothing), and `conduit reject` and `conduit token` as local commands. `conduit approve|reject --server URL --user NAME <run>` is a client of the running server: the password is read from the terminal only (refused when stdin is not a terminal, no flag, environment variable or file), the session is held in memory for one request and signed out again, nothing is stored. A page for approvals is a later task.
 4. **`hostguard` is a copy.** `/mcp` behind a proxy name is refused by the MCP library's localhost protection unless the proxy rewrites `Host`, and the framework has no per-app allowed-hosts check yet. `internal/hostguard` is Mentat's copy (and Loom's, and Tangent's) with its tests; `conduit.allowed_hosts` lists the names. It goes when the held framework change lands (ruled: copy, same as the other apps).
@@ -74,5 +74,4 @@ Help, version, config, health, completion, an unknown word and `--help` at any l
 
 - The deploy descriptor and the build workflow have not run on a runner or a host: they are modelled on Mentat's and Loom's and read against the shared workflow's inputs.
 - `conduit approve` was exercised against the real binary through a pty, not from a human's terminal.
-- `substrate pins sync` and `pins check` (Gap 1).
 - macOS: Conduit's process identity and orphan reaping use `/proc`; the monorepo check excludes it, as before.
