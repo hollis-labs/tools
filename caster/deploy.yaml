@@ -1,0 +1,39 @@
+# Caster on Substrate: one binary with the browser UI embedded, listening on 127.0.0.1:8991.
+#
+# FIRST DEPLOY (the pre-Substrate service runs a Cerberus-built binary against main.db and its
+# blobs): the new build creates caster.db beside the old main.db and refuses to start until
+# `caster migrate` has copied the data in (docs/cutover-plan.md has the order: stop the unit,
+# `caster migrate`, the offline identity bootstrap with the new binary, then `fleet-install deploy
+# caster`, whose preflight backs up the migrated caster.db). The old main.db and blobs are never
+# written, so they stay the rollback.
+#
+# The unit is written by Cerberus (resource caster-uat). A Cerberus apply regenerates it and
+# overwrites the drop-in's effect only for the keys the descriptor sets, so the descriptor's
+# command and build entries are part of the cutover (handed to Cerberus, see the cutover plan).
+# The settings that were environment variables (CASTER_TORQUE_URL, CASTER_TESSERACT_*,
+# HOLLIS_AUTH*) and the old -addr flag are keys in the file named by SUBSTRATE_CONFIG
+# (httphost.addr, caster.*); the file is written by the operator (docs/conversion-notes.md).
+schema: fleet-deploy/v1
+app: caster
+repo: hollis-labs/tools
+artifact: {name: "caster-{sha12}", tarball: "caster_{version}_{os}_{arch}.tar.gz", sums: SHA256SUMS}
+targets:
+  - id: agent-os-caster
+    when: {os: linux, arch: amd64}
+    hosts: [agent-os]
+    binary: caster
+    install_root: ~/.local/share/fleet/releases/caster
+    symlinks:
+      - path: ~/.local/bin/caster          # the unit's ExecStart path (decided in the cutover plan)
+    unit_dropins:
+      - unit: com.hollis-labs.cerberus.caster.caster-uat.service
+        name: 20-fleet-exec.conf
+        content: |
+          [Service]
+          ExecStart=
+          ExecStart=%h/.local/bin/caster serve
+          Environment=SUBSTRATE_CONFIG=%h/.config/caster/caster.yaml
+    preflight:
+      - {kind: sqlite_backup, db: ~/.local/share/caster/workspaces/default/caster.db, dest: "{backup_dir}/caster.pre-{version}.db"}
+    restart: {via: systemd-user, unit: com.hollis-labs.cerberus.caster.caster-uat.service}
+    health: {url: "http://127.0.0.1:8991/healthz", expect_status: [200], timeout: 30s}

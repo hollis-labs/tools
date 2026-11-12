@@ -1,0 +1,22 @@
+name: caster-build
+# Publishes the Caster release tarballs (workflow artifacts only: no tag, no release, no install)
+# that `fleet-install` reads; caster/deploy.yaml rides inside the linux/amd64 one.
+on:
+  push:
+    branches: [main]
+    paths: ['caster/**', '.github/workflows/caster-build.yml', '.github/workflows/go-app-build.yml']
+  pull_request:
+    branches: [main]
+    paths: ['caster/**', '.github/workflows/caster-build.yml', '.github/workflows/go-app-build.yml']
+  workflow_dispatch:
+permissions: { contents: read }
+jobs:
+  build:
+    uses: ./.github/workflows/go-app-build.yml
+    with:
+      app: caster
+      working_directory: caster
+      main_pkg: ./cmd/caster
+      test_cmd: "go vet ./... && go test -race -count=1 -timeout=5m ./..."
+      ldflags_var: ""       # the version comes from the build info, not a -X variable
+      extra_files: deploy.yaml

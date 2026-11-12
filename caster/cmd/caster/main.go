@@ -1,153 +1,132 @@
-// Command caster is the composition root of caster: it resolves the
-// app's paths, gates telemetry, opens the store, builds the service layer and
-// hands only the service layer to the transports. It is outside the transport
-// scope of .golangci.transport.yml.
+// Command caster keeps named text and content-addressed notes and hands them around by reference.
+// It is built on Substrate: the shell (config, logging, health, HTTP, auth, identity, secrets,
+// database, MCP plumbing, CLI skeleton) comes from the manifest; this package and internal/ are
+// the app: its schema, its routes, its tools and its commands.
 package main
 
 import (
 	"context"
 	"fmt"
-	"log"
+	"io"
+	"net"
 	"os"
 	"os/signal"
-	"time"
+	"slices"
+	"strings"
+	"syscall"
 
-	"github.com/hollis-labs/go-apppaths/paths"
-	hotel "github.com/hollis-labs/go-otel"
+	"github.com/spf13/cobra"
 
-	"github.com/hollis-labs/tools/caster/internal/cli"
-	"github.com/hollis-labs/tools/caster/internal/client"
-	"github.com/hollis-labs/tools/caster/internal/mcp"
-	"github.com/hollis-labs/tools/caster/internal/resolver"
-	"github.com/hollis-labs/tools/caster/internal/service"
-	"github.com/hollis-labs/tools/caster/internal/store"
-)
-
-const (
-	// appName is the go-apppaths identity: it names the XDG directories and the
-	// CASTER_* variables paths.Resolve reads (CASTER_DB_PATH, CASTER_WORKSPACE).
-	appName = "caster"
-	// otelEnvVar turns telemetry on. Telemetry is opt-in: HOLLIS_OTEL_ENABLED
-	// (portfolio-wide, and a kill switch when false) wins, then this variable.
-	otelEnvVar = "CASTER_OTEL_ENABLED"
-	// envEnvVar overrides the deployment-environment tag; HOLLIS_ENV wins over it.
-	envEnvVar = "CASTER_ENV"
+	paths "github.com/hollis-labs/libs/core/util/apppaths"
+	"github.com/hollis-labs/substrate/boot"
+	"github.com/hollis-labs/substrate/module"
+	"github.com/hollis-labs/substrate/modules/cli"
 )
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	code, err := run(ctx, os.Args[1:])
-	stop()
-	if err != nil {
-		log.Print(err)
-		code = cli.ExitError
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "caster:", err)
+		stop()
+		os.Exit(1)
 	}
-	os.Exit(code)
 }
 
-// run holds the wiring so its defers (the telemetry flush, the store close) run
-// before main exits; log.Fatal in main would skip them.
-func run(ctx context.Context, args []string) (int, error) {
-	// Resolve once, inject downward. WithLegacyNames adopts the data of an
-	// earlier name of this app (a rename) before anything is created.
-	layout, err := paths.Resolve(appName)
-	if err != nil {
-		return 0, fmt.Errorf("resolve paths: %w", err)
-	}
+// Command kinds, from what a command may create.
+const (
+	kindFull     = iota // serve: every module
+	kindIdentity        // identity setup, identity key create: the database, the signing key, an owner or a key; no listener
+	kindReadOnly        // help, version, config, health, unknown words: no module that opens or creates a file
+)
 
-	if hotel.EnabledFromEnv(otelEnvVar) {
-		defer hotel.InitOrWarn(ctx, log.Printf, 5*time.Second,
-			hotel.WithServiceName(appName),
-			hotel.WithEnvironment(hotel.EnvironmentFromEnv(envEnvVar, "dev")),
-		)()
-	}
+// The module sets, in manifest order. A module that opens or creates a file (database, secrets,
+// identity, the signing key) is in no read-only set.
+var (
+	readOnlyModules = []string{"config", "logging", "health", "cli"}
+	// the database, the identity module and the auth module it requires; secrets because the boot
+	// hook places its directory.
+	identityModules = []string{"config", "logging", "secrets", "auth", "database", "identity", "cli"}
+)
 
-	cmd := ""
-	if len(args) > 0 {
-		cmd = args[0]
+// plan decides, from the command line, which modules to start, before anything is booted. Only the
+// commands that must open or create files get a module that does: serve (exactly `caster serve`,
+// nothing after it) and the identity bootstrap commands. Everything else, including bare `caster`
+// (it prints help: a typo or an empty command never starts a server), help, version, config, health,
+// completion, an unknown command and a bad flag, starts the read-only set.
+//
+// Every argument that does not start with "-" counts as a command word. That is right only while the
+// root command has no global flag that takes a value (cobra's -h/--help is the one flag):
+// TestRootHasNoValueFlags fails when such a flag is added, and then plan must learn it.
+func plan(args []string) (modules []string, kind int) {
+	if len(args) == 1 && args[0] == "serve" {
+		return substrateModules, kindFull
 	}
-
-	// Commands that configure or inspect the link to a home node run before any
-	// store is opened.
-	switch cmd {
-	case "login":
-		return login(ctx, layout.ConfigDir(), args[1:])
-	case "logout":
-		return logout(ctx, layout.ConfigDir())
-	case "remote":
-		return remoteStatus(ctx, layout.ConfigDir())
-	}
-
-	// Remote mode: this machine has no store of its own, it is a client of a home
-	// node's `caster serve`, with the same service contract over HTTP.
-	profile, err := client.Active(layout.ConfigDir(), os.Getenv)
-	if err != nil {
-		return 0, err
-	}
-	if profile != nil {
-		switch cmd {
-		case "serve", "token":
-			return 0, fmt.Errorf("`caster %s` runs on the home node; this machine is a client of %s (set CASTER_LOCAL=1 to use a local store instead)", cmd, profile.URL)
-		case "paths":
-			fmt.Printf("remote  %s\ntoken   %s\nprofile %s\n", profile.URL, profile.TokenLabel(), client.ProfilePath(layout.ConfigDir()))
-			return cli.ExitOK, nil
+	var words []string
+	for _, a := range args {
+		if a == "-h" || a == "--help" || a == "--version" {
+			return pickModules(readOnlyModules), kindReadOnly
 		}
-		c, cerr := client.New(profile.URL, profile.Source(), profile.AllowHTTP)
-		if cerr != nil {
-			return 0, cerr
+		if !strings.HasPrefix(a, "-") {
+			words = append(words, a)
 		}
-		return dispatch(ctx, c.Service(), args)
 	}
-
-	st, err := store.Open(layout.MainDB())
-	if err != nil {
-		return 0, fmt.Errorf("open store: %w", err)
+	// A command word must come first: `--bogus identity setup` is a bad flag, not a bootstrap.
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") && len(words) > 1 && words[0] == "identity" &&
+		(words[1] == "setup" || (words[1] == "key" && len(words) > 2 && words[2] == "create")) {
+		return pickModules(identityModules), kindIdentity
 	}
-	defer func() {
-		if cerr := st.Close(); cerr != nil {
-			log.Printf("warning: close store: %v", cerr)
-		}
-	}()
-
-	// The service layer is the only thing handed to the transports; they never
-	// receive st. Remote resolvers are configured here, at the composition root.
-	var gw resolver.ToolCaller
-	if cmdline := os.Getenv("CASTER_TESSERACT_MCP"); cmdline != "" {
-		gw, err = resolver.CommandServer(cmdline)
-	} else {
-		gw, err = resolver.CatalogServer("tesseract") // nil on error: MCP-store refs report unavailable
-	}
-	if err != nil {
-		gw = nil
-	}
-	if gw != nil {
-		defer func() { _ = gw.Close() }()
-	}
-	svc := service.New(st,
-		resolver.Torque{BaseURL: os.Getenv("CASTER_TORQUE_URL")},
-		resolver.Tesseract{Bin: os.Getenv("CASTER_TESSERACT_BIN"), Gateway: gw},
-	)
-	switch {
-	case cmd == "paths" && len(args) == 1:
-		fmt.Printf("data   %s\nindex  %s\nblobs  %s\n", layout.DataDir(), st.Path(), st.BlobRoot())
-		return cli.ExitOK, nil
-	case cmd == "serve":
-		return cli.ExitOK, serve(ctx, svc, layout.ConfigDir(), args[1:])
-	case cmd == "token" && len(args) == 1:
-		if _, err := ensureToken(layout.ConfigDir()); err != nil {
-			return 0, err
-		}
-		fmt.Println(tokenPath(layout.ConfigDir()))
-		return cli.ExitOK, nil
-	}
-	return dispatch(ctx, svc, args)
+	return pickModules(readOnlyModules), kindReadOnly
 }
 
-// dispatch runs the MCP server or a CLI command against svc, which may be
-// backed by a local store or by a remote home node.
-func dispatch(ctx context.Context, svc *service.Service, args []string) (int, error) {
-	if len(args) == 1 && args[0] == "mcp" {
-		return cli.ExitOK, mcp.Serve(ctx, svc, os.Stdin, os.Stdout, "0.3.0")
+// pickModules keeps the start order of substrateModules.
+func pickModules(want []string) []string {
+	var out []string
+	for _, m := range substrateModules {
+		if slices.Contains(want, m) {
+			out = append(out, m)
+		}
 	}
-	return cli.Run(ctx, svc, args, os.Stdin, os.Stdout, os.Stderr), nil
+	return out
+}
+
+func run(ctx context.Context, args []string, stdout io.Writer) error {
+	return runWith(ctx, args, stdout, nil)
+}
+
+// runWith is run with a hook that learns the bound address once the listener is up (tests listen on
+// port 0 and stop the server from it).
+func runWith(ctx context.Context, args []string, stdout io.Writer, ready func(net.Addr)) error {
+	modules, kind := plan(args)
+	// Only the commands that write create the data directories; the rest resolve the layout
+	// without creating anything.
+	var opts []paths.Option
+	if kind == kindReadOnly {
+		opts = append(opts, paths.WithoutMaterialize())
+	}
+	layout, err := paths.Resolve(appName, opts...)
+	if err != nil {
+		return fmt.Errorf("resolve paths: %w", err)
+	}
+	started, err := boot.StartWith(ctx, substrateApp, modules, substrateConfigJSON, boot.Options{
+		AfterConfig: func(_ context.Context, app *module.App) error {
+			resolvePaths(app, layout)
+			return nil
+		},
+	})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = started.Stop(context.Background()) }()
+
+	c := &caster{app: started.App, layout: layout, ready: ready}
+	root := cli.Root(started.App)
+	root.SetOut(stdout)
+	serve := c.serveCmd(ctx)
+	// Bare `caster` prints help (plan starts no server module for it).
+	root.Args = cobra.NoArgs
+	root.RunE = func(cmd *cobra.Command, _ []string) error { return cmd.Help() }
+	root.AddCommand(serve)
+	root.SetArgs(args)
+	return root.ExecuteContext(ctx)
 }

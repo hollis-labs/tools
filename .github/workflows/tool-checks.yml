@@ -58,6 +58,9 @@ jobs:
           fi
       - name: vet
         run: go vet ./...
+      - name: pins match the Substrate BOM
+        if: matrix.module == 'caster'
+        run: go run github.com/hollis-labs/substrate/cmd/substrate pins check --app .
       - name: build Caster for Conduit integration
         if: matrix.module == 'conduit'
         working-directory: caster
