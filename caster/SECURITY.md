@@ -15,4 +15,4 @@ can access. Stored blobs are not encrypted by Caster and have no deletion or
 garbage-collection API. Keep credentials out of notes.
 
 Use loopback or a trusted private network with HTTPS. See [access](docs/access.md)
-and [home-node setup](docs/home-node.md) for pairing, token storage and revocation.
+and [home-node setup](docs/home-node.md) for credentials, key storage and the proxy setup.

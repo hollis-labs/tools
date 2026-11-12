@@ -1,7 +1,7 @@
 # Conversion notes
 
-Old-to-new map and gaps for the Substrate port. Filled in per slice; the old-to-new tables for HTTP,
-CLI and MCP arrive with the slices that change them.
+Old-to-new map and gaps for the Substrate port. The plan for moving a live instance is
+[cutover-plan.md](cutover-plan.md); every caller and what changes for it is [callers.md](callers.md).
 
 ## Dropped
 
@@ -43,7 +43,7 @@ A data command or `caster mcp` on the local store may create `caster.db` and `ca
 holds only `main.db`, naming `caster migrate`). It starts no identity module, so it never creates the signing
 key. As a client of a home node (`CASTER_REMOTE` or a saved profile) it opens no file at all.
 
-## Environment and paths (so far)
+## Environment and paths
 
 | Old | New |
 |---|---|
@@ -70,12 +70,12 @@ key. As a client of a home node (`CASTER_REMOTE` or a saved profile) it opens no
    a pairing code can be minted only over HTTP by an administrator (there is no offline command for it),
    where Caster's rule was that grants are created at the home node's terminal and never over HTTP.
    Decision for the client slice (S4): `caster login` redeems an identity pairing code. Observation for the framework: `internal/hostguard` is an app-local copy of Loom's package.
-3. Framework rule vs. client selection. The guide says not to read `os.Getenv` for settings. `CASTER_REMOTE`,
+3. (Decided by the driver: they stay.) Framework rule vs. client selection. The guide says not to read `os.Getenv` for settings. `CASTER_REMOTE`,
    `CASTER_TOKEN_REF`, `CASTER_TOKEN`, `CASTER_ALLOW_HTTP` and `CASTER_LOCAL` stay as environment variables because
    they pick the *client's* connection (a CLI or stdio child), the Tether gateway passes a child's secrets through
    its `env`, and Conduit's test sets `CASTER_LOCAL`. If the driver wants them under `caster:` in the config file
    instead, that is a small change plus a catalog edit at cutover.
-4. The hub's `caster` child. Today it is a remote client with a device token. After the port it is `caster mcp`
+4. (Agreed as a plan: callers.md has the catalog edit; the key's scopes are the owner's choice, cutover plan step 6.) The hub's `caster` child. Today it is a remote client with a device token. After the port it is `caster mcp`
    as a client of the service with an identity API key (`CASTER_REMOTE`, `CASTER_TOKEN_REF`), unchanged in shape.
    Both run on the same host, so `CASTER_REMOTE` should be the loopback address (`http://127.0.0.1:8991`), not the
    tailnet name: plain http to loopback is allowed by the client, the `Host` is a loopback name the Host check

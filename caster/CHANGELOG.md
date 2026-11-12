@@ -9,6 +9,20 @@ section before running the repository release script. No releases are tagged yet
 
 ## Unreleased
 
+### Changed (breaking: a clean break in code, a one-way migration of data)
+
+- Caster runs on the Substrate framework. Identity is the identity module's: owner and API keys are created offline
+  (`caster identity setup`, `caster identity key create --out`); Caster's own pairing, `cst_` tokens, `caster pair`,
+  `devices`, `revoke`, `renew` and `token` are removed. The old rows are kept as history in `legacy_grants` and
+  `legacy_devices` and are not credentials.
+- The HTTP API moved from `/v1` to `/api` with flat `{code, message}` errors; `/v1` answers 404 JSON. Health is `/healthz`.
+- Bare `caster` prints help; only `caster serve` serves. `-addr` is `httphost.addr`; the former environment
+  settings are keys under `caster:` in the file `SUBSTRATE_CONFIG` names.
+- The database is `caster.db` and the blob tree `cas/`, beside the old `main.db` and `blobs/`, which are never opened.
+  `caster migrate` copies everything across and proves the copy (docs/cutover-plan.md).
+- The CLI and `caster mcp` without a key run as `local:operator`: read, resolve, write, observe; `act` and the shadow
+  report need a key. `CASTER_DB_PATH` is read as the old database file's location; its parent is the store directory.
+
 ## v0.0.1 - 2026-10-25
 
 First tagged release. Pre-1.0: interfaces can change between 0.x versions.

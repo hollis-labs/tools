@@ -7,10 +7,12 @@ project:
 resources:
   # The home node's HTTP API. Loopback only: other machines reach it through
   # Tailscale Serve (https) or an SSH forward, never by binding a network
-  # interface. Auth is enforce mode (device tokens, optional Tether JWTs, the
-  # operator key); see docs/access.md. Data lives in the user's
-  # XDG dirs, so `caster` on this machine (CASTER_LOCAL=1 not needed here) and
-  # the service share one store.
+  # interface. Auth is enforce mode (identity API keys and the owner session);
+  # see docs/access.md. The listen address and every other setting are keys in
+  # the file SUBSTRATE_CONFIG names (httphost.addr = 127.0.0.1:8991), not flags.
+  # Data lives in the user's XDG dirs, so `caster` on this machine and the
+  # service share one store. Moving an existing instance: docs/cutover-plan.md
+  # (no apply of this resource before its descriptor matches this file).
   - id: caster-uat
     name: Caster home node
     type: process
@@ -27,14 +29,12 @@ resources:
       command:
         - ./bin/caster
         - serve
-        - -addr
-        - 127.0.0.1:8991
       dir: ~/src/tools/caster
       mode: os_service
       port: 8991
       run_from: artifact
       supervisor: auto
-      url: http://127.0.0.1:8991/health
+      url: http://127.0.0.1:8991/healthz
     tags:
       - api
       - go
