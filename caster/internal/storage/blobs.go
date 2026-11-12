@@ -26,9 +26,28 @@ type Blob struct {
 	CreatedAt time.Time
 }
 
-// BlobPath is where the bytes of hash live in the tree.
-func (s *Storage) BlobPath(hash string) string {
-	return filepath.Join(s.root, "sha256", hash[:2], hash[2:])
+// ValidHash reports whether h is a blob digest: exactly 64 lower-case hex digits. It is the one check
+// at the storage boundary; nothing else is ever turned into a path under the tree.
+func ValidHash(h string) bool {
+	if len(h) != 64 {
+		return false
+	}
+	for i := 0; i < len(h); i++ {
+		if c := h[i]; (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// BlobPath is where the bytes of hash live in the tree. A value that is not a digest (too short,
+// upper case, path separators) has no path: the answer is ErrNotFound, never a panic or a path outside
+// the tree.
+func (s *Storage) BlobPath(hash string) (string, error) {
+	if !ValidHash(hash) {
+		return "", ErrNotFound
+	}
+	return filepath.Join(s.root, "sha256", hash[:2], hash[2:]), nil
 }
 
 // PutBlob streams r into the CAS, verifying the digest as it goes, and records metadata. Putting
@@ -58,7 +77,10 @@ func (s *Storage) PutBlob(ctx context.Context, r io.Reader, mime, sourceRef stri
 		return Blob{}, err
 	}
 	hash := hex.EncodeToString(h.Sum(nil))
-	dst := s.BlobPath(hash)
+	dst, err := s.BlobPath(hash)
+	if err != nil {
+		return Blob{}, err
+	}
 	if err = os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 		return Blob{}, err
 	}
@@ -115,6 +137,9 @@ func (c *capture) Write(p []byte) (int, error) {
 
 // HeadBlob returns blob metadata.
 func (s *Storage) HeadBlob(ctx context.Context, hash string) (Blob, error) {
+	if !ValidHash(hash) {
+		return Blob{}, ErrNotFound
+	}
 	var b Blob
 	var at string
 	err := s.db.Reader().QueryRowContext(ctx, `SELECT hash,size,mime,source_ref,created_at FROM blobs WHERE hash=?`, hash).
@@ -132,7 +157,11 @@ func (s *Storage) OpenBlob(ctx context.Context, hash string) ([]byte, Blob, erro
 	if err != nil {
 		return nil, Blob{}, err
 	}
-	data, err := os.ReadFile(s.BlobPath(hash))
+	path, err := s.BlobPath(hash)
+	if err != nil {
+		return nil, Blob{}, err
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // path is the store's own, from a validated digest
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, Blob{}, ErrNotFound
 	}

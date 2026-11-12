@@ -56,7 +56,7 @@ func TestPutDedupsAndVerifies(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Corrupt the blob on disk: reads must refuse it.
-	p := s.BlobPath(a.Hash)
+	p, _ := s.BlobPath(a.Hash)
 	_ = os.Chmod(p, 0o600)
 	if err := os.WriteFile(p, []byte("tampered"), 0o600); err != nil {
 		t.Fatal(err)
@@ -201,6 +201,28 @@ func TestTwoHandlesOneFile(t *testing.T) {
 	for _, n := range hist {
 		if _, _, err := b.OpenBlob(ctx, n.Hash); err != nil {
 			t.Fatalf("rev %d: %v", n.Rev, err)
+		}
+	}
+}
+
+// A value that is not a digest never reaches the file system: no panic, no path outside the tree.
+func TestBlobHashIsValidatedAtTheBoundary(t *testing.T) {
+	s := openAt(t, filepath.Join(t.TempDir(), "caster.db"))
+	good := strings.Repeat("ab", 32)
+	if p, err := s.BlobPath(good); err != nil || !strings.HasPrefix(p, s.root) {
+		t.Fatalf("a digest must have a path under the tree: %q %v", p, err)
+	}
+	for _, bad := range []string{"", "a", "ab", strings.Repeat("a", 63), strings.Repeat("a", 65),
+		strings.Repeat("AB", 32), strings.Repeat("g", 64), "../../etc/passwd", "../" + strings.Repeat("a", 61),
+		strings.Repeat("a", 2) + "/" + strings.Repeat("b", 61), strings.Repeat("a", 63) + "\x00"} {
+		if p, err := s.BlobPath(bad); !errors.Is(err, ErrNotFound) || p != "" {
+			t.Fatalf("BlobPath(%q) = %q, %v: want ErrNotFound", bad, p, err)
+		}
+		if _, err := s.HeadBlob(ctx, bad); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("HeadBlob(%q): %v", bad, err)
+		}
+		if _, _, err := s.OpenBlob(ctx, bad); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("OpenBlob(%q): %v", bad, err)
 		}
 	}
 }

@@ -8,7 +8,8 @@
 -- identity_* tables. The two legacy_* tables hold the old pairing records as history only: the
 -- hashes are no credential any code accepts, and nothing reads them but `caster migrate`.
 --
--- Until the first release this is the ONLY migration: a schema change edits this file.
+-- Until the cutover (the first migrated instance) this is the ONLY migration: a schema change edits this
+-- file. After the cutover the file is frozen and every change is a new migration.
 
 -- +goose Up
 
