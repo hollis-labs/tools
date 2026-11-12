@@ -6,21 +6,21 @@ import (
 	"strconv"
 
 	"github.com/hollis-labs/tools/caster/internal/ref"
-	"github.com/hollis-labs/tools/caster/internal/store"
+	"github.com/hollis-labs/tools/caster/internal/storage"
 )
 
 // Local resolves cas:// and caster:// refs from the local store.
-type Local struct{ Store *store.Store }
+type Local struct{ Store *storage.Storage }
 
 // Schemes implements Resolver.
 func (Local) Schemes() []string { return []string{ref.SchemeCAS, ref.SchemeCaster} }
 
-func (l Local) target(r ref.Ref) (hash, title string, rev int, found bool, err error) {
+func (l Local) target(ctx context.Context, r ref.Ref) (hash, title string, rev int, found bool, err error) {
 	if r.Scheme == ref.SchemeCAS {
 		return r.Path, "", 0, true, nil
 	}
-	n, err := l.Store.Lookup(r.Auth, r.Path, r.Rev)
-	if errors.Is(err, store.ErrNotFound) {
+	n, err := l.Store.Lookup(ctx, r.Auth, r.Path, r.Rev)
+	if errors.Is(err, storage.ErrNotFound) {
 		return "", "", 0, false, nil
 	}
 	if err != nil {
@@ -30,14 +30,14 @@ func (l Local) target(r ref.Ref) (hash, title string, rev int, found bool, err e
 }
 
 // Resolve implements Resolver.
-func (l Local) Resolve(_ context.Context, r ref.Ref) (Meta, error) {
+func (l Local) Resolve(ctx context.Context, r ref.Ref) (Meta, error) {
 	m := Meta{Ref: r, State: StateNotFound}
-	hash, title, rev, ok, err := l.target(r)
+	hash, title, rev, ok, err := l.target(ctx, r)
 	if err != nil || !ok {
 		return m, err
 	}
-	b, err := l.Store.HeadBlob(hash)
-	if errors.Is(err, store.ErrNotFound) {
+	b, err := l.Store.HeadBlob(ctx, hash)
+	if errors.Is(err, storage.ErrNotFound) {
 		return m, nil
 	}
 	if err != nil {
@@ -56,8 +56,8 @@ func (l Local) Materialize(ctx context.Context, r ref.Ref) (Content, error) {
 	if err != nil || m.State != StateResolved {
 		return Content{Meta: m}, err
 	}
-	data, _, err := l.Store.OpenBlob(m.ContentHash)
-	if errors.Is(err, store.ErrNotFound) {
+	data, _, err := l.Store.OpenBlob(ctx, m.ContentHash)
+	if errors.Is(err, storage.ErrNotFound) {
 		m.State = StateNotFound
 		return Content{Meta: m}, nil
 	}

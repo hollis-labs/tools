@@ -9,7 +9,7 @@ import (
 
 	"github.com/hollis-labs/tools/caster/internal/ref"
 	"github.com/hollis-labs/tools/caster/internal/resolver"
-	"github.com/hollis-labs/tools/caster/internal/store"
+	"github.com/hollis-labs/tools/caster/internal/storage"
 )
 
 // Shadow limits.
@@ -36,7 +36,7 @@ const ModeShadow = "shadow"
 // card/quiet policy as a dry run, and records the outcome. It exists to measure
 // false positives before any card is enabled. Message text is never stored.
 type Shadow struct {
-	store *store.Store
+	store *storage.Storage
 	refs  *Refs
 }
 
@@ -68,17 +68,17 @@ func (s *Shadow) Observe(ctx context.Context, req ObserveRequest) (ObserveResult
 	sum := sha256.Sum256([]byte(req.Text))
 	hash := hex.EncodeToString(sum[:])
 	out := ObserveResult{Mode: ModeShadow}
-	if o, err := s.store.FindObservation(hash, ref.Generation); err == nil {
+	if o, err := s.store.FindObservation(ctx, hash, ref.Generation); err == nil {
 		out.Cached, out.Candidates, out.Resolved, out.WouldShow = true, o.Candidates, o.Resolved, o.Shown
 		return out, nil
 	}
 	cands := ref.DetectAll(req.Text)
-	dets := make([]store.Detection, 0, len(cands))
+	dets := make([]storage.Detection, 0, len(cands))
 	memo := map[string]resolver.Meta{}
 	memoErr := map[string]error{}
 	resolves := 0
 	for _, c := range cands {
-		d := store.Detection{Extractor: c.Extractor, Confidence: c.Confidence, Ref: c.Ref.String(), Scheme: c.Ref.Scheme}
+		d := storage.Detection{Extractor: c.Extractor, Confidence: c.Confidence, Ref: c.Ref.String(), Scheme: c.Ref.Scheme}
 		key := d.Ref
 		m, seen := memo[key]
 		err := memoErr[key]
@@ -104,7 +104,7 @@ func (s *Shadow) Observe(ctx context.Context, req ObserveRequest) (ObserveResult
 		}
 		dets = append(dets, d)
 	}
-	o, err := s.store.RecordObservation(hash, ref.Generation, req.Source, dets)
+	o, err := s.store.RecordObservation(ctx, hash, ref.Generation, req.Source, dets)
 	if err != nil {
 		return ObserveResult{}, classify(err)
 	}
@@ -156,7 +156,7 @@ func (s *Shadow) Report(ctx context.Context, req ReportRequest) (ReportResult, e
 	if err := require(ctx, ScopeAdmin); err != nil {
 		return ReportResult{}, err
 	}
-	tot, stats, top, err := s.store.ShadowReport(req.Since, 20)
+	tot, stats, top, err := s.store.ShadowReport(ctx, req.Since, 20)
 	if err != nil {
 		return ReportResult{}, classify(err)
 	}
@@ -205,7 +205,7 @@ func (s *Shadow) Label(ctx context.Context, req LabelRequest) (LabelResult, erro
 	if err != nil {
 		return LabelResult{}, err
 	}
-	n, err := s.store.LabelRef(r.String(), req.Verdict)
+	n, err := s.store.LabelRef(ctx, r.String(), req.Verdict)
 	if err != nil {
 		return LabelResult{}, classify(err)
 	}

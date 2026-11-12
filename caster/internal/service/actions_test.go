@@ -2,13 +2,12 @@ package service
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/hollis-labs/tools/caster/internal/ref"
 	"github.com/hollis-labs/tools/caster/internal/resolver"
-	"github.com/hollis-labs/tools/caster/internal/store"
+	"github.com/hollis-labs/tools/caster/internal/storage/storagetest"
 )
 
 type fakeWriter struct {
@@ -29,11 +28,7 @@ func (f *fakeWriter) WriteWorkspace(_ context.Context, d resolver.WorkspaceDraft
 
 func newSvc(t *testing.T) (*Service, *fakeWriter) {
 	t.Helper()
-	st, err := store.Open(filepath.Join(t.TempDir(), "main.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := storagetest.Open(t)
 	w := &fakeWriter{}
 	return New(st, w), w
 }

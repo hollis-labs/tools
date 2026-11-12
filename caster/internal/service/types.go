@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/tools/caster/internal/resolver"
-	"github.com/hollis-labs/tools/caster/internal/store"
+	"github.com/hollis-labs/tools/caster/internal/storage"
 )
 
 // Resolution states. A missing or forbidden ref is an outcome carried in
@@ -54,7 +54,7 @@ func classify(err error) error {
 	switch {
 	case errors.As(err, &se):
 		return err
-	case errors.Is(err, store.ErrNotFound):
+	case errors.Is(err, storage.ErrNotFound):
 		return &Error{KindNotFound, err}
 	case errors.Is(err, resolver.ErrUnavailable):
 		return &Error{KindUnavailable, err}

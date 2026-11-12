@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/hollis-labs/tools/caster/internal/resolver"
-	"github.com/hollis-labs/tools/caster/internal/store"
+	"github.com/hollis-labs/tools/caster/internal/storage"
 )
 
 // WorkspaceWriter creates Tesseract workspace drafts. The Tesseract resolver
@@ -89,7 +89,7 @@ type ActResult struct {
 
 // Actions is the domain service for registered operations on refs.
 type Actions struct {
-	store  *store.Store
+	store  *storage.Storage
 	refs   *Refs
 	writer WorkspaceWriter
 }
@@ -194,7 +194,7 @@ func (a *Actions) saveHandoff(ctx context.Context, def ActionInfo, req ActReques
 		res.Plan = fmt.Sprintf("snapshot %s (%d bytes) into %s, then create a workspace draft in %s as agent %s, session %s", req.Ref, len(got.Data), res.Source, c.Namespace, c.AgentID, c.SessionID)
 		return res, nil
 	}
-	if prev, perr := a.store.LookupAction(res.Key); perr == nil {
+	if prev, perr := a.store.LookupAction(ctx, res.Key); perr == nil {
 		res.Status, res.Outcome = StatusReplayed, prev.Outcome
 		return res, nil
 	}
@@ -212,7 +212,7 @@ func (a *Actions) saveHandoff(ctx context.Context, def ActionInfo, req ActReques
 	if rec.Status == "replayed" {
 		res.Status = StatusReplayed
 	}
-	if _, err := a.store.RecordAction(store.ActionRecord{Key: res.Key, Action: def.ID, Source: res.Source, Outcome: res.Outcome}); err != nil {
+	if _, err := a.store.RecordAction(ctx, storage.ActionRecord{Key: res.Key, Action: def.ID, Source: res.Source, Outcome: res.Outcome}); err != nil {
 		return res, classify(err)
 	}
 	return res, nil

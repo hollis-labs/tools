@@ -19,7 +19,11 @@ says which slice it covers.
   `config.go` (data paths), `guard.go` (the legacy guard), `serve.go`.
 - `internal/settings`: the `caster:` config block. `internal/hostguard`: Host allow-list.
 - `internal/storage`: the database schema (one embedded goose migration), the blob tree and every
-  query. It replaces `internal/store`, which is deleted in S2 when the service layer moves over.
+  query; `storagetest.Open(t)` gives the tests a throwaway one. It replaces the old `internal/store`.
+- `internal/service`: the service layer (S2): notes, refs, actions, shadow mode, whoami. It is the
+  one place business rules and authorization live; the transports (HTTP in S3, CLI and MCP in S4)
+  only stamp the caller and call it. `internal/resolver` and `internal/ref` are unchanged apart from
+  taking the context into the local store.
 
 ## Persistence (S1)
 
@@ -54,3 +58,21 @@ on one file, each linking the same name 15 times in parallel: every link succeed
 consecutive, and every blob reads back. The identity signing key is created only when the database
 holds no users or keys, and its path is `identity.key_file` from the same config in every process;
 the offline bootstrap (S3) is what creates the owner, so a second process never creates a second key.
+
+## Authorization (S2)
+
+Scopes stay `caster.read`, `caster.resolve`, `caster.write`, `caster.act`, `caster.observe` and
+`caster.admin`, held by identity-module API keys and checked in the service layer from the verified
+principal in the context (`caster.*` and `*` match all). `service.LocalScopes` is the principal of a
+local stdio process or CLI command run without a key: read, resolve, write, observe. It never holds
+`caster.admin` or `caster.act`, because local trust is the trust of anyone who can run the binary as
+that user, agents included; `TestLocalScopesNeverHoldAdminOrAct` holds it to that. Pairing (grants,
+`cst_` device tokens, renewal, device listing and revocation) is removed: identity keys replace it.
+The old tables survive only as `legacy_devices` and `legacy_grants` history.
+
+## Removed until their slice
+
+The old transports (`internal/api`, `internal/cli`, `internal/client`, `internal/mcp`) were not
+reachable after S0 (the old `serve` is gone) and depended on the pairing code, so S2 deletes them;
+S3 re-ports the HTTP API and the browser UI, S4 the CLI, the remote client and the MCP server, from
+the reference clone, with their tests.
