@@ -99,7 +99,7 @@ func (c *caster) serve(ctx context.Context) error {
 	// Outermost first: the Host check (DNS rebinding) and forwarding-header hygiene, the page's
 	// security headers, then the session cookie becomes the bearer the guard verifies, then the
 	// host (guard, routes, UI).
-	handler = hostguard.Handler(cfg.AllowedHosts, webui.Headers(id.Middleware(handler)))
+	handler = hostguard.Handler(cfg.AllowedHosts, webui.Headers(api.NotFound(id.Middleware(handler))))
 	return httphost.Serve(ctx, c.app, handler, httphost.ServeOptions{
 		Ready: func(addr net.Addr) {
 			slog.Info("caster listening", "addr", addr.String())

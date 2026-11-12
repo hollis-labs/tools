@@ -23,7 +23,7 @@ CLI and MCP arrive with the slices that change them.
 | bearer `cst_` device token, operator token file, optional Tether JWT (`CASTER_TETHER_URL`) | identity API key or session cookie; a Tether-issued JWT is `auth.jwks_url` + `auth.audience: caster` in the config file (off by default, as before) |
 | error body `{"error":{"code","message"}}` | flat `{"code","message"}`; a missing or denied ref is still a 404/403 outcome with its `Meta` body |
 | browser: paste a pairing code | sign in with a username and password |
-| unknown paths under `/` | the UI's `index.html` (the host serves the SPA for any path outside `/api/`, `/healthz`), so an old `/v1/...` URL answers 200 HTML, never data |
+| unknown paths under `/` | the UI page for a path outside `/api` and `/healthz` (the host's single-page fallback); `/v1`, `/v1/...`, `/api` and an `/api/` path with no route are 404 `{"code":"not_found"}`, never the page (`api.NotFound`, tested on the real binary) |
 
 ## Environment and paths (so far)
 

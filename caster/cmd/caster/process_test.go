@@ -124,6 +124,19 @@ func TestRealBinary(t *testing.T) {
 	if c, b := call("GET", "/api/report", bearer, ""); c != 403 {
 		t.Fatalf("a key without caster.admin must be refused: %d %s", c, b)
 	}
+	// Paths that are not routes are 404 JSON, never the UI page: the removed /v1 prefix with or
+	// without a credential, and an /api path with no route.
+	for _, tc := range []struct {
+		path string
+		hdr  map[string]string
+	}{{"/v1/list", nil}, {"/v1/list", bearer}, {"/v1", nil}, {"/api", bearer}, {"/api/nothing", bearer}} {
+		if c, b := call("GET", tc.path, tc.hdr, ""); c != 404 || !strings.Contains(b, `"code":"not_found"`) || strings.Contains(b, "<html") {
+			t.Fatalf("GET %s must be 404 JSON: %d %s", tc.path, c, b)
+		}
+	}
+	if c, b := call("GET", "/", nil, ""); c != 200 || !strings.Contains(b, "<html") {
+		t.Fatalf("the UI shell must still be served at /: %d", c)
+	}
 	if c, b := call("GET", "/api/search?q=%22bad", bearer, ""); c != 400 || !strings.Contains(b, `"code":"invalid"`) {
 		t.Fatalf("a malformed query is a 400: %d %s", c, b)
 	}
