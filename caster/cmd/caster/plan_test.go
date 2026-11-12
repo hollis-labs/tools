@@ -30,6 +30,17 @@ func TestPlan(t *testing.T) {
 		{[]string{"health"}, kindReadOnly},
 		{[]string{"completion", "bash"}, kindReadOnly},
 		{[]string{"bogus"}, kindReadOnly},
+		{[]string{"put", "-m", "text/plain", "-"}, kindData},
+		{[]string{"get", "cas://sha256/00"}, kindData},
+		{[]string{"shadow", "report"}, kindData},
+		{[]string{"--bogus", "put"}, kindReadOnly},
+		{[]string{"put", "--help"}, kindReadOnly},
+		{[]string{"mcp"}, kindMCP},
+		{[]string{"mcp", "--help"}, kindReadOnly},
+		{[]string{"login", "http://x", "pair_y"}, kindClient},
+		{[]string{"logout"}, kindClient},
+		{[]string{"remote"}, kindClient},
+		{[]string{"paths"}, kindClient},
 		{[]string{"identity", "setup", "--username", "owner"}, kindIdentity},
 		{[]string{"identity", "key", "create", "--name", "x"}, kindIdentity},
 		{[]string{"identity", "--help"}, kindReadOnly},
@@ -40,7 +51,17 @@ func TestPlan(t *testing.T) {
 		if kind != tc.kind {
 			t.Errorf("plan(%v) kind = %d, want %d", tc.args, kind, tc.kind)
 		}
-		if kind == kindReadOnly {
+		// The commands that open no file: no module that opens or creates one. A data command or
+		// `mcp` may open the store (the local database) but never starts identity, so it can never
+		// create the signing key; nothing but serve starts the listener.
+		if kind == kindData || kind == kindMCP {
+			for _, m := range []string{"identity", "auth", "httphost"} {
+				if slices.Contains(mods, m) {
+					t.Errorf("plan(%v) starts %s", tc.args, m)
+				}
+			}
+		}
+		if kind == kindReadOnly || kind == kindClient {
 			for _, m := range []string{"database", "secrets", "identity", "auth", "httphost", "mcp"} {
 				if slices.Contains(mods, m) {
 					t.Errorf("plan(%v) starts %s, a module that opens or creates files", tc.args, m)
