@@ -278,7 +278,9 @@ func (w *walker) opaque(st *syntax.Stmt, op, via, why string) {
 // word reports a word's static text, or its source and dynamic=true.
 func (w *walker) word(wd *syntax.Word) (text string, dynamic bool) {
 	if isStatic(wd) {
-		s, err := expand.Literal(nil, wd)
+		// A fresh config per call: Literal(nil, ...) fills in a package-level default in place, which races when two
+		// requests parse at once.
+		s, err := expand.Literal(&expand.Config{}, wd)
 		if err == nil {
 			return s, false
 		}
