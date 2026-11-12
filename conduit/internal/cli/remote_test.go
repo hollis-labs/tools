@@ -16,12 +16,13 @@ type fakeServer struct {
 	*httptest.Server
 	calls    atomic.Int32
 	password string
+	command  string
 	acted    []string
 }
 
 func newFake(t *testing.T) *fakeServer {
 	t.Helper()
-	f := &fakeServer{}
+	f := &fakeServer{command: "rm -rf /tmp/x"}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
 		f.calls.Add(1)
@@ -46,7 +47,10 @@ func newFake(t *testing.T) *fakeServer {
 		}
 	}
 	mux.HandleFunc("GET /api/approvals", authed(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"pending":[{"id":"run_abcdef12","command":"rm -rf /tmp/x","effect":"write"},{"id":"run_zzzzzz99","command":"ls"}]}`))
+		b, _ := json.Marshal(map[string]any{"pending": []map[string]any{
+			{"id": "run_abcdef12", "command": f.command, "cwd": "/work/dir", "effect": "write", "principal": "key:agent"},
+			{"id": "run_zzzzzz99", "command": "ls", "cwd": "/work/dir", "effect": "read", "principal": "key:agent"}}})
+		_, _ = w.Write(b)
 	}))
 	mux.HandleFunc("POST /api/runs/{id}/{verb}", authed(func(w http.ResponseWriter, r *http.Request) {
 		f.acted = append(f.acted, r.PathValue("verb")+" "+r.PathValue("id"))
@@ -66,12 +70,16 @@ func runRemote(t *testing.T, in *os.File, args ...string) (int, string, string) 
 	return code, out.String(), errb.String()
 }
 
+// confirmation is what the person types at the approve prompt.
+var confirmation = "yes"
+
 func withTerminal(t *testing.T, pw string) *os.File {
 	t.Helper()
-	oldTTY, oldRead := isTTY, readPassword
+	oldTTY, oldRead, oldLine := isTTY, readPassword, readLine
 	isTTY = func(*os.File) bool { return true }
 	readPassword = func(*os.File) ([]byte, error) { return []byte(pw), nil }
-	t.Cleanup(func() { isTTY, readPassword = oldTTY, oldRead })
+	readLine = func(*os.File) (string, error) { return confirmation, nil }
+	t.Cleanup(func() { isTTY, readPassword, readLine = oldTTY, oldRead, oldLine })
 	return os.Stdin
 }
 
@@ -141,5 +149,45 @@ func TestServerURLRefusesPlainHTTPBeyondLoopback(t *testing.T) {
 		if _, err := serverURL(u); err != nil {
 			t.Errorf("%s: %v", u, err)
 		}
+	}
+}
+
+// The person sees the whole command before approving: no truncation, control characters made visible, with the
+// working directory, the effect and who submitted it.
+func TestApproveShowsTheWholeCommandBeforeAsking(t *testing.T) {
+	f := newFake(t)
+	f.command = "echo " + strings.Repeat("a", 600) + "\nsecond line \x1b[31mred"
+	in := withTerminal(t, "right horse battery")
+	_, _, stderr := runRemote(t, in, "approve", "--server", f.URL, "--user", "owner", "abcdef12")
+	if !strings.Contains(stderr, strings.Repeat("a", 600)) {
+		t.Error("a long command was cut")
+	}
+	for _, want := range []string{"second line", "/work/dir", "write", "key:agent", "Type yes"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("missing %q in:\n%s", want, stderr)
+		}
+	}
+	if strings.Contains(stderr, "\x1b") {
+		t.Error("a control character was written to the terminal as is")
+	}
+}
+
+// Anything but yes sends nothing; reject needs no confirmation.
+func TestApproveNeedsTypedYesAndRejectDoesNot(t *testing.T) {
+	for _, answer := range []string{"", "y", "no", "YES please", "yes!"} {
+		f := newFake(t)
+		confirmation = answer
+		in := withTerminal(t, "right horse battery")
+		code, _, stderr := runRemote(t, in, "approve", "--server", f.URL, "--user", "owner", "abcdef12")
+		if code == ExitOK || len(f.acted) != 0 || !strings.Contains(stderr, "nothing was sent") {
+			t.Errorf("answer %q: code %d acted %v", answer, code, f.acted)
+		}
+	}
+	confirmation = "no"
+	defer func() { confirmation = "yes" }()
+	f := newFake(t)
+	in := withTerminal(t, "right horse battery")
+	if code, _, _ := runRemote(t, in, "reject", "--server", f.URL, "--user", "owner", "abcdef12"); code != ExitOK || len(f.acted) != 1 {
+		t.Errorf("reject asked for confirmation: code %d acted %v", code, f.acted)
 	}
 }

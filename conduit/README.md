@@ -49,7 +49,7 @@ conduit approve --server http://127.0.0.1:7421 --user NAME <run>   # sign in as 
 ```
 
 Approving is a signed-in person's act and nothing else's: `conduit approve` and `conduit reject` read the password from the
-terminal only (they refuse when stdin is not a terminal), hold the session in memory for the one request and store nothing.
+terminal only (they refuse when stdin is not a terminal), show the whole command, its directory, effect and submitter and ask for a typed `yes` before approving, hold the session in memory for the one request and store nothing.
 There is no `-yes`, no `-shadow` and no local approval path.
 
 ## First start

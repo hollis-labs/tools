@@ -27,6 +27,23 @@ import (
 var (
 	isTTY        = func(f *os.File) bool { fd := f.Fd(); return fd <= math.MaxInt && term.IsTerminal(int(fd)) }
 	readPassword = func(f *os.File) ([]byte, error) { return term.ReadPassword(int(f.Fd())) }
+	// readLine reads one line from the terminal a byte at a time, so nothing beyond the line is consumed.
+	readLine = func(f *os.File) (string, error) {
+		var line []byte
+		one := make([]byte, 1)
+		for {
+			n, err := f.Read(one)
+			if n == 1 {
+				if one[0] == '\n' {
+					return strings.TrimRight(string(line), "\r"), nil
+				}
+				line = append(line, one[0])
+			}
+			if err != nil {
+				return string(line), err
+			}
+		}
+	}
 )
 
 func (c *cmd) remote(verb string, args []string) int {
@@ -93,29 +110,44 @@ func (c *cmd) remote(verb string, args []string) int {
 
 	var list struct {
 		Pending []struct {
-			ID      string `json:"id"`
-			Command string `json:"command"`
-			Effect  string `json:"effect"`
+			ID        string `json:"id"`
+			Command   string `json:"command"`
+			Cwd       string `json:"cwd"`
+			Effect    string `json:"effect"`
+			Principal string `json:"principal"`
+			Verdict   string `json:"verdict"`
 		} `json:"pending"`
 	}
 	if st, msg := call("GET", "/api/approvals", nil, &list); st != http.StatusOK {
 		return c.fail("list approvals: %s", failText(st, msg))
 	}
 	want := fs.Arg(0)
-	var id, command string
+	var id string
+	var shown struct{ command, cwd, effect, principal string }
 	for _, p := range list.Pending {
 		if p.ID == want || strings.HasPrefix(p.ID, want) || strings.HasSuffix(p.ID, want) {
 			if id != "" {
 				return c.fail("%q matches more than one pending run", want)
 			}
-			id, command = p.ID, p.Command
+			id = p.ID
+			shown.command, shown.cwd, shown.effect, shown.principal = p.Command, p.Cwd, p.Effect, p.Principal
 		}
 	}
 	if id == "" {
 		fmt.Fprintf(c.err, "conduit: no pending run matches %q\n", want)
 		return ExitNotFound
 	}
-	fmt.Fprintf(c.err, "%s %s: %s\n", verb, id, oneLineSafe(command, 200))
+	// What the submitter wrote is shown whole, with control characters made visible: the person decides on this text.
+	fmt.Fprintf(c.err, "\nrun      %s\nfrom     %s\neffect   %s\ncwd      %s\ncommand\n  │ %s\n\n",
+		id, visible(shown.principal), visible(shown.effect), visible(shown.cwd), block(shown.command, "  "))
+	if verb == "approve" {
+		fmt.Fprint(c.err, "Type yes to approve this command: ")
+		answer, err := readLine(c.in)
+		if err != nil && answer == "" || strings.TrimSpace(answer) != "yes" {
+			fmt.Fprintln(c.err, "\nconduit: not approved; nothing was sent")
+			return ExitDenied
+		}
+	}
 	var res struct {
 		State string `json:"state"`
 	}

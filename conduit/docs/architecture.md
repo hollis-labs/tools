@@ -36,7 +36,7 @@ get API keys (`conduit identity key create`), and people sign in with a session.
 The auth guard runs in `enforce` mode: every `/api` route and every MCP tool maps to a scope (`conduit.read`,
 `conduit.read.all`, `conduit.run`, `conduit.approve`, `conduit.admin`), and a route with no mapping is refused. Approving or
 rejecting a run is stricter than a scope: the HTTP layer marks the request context as a person only for a verified principal
-of kind `user`, and the service refuses `Approve` and `Reject` on any other context, on a retired (legacy) run, and when the
+of kind `user` that arrived through a password session (a session id and no token id: a token a person minted from the session is a stored file and is not a person), and the service refuses `Approve` and `Reject` on any other context, on a retired (legacy) run, and when the
 approver is the submitter. An API key with `conduit.approve` therefore still cannot approve.
 
 ## A run

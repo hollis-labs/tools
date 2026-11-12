@@ -16,13 +16,15 @@ Read this section first. Everything else is how it is done.
 1. **The terminal prompt.** `conduit approve <run>` no longer opens `/dev/tty`, shows the command and asks. A process that can
    run the binary and open the data file is not a person, and agents run on the same host.
 2. **`-yes`.** `conduit run -yes` no longer approves its own run.
-3. **`-shadow`.** The mode that records what would have run and runs nothing is removed.
+3. **`-shadow`.** The mode that recorded the verdict but did not require approval, so an Ask ran without one (Deny still blocked), is removed.
 4. **Local `reject` and `token`.** `conduit reject` as a local command and `conduit token create|list|revoke` are removed.
    Keys are the identity module's: `conduit identity key create --name N --scope S --out FILE`.
 
 What replaces them: `conduit approve --server URL --user NAME <run>` and `conduit reject ...`. You sign in as yourself, the
 password is typed at the terminal (refused when stdin is not a terminal; there is no flag, environment variable or file for
-it), the session lives in memory for that one request and is signed out again. Nothing is stored. A page for approvals is a
+it), the session lives in memory for that one request and is signed out again. Nothing is stored. Before anything is sent it shows the **whole** command (control characters made visible, never cut), the working directory, the effect and who submitted it, and asks you to type `yes`; anything else sends nothing. Reject asks for nothing.
+
+**You set up your own sign-in.** You run `conduit identity setup` yourself at a terminal (step 6.5). Nobody generates your password and it is never written to a file, unlike the other apps: here a person's sign-in is the approval gate, and agents run as the same user as you. A token minted from your session is not a person either: it is a stored file, so it cannot approve. A page for approvals is a
 later task.
 
 **Also different:**
@@ -62,6 +64,7 @@ later task.
   old layout, which the new binary refuses; it is not used. The unit's drop-in sets `CONDUIT_DATA_DIR`.
 - **No open setup window, ever.** `POST /api/setup` is refused (403). The owner and the first keys are created offline
   **before the service starts**; the first check after start is that `GET /api/setup` answers `{"setup_required":false}`.
+- **The limit of approval.** A process running as the service's user can still write the database file directly. Approval protects against callers of the API and of the tools, not against that.
 - **Never print a secret.** Keys are written to mode-600 files with `--out`, never to a terminal or a log; passwords are
   typed at a prompt.
 - **The installer comes last.** `fleet-install deploy` restarts the unit, and the new `serve` refuses a data directory that
@@ -128,7 +131,7 @@ OLD=$HOME/.local/share/conduit
 4. **`migrate-legacy`**: `$NEWBIN migrate-legacy --from <the backup copy> --blobs-from $OLD/blobs`. Expect `runs 2`,
    `attempts 2`, `panics 0`, `retired_tokens 1`, `blobs copied 1` (the counts of the day; the figure at the cutover is
    whatever the backup holds), `0 mismatches` and exit 0. It creates the data directory. A second run is refused.
-5. **Identity, offline**: `$NEWBIN identity setup --username <owner>` (the password is typed twice, not echoed), then for each
+5. **Identity, offline**: the owner runs `$NEWBIN identity setup --username <owner>` **himself, at a terminal** (the password is typed twice, not echoed; nobody else generates it and it is never written to a file or passed on), then for each
    caller of section 12 `$NEWBIN identity key create --name <caller> --scope <scopes> --out <new file in the caller's
    config directory>`. The key is in the file and nowhere else.
 6. **Install**, last: `fleet-install deploy conduit --commit <sha12>`. Its preflight backs up the migrated `conduit.db`; it
@@ -170,8 +173,9 @@ One name forwards to `127.0.0.1:7421` today with no `Host` rewrite. After:
 - **`/mcp` behind the name is refused by the MCP library's localhost protection unless the proxy rewrites `Host`** to the
   loopback address (the framework request is open: Gap 4 in the conversion notes). The other way to serve the name is to
   list it in `conduit.allowed_hosts`: then it is admitted only from a loopback peer that sends exactly one
-  `X-Forwarded-Proto: https`, and every other forwarding header is dropped. Which of the two is used is the owner's choice;
+  `X-Forwarded-Proto: https`, and every other forwarding header is dropped. Which of the three is used is the owner's choice;
   the plan lists the name in `allowed_hosts` and asks the proxy to send `X-Forwarded-Proto https` and nothing else.
+- **A third choice: remove the proxy name.** No caller was found, so the name can simply go; the proxy edit is the owner's either way.
 - The proxy keeps terminating TLS; the backend never sees a non-loopback address.
 - Nothing else about the route changes.
 
@@ -210,7 +214,7 @@ build misbehaves after it:
 | Caller | Before | After |
 |---|---|---|
 | The owner, by hand | the CLI on the host, `approve` on a terminal | `conduit approve --server http://127.0.0.1:7421 --user <owner> <run>`, password typed |
-| The operator client token file under `~/.config/conduit` | an old `exec.approve` token | retired (the hash answers 401); delete the file after the cutover. If a client still used it, mint a new key with `conduit.approve`, which still cannot approve: a person does |
+| The operator client token file under `~/.config/conduit` | an old token with scopes run and read-own (not approve); it submitted both migrated runs | retired (the hash answers 401); delete the file after the cutover. If a client still used it, mint a key with `conduit.run` and `conduit.read` |
 | An agent via `/mcp` or the API | none found | a key per agent, scopes `conduit.run`, `conduit.read` (and `conduit.read.all` only where it must see others' runs) |
 | An agent launched locally with `conduit mcp` | none found | unchanged in use: read and run only, and it cannot approve |
 | The reverse proxy name | forwards without rewriting `Host` | section 9 |
@@ -218,8 +222,7 @@ build misbehaves after it:
 | Cerberus | the descriptor of section 8 | updated |
 | Scripts | none found | none |
 
-The survey found no caller; the producers (who submitted runs) can be read from the `principal` column of the migrated `runs`
-table before keys are minted: `sqlite3 -readonly <copy> 'select principal, count(*) from runs group by 1'`.
+The survey found no live caller. The producers, read from the rehearsal copy with `select principal, count(*) from runs group by 1`: one principal, the operator token above, 2 runs, nothing else. Run the same query on the fresh backup before keys are minted.
 
 ## 13. Left in place, downtime, approval
 

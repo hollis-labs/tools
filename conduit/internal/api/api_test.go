@@ -31,15 +31,16 @@ var noKeepAlive = &http.Client{Transport: &http.Transport{DisableKeepAlives: tru
 // where the identity module and the auth guard stand in the server: it verifies the caller and refuses a route whose
 // scope the caller lacks (the table is the one RegisterScopes fills). The real guard is exercised by the binary test.
 var callers = map[string]libauth.Principal{
-	"agent":    {Verified: true, ID: "key:agent", Kind: "service", Scopes: []string{service.ScopeRun, service.ScopeRead}},
-	"oper":     {Verified: true, ID: "user:oper", Kind: "user", Scopes: []string{service.ScopeApprove, service.ScopeRead}},
-	"keyoper":  {Verified: true, ID: "key:keyoper", Kind: "service", Scopes: []string{service.ScopeApprove, service.ScopeRead}},
-	"reader":   {Verified: true, ID: "key:reader", Kind: "service", Scopes: []string{service.ScopeRead, service.ScopeReadAll}},
-	"own":      {Verified: true, ID: "key:own", Kind: "service", Scopes: []string{service.ScopeRead}},
-	"runner":   {Verified: true, ID: "key:runner", Kind: "service", Scopes: []string{service.ScopeRun, service.ScopeRead}},
-	"other":    {Verified: true, ID: "key:other", Kind: "service", Scopes: []string{service.ScopeRun, service.ScopeRead}},
-	"admin":    {Verified: true, ID: "key:root", Kind: "service", Scopes: []string{service.ScopeAdmin, service.ScopeRun, service.ScopeRead}},
-	"selfboth": {Verified: true, ID: "user:both", Kind: "user", Scopes: []string{service.ScopeRun, service.ScopeApprove, service.ScopeRead}},
+	"agent":     {Verified: true, ID: "key:agent", Kind: "service", Scopes: []string{service.ScopeRun, service.ScopeRead}},
+	"oper":      {Verified: true, ID: "user:oper", Kind: "user", SessionID: "ss_oper", Scopes: []string{service.ScopeApprove, service.ScopeRead}},
+	"keyoper":   {Verified: true, ID: "key:keyoper", Kind: "service", Scopes: []string{service.ScopeApprove, service.ScopeRead}},
+	"reader":    {Verified: true, ID: "key:reader", Kind: "service", Scopes: []string{service.ScopeRead, service.ScopeReadAll}},
+	"own":       {Verified: true, ID: "key:own", Kind: "service", Scopes: []string{service.ScopeRead}},
+	"runner":    {Verified: true, ID: "key:runner", Kind: "service", Scopes: []string{service.ScopeRun, service.ScopeRead}},
+	"other":     {Verified: true, ID: "key:other", Kind: "service", Scopes: []string{service.ScopeRun, service.ScopeRead}},
+	"admin":     {Verified: true, ID: "key:root", Kind: "service", Scopes: []string{service.ScopeAdmin, service.ScopeRun, service.ScopeRead}},
+	"usertoken": {Verified: true, ID: "user:oper", Kind: "user", SessionID: "ss_oper", TokenID: "tok_minted", Scopes: []string{service.ScopeApprove, service.ScopeRead}},
+	"selfboth":  {Verified: true, ID: "user:both", Kind: "user", SessionID: "ss_both", Scopes: []string{service.ScopeRun, service.ScopeApprove, service.ScopeRead}},
 }
 
 func testIdentity(table *libauth.ScopeTable, next http.Handler) http.Handler {
@@ -226,6 +227,25 @@ func TestAPIKeyWithApproveScopeCannotApprove(t *testing.T) {
 	}
 	if _, r := e.do("GET", "/api/runs/"+id, "reader", nil); r["state"] != "pending" {
 		t.Errorf("run left pending: %v", r["state"])
+	}
+}
+
+// A token a person minted from a session is a stored credential: an agent that can read the file holds it. It is not a
+// person, whatever scopes it carries.
+func TestUserTokenWithApproveScopeIsRefused(t *testing.T) {
+	e := setup(t)
+	_, m := e.do("POST", "/api/exec", "agent", map[string]any{"command": "touch " + filepath.Join(e.root, "x")})
+	id := m["id"].(string)
+	for _, what := range []string{"approve", "reject"} {
+		if code, r := e.do("POST", "/api/runs/"+id+"/"+what, "usertoken", nil); code != 403 || errCode(r) != "not_a_person" {
+			t.Errorf("%s by a user token: %d %v", what, code, r)
+		}
+	}
+	if _, r := e.do("GET", "/api/runs/"+id, "reader", nil); r["state"] != "pending" {
+		t.Errorf("run left pending: %v", r["state"])
+	}
+	if code, _ := e.do("POST", "/api/runs/"+id+"/approve", "oper", nil); code != 200 {
+		t.Errorf("the session itself must still approve: %d", code)
 	}
 }
 

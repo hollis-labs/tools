@@ -126,6 +126,13 @@ func (s *Server) RegisterScopes(t *libauth.ScopeTable) {
 	}
 }
 
+// isPerson is true for a user who signed in with a password and is acting through that session. A token a person minted
+// from the session (it carries a token id, and a copy of the session id) is a file an agent running as the same user can
+// read, so it is not a person; nor is an API key.
+func isPerson(p libauth.Principal) bool {
+	return p.Kind == "user" && p.SessionID != "" && p.TokenID == ""
+}
+
 // wrap reads the principal the guard verified, rate limits per principal and marks the context.
 func (s *Server) wrap(h handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -140,7 +147,7 @@ func (s *Server) wrap(h handler) http.Handler {
 			return
 		}
 		ctx := service.As(r.Context(), p.ID)
-		if p.Kind == "user" {
+		if isPerson(p) {
 			ctx = service.AsPerson(r.Context(), p.ID)
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
