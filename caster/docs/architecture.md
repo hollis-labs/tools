@@ -17,6 +17,7 @@ says which slice it covers.
 
 - `cmd/caster`: `substrate.yaml` (manifest), the generated `substrate_wiring.go`, `main.go`,
   `config.go` (data paths), `guard.go` (the legacy guard), `serve.go`.
+- `internal/api`: the HTTP transport (S3), `internal/webui`: the embedded browser UI (S3).
 - `internal/settings`: the `caster:` config block. `internal/hostguard`: Host allow-list.
 - `internal/storage`: the database schema (one embedded goose migration), the blob tree and every
   query; `storagetest.Open(t)` gives the tests a throwaway one. It replaces the old `internal/store`.
@@ -70,9 +71,41 @@ that user, agents included; `TestLocalScopesNeverHoldAdminOrAct` holds it to tha
 `cst_` device tokens, renewal, device listing and revocation) is removed: identity keys replace it.
 The old tables survive only as `legacy_devices` and `legacy_grants` history.
 
+## HTTP, identity and the UI (S3)
+
+- Routes live under `/api/` and are listed once in `internal/api.Routes()`, which builds the guard's scope
+  table; `TestEveryRouteHasItsScope` fails for a route outside `/api/` or without a table entry, and
+  `TestRouteScopesMatchTheDocumentedTable` pins each scope. A request with no table entry is refused by
+  the guard in `enforce`.
+
+  | Route | Table scope | What the service then checks |
+  |---|---|---|
+  | `GET /api/list`, `/api/log`, `/api/search` | `caster.read` | read |
+  | `POST /api/put` | `caster.write` | write |
+  | `POST /api/act` | `caster.act` | act |
+  | `POST /api/observe` | `caster.observe` | observe |
+  | `GET /api/report`, `POST /api/label` | `caster.admin` | admin |
+  | `GET /api/get`, `/api/head`, `/api/actions`, `POST /api/snap`, `/api/scan`, `/api/expand`, `GET /api/whoami` | authentication only | `caster.read` for `cas://` and `caster://`, `caster.resolve` for `torque://` and `tesseract://` |
+
+  The ref routes ask the guard only for a verified caller because the scope depends on the ref's scheme,
+  which only the service can read. Authentication only is the empty scope in the table.
+- Identity is the module's: sign-in `POST /api/login` (session cookie, `X-Requested-With` and a same-origin
+  `Origin` on cookie writes), `POST /api/logout`, `/api/identity/*`, `/api/token`, `/api/pair`. The owner
+  and machine keys are created offline: `caster identity setup --username NAME` (password on stdin) and
+  `caster identity key create --name N --scope S,... --out FILE`. `GET /api/setup` reports
+  `setup_required`. There is no open setup form.
+- Errors are the framework's flat `{code, message}`. A ref that is not resolved is an outcome and keeps its
+  body: 404 `not_found` or 403 `denied` with the `Meta` object. A malformed full-text query is 400 `invalid`.
+- Every route is `public: false`: there is no open route and no open mount. `/healthz` and the UI shell are
+  the framework's and the page's.
+- The browser UI is the old static page, ported: three files and a favicon under `internal/webui/ui`, no build
+  step, served as the host's assets. It signs in with a username and password (`/api/login`) instead of
+  pasting a pairing code, and sends `X-Requested-With` on every call. A CSP and `nosniff` ride on every
+  response outside `/api/` and `/healthz`. The app-shell rebuild is a later task for the GUI track.
+- Host check (`internal/hostguard`): loopback names plus `caster.allowed_hosts`; a listed name is believed
+  only from a loopback peer carrying exactly one `X-Forwarded-Proto: https`.
+
 ## Removed until their slice
 
-The old transports (`internal/api`, `internal/cli`, `internal/client`, `internal/mcp`) were not
-reachable after S0 (the old `serve` is gone) and depended on the pairing code, so S2 deletes them;
-S3 re-ports the HTTP API and the browser UI, S4 the CLI, the remote client and the MCP server, from
-the reference clone, with their tests.
+The old CLI, remote client and MCP server (`internal/cli`, `internal/client`, `internal/mcp`) were deleted in
+S2; S4 re-ports them from the reference clone with their tests.

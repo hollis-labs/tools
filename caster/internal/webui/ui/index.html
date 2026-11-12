@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caster</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header>
+  <strong>caster</strong>
+  <input id="q" type="search" placeholder="Search notes…" autocomplete="off">
+  <button id="new">New</button>
+  <span id="who" class="muted"></span>
+  <button id="signout" hidden>Sign out</button>
+</header>
+<main>
+  <nav id="list" aria-label="Notes"></nav>
+  <section id="doc">
+    <p class="muted">Pick a note, or create one.</p>
+  </section>
+</main>
+
+<dialog id="signin">
+  <form method="dialog" id="signinform">
+    <h2>Sign in</h2>
+    <label>Username <input id="username" autocomplete="username" spellcheck="false"></label>
+    <label>Password <input id="password" type="password" autocomplete="current-password"></label>
+    <p id="signinerr" class="err" role="alert"></p>
+    <menu><button id="signingo" value="go">Sign in</button></menu>
+  </form>
+</dialog>
+<script src="/app.js"></script>
+</body>
+</html>

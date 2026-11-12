@@ -16,7 +16,7 @@
 # file beside it. If the app's own config lints tests, keep the `_test\.go$`
 # exclusion below or the count inflates.
 #
-# Placeholders (folio inputs): store package NAME `store`, handle type
+# Placeholders (folio inputs): storage package NAME `storage`, handle type
 # `Store`, transport dirs `^internal/(api|mcp|cli)/`.
 version: "2"
 
@@ -33,9 +33,9 @@ linters:
       forbid:
         # Rule A: store-handle method calls. Form is <package NAME>.<Type>.<Method>,
         # NOT the import path; a fully-qualified pattern matches nothing.
-        # Type-only use (store.Row, store.ErrX) is not flagged.
-        - pattern: '^store\.Store\.[A-Z].*$'
-          msg: "transport-boundary: call the service layer, not store methods"
+        # Type-only use (storage.Blob, storage.ErrX) is not flagged.
+        - pattern: '^storage\.Storage\.[A-Z].*$'
+          msg: "transport-boundary: call the service layer, not storage methods"
         # Rule C: raw SQL inside a transport. Delete it if the module has no database/sql.
         - pattern: '^sql\.(DB|Tx|Conn|Stmt)\.(Exec|Query|Prepare|Begin)[A-Za-z]*$'
           msg: "transport-boundary: no raw SQL in a transport"
@@ -44,8 +44,8 @@ linters:
     #     transports-not-store:
     #       files: ["**/internal/api/**", "**/internal/mcp/**", "!$test"]
     #       deny:
-    #         - pkg: "github.com/hollis-labs/tools/caster/internal/store"
-    #           desc: "transport-boundary: transports call the service layer, not the store package"
+    #         - pkg: "github.com/hollis-labs/tools/caster/internal/storage"
+    #           desc: "transport-boundary: transports call the service layer, not the storage package"
   exclusions:
     generated: lax
     rules:
