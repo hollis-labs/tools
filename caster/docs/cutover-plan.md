@@ -35,7 +35,9 @@ ls -la "$D"
 Require: `main.db` (and normally `main.db-wal`, `main.db-shm`), `blobs/`. Require that **none** of these exist:
 `caster.db`, `caster.db-wal`, `caster.db-shm`, `cas/`, `caster.db.migrating`, `cas.migrating`, `.migrate-scratch`,
 `migrate-report.json`. If one does, stop: an earlier attempt or a different build has been here; the plan does
-not guess. (`caster migrate` repeats this check and changes nothing when it fails.)
+not guess. (`caster migrate` repeats this check and changes nothing when it fails.) After a later bump of the
+Substrate pin, the framework also creates `<db>.open.lock` beside a SQLite database, so `caster.db.open.lock` and
+`caster.db.migrating.open.lock` are then expected files and are not a failure of this step.
 
 Also require that the descriptor has not been applied, `caster version` of the release binary prints the expected
 build, and the machine has enough free space for: the backup (about the size of `main.db`) plus the blob tree twice
@@ -64,7 +66,8 @@ build, and the machine has enough free space for: the backup (about the size of 
    `HOLLIS_AUTH` and `HOLLIS_AUTH_CASTER` are gone (`auth.mode` is `enforce` and is not to be changed).
 2. Put the release binary in place **beside** the running one (not over it), and check it prints help:
    `/path/to/new/caster` with no arguments prints help and starts nothing.
-3. Choose a backup directory on the same filesystem as the data directory: `B=<backup-dir>/caster-cutover`.
+3. Run the installer with `--dry-run` (step 7, command form there) and check that the unit name it reports matches.
+4. Choose a backup directory on the same filesystem as the data directory: `B=<backup-dir>/caster-cutover`.
 
 ## Step 2: online backup while the service runs
 
@@ -132,11 +135,14 @@ sha256sum "$D/main.db" "$B/b2/main.db"             # the old file is unchanged a
 ## Step 6: bootstrap identity, offline, with the new binary
 
 ```sh
-caster identity setup --username <owner>            # the password on stdin, never in the shell history
+caster identity setup --username <owner>            # prompts for the password at the terminal
 caster identity key create --name hub    --scope <the scopes the owner chose, below> --out <path>/hub.key
 caster identity key create --name agents --scope caster.read,caster.write,caster.resolve --out <path>/agents.key
 caster identity key create --name <each other caller in callers.md> ...
 ```
+
+**The owner types his account password himself at the terminal** (twice, not echoed). Nobody generates it for him
+and it is not written to any file; reading it from stdin is for automation only and is not used here.
 
 Key files are `0600`, outside every repository. Create the owner and the keys before the first start; the service
 refuses to create a signing key itself when the database holds identity rows, and `GET /api/setup` answers
@@ -152,9 +158,12 @@ tool refused by scope is reported as `denied`.
 
 ## Step 7: install, then start
 
-1. The owner installs the binary and the unit drop-in with `fleet-install deploy caster` (the descriptor is
-   `deploy.yaml`; its preflight backs up the migrated `caster.db`). The drop-in sets
-   `ExecStart=%h/.local/bin/caster serve` and `SUBSTRATE_CONFIG`.
+1. The driver (not the owner) installs the binary and the unit drop-in:
+   `fleet-install deploy caster --repo hollis-labs/tools --run <run id of the caster-build run on main> [--dry-run]`.
+   `--commit` alone cannot find a run in this repository (the default workflow name does not exist in tools), so
+   the run id is given. Before the window, in step 1 (prepare), run it with `--dry-run`: the unit name it reports
+   must match the unit in this plan and in `deploy.yaml`. The descriptor is `deploy.yaml`; its preflight backs up
+   the migrated `caster.db`. The drop-in sets `ExecStart=%h/.local/bin/caster serve` and `SUBSTRATE_CONFIG`.
 2. Start the unit by systemd (not a Cerberus apply). Check `GET /healthz` is `{"status":"ok",...}` and
    `GET /api/setup` is `{"setup_required":false,...}` on loopback.
 3. Check each way in, with the `Host` the caller presents (see callers.md): loopback, `<tailnet-host>` through
@@ -166,6 +175,12 @@ tool refused by scope is reported as `denied`.
    stored text blob; fetch one blob by `cas://`.
 
 ## Step 8: hand out credentials and repoint callers
+
+The device facts, without machine names (the labels are in the driver's note to the owner): ten paired devices,
+four with `caster.read caster.write caster.resolve`, four with `caster.read caster.resolve`, one with `caster.read`
+and one already revoked with `caster.read`. Five of them (the four read-write-resolve devices and the revoked one)
+expire on 2026-11-15 whatever happens; the four read-resolve devices expire on 2026-12-09 and the read-only one on
+2026-11-29. None holds `act`, `admin` or `observe`. All need a new credential, or none if the machine is retired.
 
 See callers.md for every caller. In short: the ten paired devices (labels in the owner's note) each need
 `caster login <url> <pairing-code>` with a code minted by an administrator (`POST /api/identity/pairing-codes`,

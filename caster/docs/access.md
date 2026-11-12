@@ -24,7 +24,7 @@ binary as that user, agents included). `act`, `shadow report` and `shadow label`
 **Credentials.**
 
 ```sh
-caster identity setup --username <owner>                    # password on stdin; once, offline
+caster identity setup --username <owner>                    # prompts for the password at the terminal; once, offline
 caster identity key create --name <n> --scope caster.read,caster.write --out <file>   # 0600 file, machine caller
 caster login <url> <pairing-code>                           # a machine joins a home node; the key goes to the secrets store
 ```
