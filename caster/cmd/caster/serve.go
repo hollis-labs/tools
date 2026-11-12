@@ -39,6 +39,8 @@ type caster struct {
 	in      io.Reader
 	out     io.Writer
 	errw    io.Writer
+	mig     *migration          // set for `caster migrate`
+	finish  func(ok bool) error // runs after the modules stop (migrate renames its staged files here)
 }
 
 func (c *caster) serveCmd(ctx context.Context) *cobra.Command {

@@ -41,6 +41,8 @@ func TestPlan(t *testing.T) {
 		{[]string{"logout"}, kindClient},
 		{[]string{"remote"}, kindClient},
 		{[]string{"paths"}, kindClient},
+		{[]string{"migrate"}, kindMigrate},
+		{[]string{"migrate", "--verify-only"}, kindMigrate},
 		{[]string{"identity", "setup", "--username", "owner"}, kindIdentity},
 		{[]string{"identity", "key", "create", "--name", "x"}, kindIdentity},
 		{[]string{"identity", "--help"}, kindReadOnly},

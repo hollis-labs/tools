@@ -133,3 +133,39 @@ The old tables survive only as `legacy_devices` and `legacy_grants` history.
 - One service process and any number of CLI or stdio processes share one SQLite file (WAL, one write
   connection per process); the signing key is created only by `serve` or `identity setup` and only when the
   database has no identity rows. `TestServiceAndCLIAreTwoProcessesOnOneStore` runs both against one directory.
+
+## `caster migrate` (S5)
+
+One way, once: `caster migrate [--from DIR] [--report FILE]` reads the pre-Substrate `main.db` and `blobs/` in
+`DIR` (default: the data directory this build resolves) and builds `caster.db` and `cas/` beside them. It is
+the only command that has no legacy guard, and it refuses a target that exists (`caster.db`, `-wal`, `-shm`
+or `cas/`), so a store is migrated once. It also refuses to run while something listens on the address this
+configuration serves (`httphost.addr`; only that address is probed), and refuses an old `main.db-wal` that
+holds data: unmerged writes mean a writer may still be running, and a copy of the main file alone would lose
+them. The cutover therefore takes an online backup first (SQLite `.backup` or `VACUUM INTO` while the old
+service runs), stops the service, and migrates from the backup (`--from`).
+
+- The old files are only read. `main.db` and its `-wal` are hashed, copied to a scratch directory, hashed
+  again (a difference means the old service was still writing: the run fails), and SQLite opens the copy,
+  never the original. The report records the sha256, size and mtime of both before and after
+  (`old_unchanged`). Blob files are read, never opened for writing.
+- The new store is built under `caster.db.migrating` and `cas.migrating`. When the proof passes, the tree is
+  renamed first and the database last (the database is the guard's "migrated" marker). Any failure removes the
+  staging names and exits 1, so the directory still holds only the old files and the guard still refuses to
+  start. A leftover staging name from a killed run is removed by the next run.
+- Tables: `blobs`, `name_revs`, `action_log`, `observations`, `detections` copy as they are (ids kept);
+  `grants` and `devices` become `legacy_grants` and `legacy_devices`. A table, index, trigger or view the
+  command does not know, or a column list that differs, stops the run before anything is copied.
+- Blobs: every file under `blobs/sha256/aa/rest` is read through SHA-256 and written to `cas/` (mode `0400`,
+  temp file and rename), and the digest must equal the name and the row's size. A row without a file, a file
+  whose digest is not its name, or a path that is not a blob is a failure. A file with no row is what a
+  failed write leaves (the file is written before the transaction); it is carried, verified and counted in
+  the report. `blobs/tmp` is not carried.
+- Full-text: the index is rebuilt from the copied files by the store's own rule (`text/*` and at most
+  `MaxIndexBytes`) and compared with the old `blob_fts` as a set of (hash, body) pairs, not by count.
+- Proof: for every table, the row count and a SHA-256 over every value (type and length prefixed) in key order,
+  old against new; blobs and the full-text set as above. `PROVED EQUAL` is printed only when all of it holds;
+  the report (JSON, `0600`, no secrets: names, counts and digests) is written either way
+  (`migrate-report.failed.json` on failure).
+- `caster migrate --verify-only` compares an existing `caster.db` and `cas/` with the old directory again and
+  writes nothing (unless `--report` is given).
