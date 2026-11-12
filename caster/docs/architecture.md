@@ -1,14 +1,13 @@
-# Caster architecture (Substrate port, in progress)
+# Caster architecture (on Substrate)
 
 Caster keeps named text and content-addressed blobs and hands them around by reference
-(`caster://`, `cas://`, `torque://`, `tesseract://`). This file is written slice by slice; a section
-says which slice it covers.
+(`caster://`, `cas://`, `torque://`, `tesseract://`). The sections below are the slices of the port, in the order they were built; each says what it covers.
 
 ## Decisions (docs/adopting-substrate.md section 0)
 
 | Question | Answer |
 |---|---|
-| Migrated data or fresh start? | Migrated, all of it. The live instance has data; `caster migrate` (slice S5) copies it one way and proves the copy. The old files are never written. |
+| Migrated data or fresh start? | Migrated, all of it. The live instance has data; `caster migrate` (S5) copies it one way and proves the copy; moving it is docs/cutover-plan.md. The old files are never written. |
 | Binary variant | `app-host` (HTTP, browser UI, stdio MCP, CLI). |
 | Who issues identity? | The `identity` module: owner and keys created offline. Caster's own pairing and `cst_` tokens are removed (S3). |
 | Database | SQLite only: full-text search is FTS5 and the SQL is SQLite syntax. |

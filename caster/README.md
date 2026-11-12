@@ -9,7 +9,7 @@ A content-addressed store and ref resolver for scratchpads, drafts and notes (mo
 
 ## Install
 
-Requires Go 1.26.10 or later. Install the current development version:
+Requires Go 1.26.11 or later. Install the current development version:
 
 ```sh
 go install github.com/hollis-labs/tools/caster/cmd/caster@latest
@@ -65,43 +65,43 @@ Bare `ns/name`, a task id or a 64-hex hash is accepted wherever a ref is.
 
 | | |
 |---|---|
-| **CLI** | the commands above, plus `shadow`, `actions`/`act`, `pair`, `devices`, `revoke`, `login`, `whoami`, `remote`, `renew`, `logout` |
-| **Browser UI** | `caster serve` serves it at `/`: list, search, rendered markdown, edit, history. Pair a tab with `caster pair -link <url>`. [docs/browser-ui.md](docs/browser-ui.md) |
-| **MCP** | `caster mcp`: `caster_put`, `caster_get`, `caster_head`, `caster_snap`, `caster_ls`, `caster_log`, `caster_search`, `caster_scan`, `caster_expand`, actions and shadow tools. [docs/mcp.md](docs/mcp.md) |
-| **HTTP** | `caster serve`, JSON under `/v1`, bearer-token auth. [docs/http-api.md](docs/http-api.md) |
+| **CLI** | the commands above, plus `shadow`, `actions`/`act`, `whoami`, `login`, `logout`, `remote`, `paths`, `migrate`, `identity setup` and `identity key create` |
+| **Browser UI** | `caster serve` serves it at `/`: list, search, rendered markdown, edit, history. Sign in with the owner account. [docs/browser-ui.md](docs/browser-ui.md) |
+| **MCP** | `caster mcp` (stdio) and `/mcp` on the service: fifteen `caster_*` tools. [docs/mcp.md](docs/mcp.md) |
+| **HTTP** | `caster serve`, JSON under `/api`, bearer API key or session cookie. [docs/http-api.md](docs/http-api.md) |
 
-All four are thin: they decode a request, call the service layer and encode the result. Authorization is decided in the service, so they cannot disagree.
+All four are thin: they decode a request, call the service layer and encode the result. Authorization is decided in the service, so they cannot disagree. Bare `caster` prints help; only `caster serve` serves.
 
 ## Using it from other machines
 
 One machine is the home node: it owns the store, resolves Torque and Tesseract, and runs `caster serve` on loopback, behind tailnet HTTPS (Tailscale Serve). Everything else is a client.
 
 ```sh
-# on the home node
-caster pair -scope read,write,resolve -label laptop        # one-use code, 5 minutes
-
-# on the client
-caster login https://<home>.<tailnet>.ts.net:8443 <code>   # token goes to the OS keychain
+# on the home node, offline, once
+caster identity setup --username <owner>
+# an administrator mints a pairing code (POST /api/identity/pairing-codes), then on the client
+caster login https://<home>.<tailnet>.ts.net:8443 <code>   # the key goes to the secrets store
 caster put -n notes/today < today.md                       # now stored on the home node
-caster whoami                                              # who the home node takes you for, scopes, expiry
+caster whoami                                              # who the home node takes you for, and the scopes
 ```
 
-Local only: loopback, or your tailnet. Nothing here is meant for the public internet. [docs/home-node.md](docs/home-node.md) covers running the node (Cerberus), HTTPS, and client setup; [docs/access.md](docs/access.md) covers scopes, pairing and the identity sources.
+Local only: loopback, or your tailnet. Nothing here is meant for the public internet. [docs/home-node.md](docs/home-node.md) covers running the node, HTTPS, and client setup; [docs/access.md](docs/access.md) covers scopes and credentials; [docs/callers.md](docs/callers.md) lists every caller.
 
 ## More
 
 - [docs/shadow-mode.md](docs/shadow-mode.md): measuring ref-detection noise before showing any card in a chat UI.
 - [docs/actions.md](docs/actions.md): registered operations on a ref, such as `save-handoff` to a Tesseract workspace draft.
+- [docs/cutover-plan.md](docs/cutover-plan.md): moving a pre-Substrate instance (`caster migrate`, backup order, rollback).
 - [docs/transport-boundary.md](docs/transport-boundary.md): the lint gate that keeps transports off the store.
 - [CHANGELOG.md](CHANGELOG.md), [contributor guide](CONTRIBUTING.md) (invariants and the tests that guard them).
 
 ## Architecture
 
-`internal/service` is the contract, organized as domain services on `Service` (`Notes`, `Refs`, `Actions`, `Shadow`, `Access`): every operation is `func(ctx, Request) (Result, error)` with JSON-tagged structs, errors classified by `service.Kind`, and scope checks inside each method. `internal/cli`, `internal/mcp` and `internal/api` only decode, call the service and encode. The domain services are interfaces (`service/contract.go`) implemented locally by the service and remotely by `internal/client`, so the CLI and MCP behave the same against a local store or a home node. A new transport (gRPC, a plugin, a Tether tool) is a new package of that shape.
+`internal/service` is the contract, organized as domain services on `Service` (`Notes`, `Refs`, `Actions`, `Shadow`, `Identity`): every operation is `func(ctx, Request) (Result, error)` with JSON-tagged structs, errors classified by `service.Kind`, and scope checks inside each method from the verified principal in the context. `internal/cli`, `internal/mcptools` and `internal/api` only decode, call the service and encode. See [docs/architecture.md](docs/architecture.md).
 
 ## Storage
 
-go-apppaths layout (`caster paths`): blobs under `blobs/sha256/ab/cdef…` (write-once, mode 0400, digest verified on write and read), a SQLite index (`main.db`) for blob metadata, name revisions, devices and FTS5. Dedup is by hash; a name is a pointer with revision history, never mutable bytes.
+`caster paths` shows the layout: a SQLite database `caster.db` (blob metadata, name revisions, actions, shadow records, the identity module's tables, FTS5) and the blob tree `cas/sha256/ab/cdef...` (write-once, mode 0400, digest verified on write and read). Dedup is by hash; a name is a pointer with revision history, never mutable bytes. A pre-Substrate `main.db` and `blobs/` are never opened or written by this build; `caster migrate` copies them in and proves the copy.
 
 ## Development
 
@@ -119,8 +119,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 - One shared owner. No per-namespace permissions inside caster, and `caster.resolve` reads Torque and Tesseract with the home node's own access, so grant it deliberately. Same-uid processes can read the store and token files directly.
 - **No delete.** Names only gain revisions; blobs are never collected (no GC, pin or quota). Whole-file CAS, no chunking.
 - Tesseract through the gateway needs the hub reachable; unreachable is an error, not not-found. `@rev` is unsupported for Tesseract (use `revision/<id>`).
-- Browser device tokens live in `sessionStorage`: pair again per tab session.
-- Tether cannot yet mint `caster.*` scopes for paired devices or launch grants (task `CW-20261016-0178`), so caster has its own pairing; revocation of a Tether-issued JWT relies on its short lifetime.
+- Identity is the Substrate identity module's: one owner and API keys, no per-namespace permissions inside Caster.
 - Actions: one so far (`save-handoff`); binding context comes from flags and env, not from a Tether session.
 
 ## License

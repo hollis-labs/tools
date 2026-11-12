@@ -1,9 +1,11 @@
 # Browser UI
 
-`caster serve` also serves a small UI at `/` (the same port you forward): list and search notes, view them rendered as markdown, edit and save (each save is a new revision), and browse history. It is another thin wrapper: it calls the same `/v1` routes as the CLI and MCP.
+`caster serve` serves a small hand-written page at `/` (the same port you forward): list and search notes, view them
+rendered as markdown, edit and save (each save is a new revision), and browse history. It calls the same `/api` routes
+as the CLI and MCP. Sign in with the owner's username and password (`POST /api/login`): a session cookie, with
+`X-Requested-With` and a same-origin `Origin` required for writes. There is no pairing dialog and no token in the
+page. Create the owner offline first: `caster identity setup --username <owner>`.
 
-Pair a browser with a link instead of copying a code:
-
-    caster pair -scope read,write,resolve -label browser -link http://localhost:8991
-
-Open the printed URL; a pairing dialog appears with the code filled in. The code is in the URL fragment, which the browser never sends to the server, and it is removed from the address bar on load. The resulting device token lives in `sessionStorage`, so it is gone when the tab closes; pair again next time. Stored text is rendered with DOM calls (no HTML), links are limited to `http(s)` and `caster://`, and a strict CSP keeps the page to its own origin. The shell itself is served without a token and carries no data.
+Stored text is rendered with DOM calls (no HTML), links are limited to `http(s)` and `caster://`, a CSP (no inline script or style,
+no third-party origin) and `nosniff` ride on every response outside `/api/` and `/healthz`, and raw `get` is forced to `text/plain`.
+The page is deliberately small and is not to grow: a UI on the shared kits is a later task for the GUI track.

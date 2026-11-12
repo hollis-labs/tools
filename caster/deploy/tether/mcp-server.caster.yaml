@@ -1,14 +1,15 @@
 # Example Tether catalog entry: mcp-servers/caster.yaml.
-# Replace the URL, binary path and token reference for your deployment.
-# Pair a dedicated device with only the read/write/resolve scopes it needs.
-# Keep its token outside this repository in a mode-0600 file; renew it before
-# expiry. The gateway must include caster in its server allowlist.
+# Replace the binary path and the key file for your deployment.
+# Create a dedicated identity key with only the scopes the agents need (`caster identity key create
+# --name agents --scope caster.read,caster.write,caster.resolve,caster.mcp --out FILE`). Keep the file
+# outside this repository, mode 0600. The gateway must include caster in its server allowlist.
+# When the gateway and the service share a host, point at loopback (plain http to loopback is accepted).
 id: caster
 transport: stdio
 command: /opt/caster/bin/caster
 args: [mcp]
 env:
-  CASTER_REMOTE: https://caster.example.com
-  CASTER_TOKEN_REF: file:///var/lib/caster/credentials/device.token
+  CASTER_REMOTE: http://127.0.0.1:8991
+  CASTER_TOKEN_REF: file:///var/lib/caster/credentials/agents.key
 tags: [notes, scratchpad, drafts, refs, cas, caster]
 enabled: true

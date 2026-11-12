@@ -2,10 +2,10 @@
 #
 # FIRST DEPLOY (the pre-Substrate service runs a Cerberus-built binary against main.db and its
 # blobs): the new build creates caster.db beside the old main.db and refuses to start until
-# `caster migrate` has copied the data in (docs/cutover-plan.md has the order: stop the unit,
-# `caster migrate`, the offline identity bootstrap with the new binary, then `fleet-install deploy
-# caster`, whose preflight backs up the migrated caster.db). The old main.db and blobs are never
-# written, so they stay the rollback.
+# `caster migrate` has copied the data in (docs/cutover-plan.md has the order: online backup, stop
+# the unit, second backup and its proof, `caster migrate --from` the backup, the offline identity
+# bootstrap with the new binary, then `fleet-install deploy caster`, whose preflight backs up the
+# migrated caster.db). The old main.db and blobs are never written, so they stay the rollback.
 #
 # The unit is written by Cerberus (resource caster-uat). A Cerberus apply regenerates it and
 # overwrites the drop-in's effect only for the keys the descriptor sets, so the descriptor's
