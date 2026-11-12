@@ -25,7 +25,7 @@ type Token struct {
 
 // InsertToken stores a token record.
 func (s *Store) InsertToken(t *Token) error {
-	_, err := s.db.Exec(`INSERT INTO tokens(id,name,hash,scopes,created_at) VALUES(?,?,?,?,?)`,
+	_, err := s.exec(`INSERT INTO tokens(id,name,hash,scopes,created_at) VALUES(?,?,?,?,?)`,
 		t.ID, t.Name, t.Hash, t.Scopes, ts(t.CreatedAt))
 	return err
 }
@@ -44,7 +44,7 @@ const tokenCols = `id,name,hash,scopes,created_at,revoked_at,last_used` //nolint
 
 // TokenByHash finds a live (not revoked) token by the hash of its secret.
 func (s *Store) TokenByHash(hash string) (*Token, error) {
-	t, err := scanToken(s.db.QueryRow(`SELECT `+tokenCols+` FROM tokens WHERE hash=? AND revoked_at=''`, hash))
+	t, err := scanToken(s.queryRow(`SELECT `+tokenCols+` FROM tokens WHERE hash=? AND revoked_at=''`, hash))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -53,13 +53,13 @@ func (s *Store) TokenByHash(hash string) (*Token, error) {
 
 // TouchToken records a use.
 func (s *Store) TouchToken(id string, at time.Time) error {
-	_, err := s.db.Exec(`UPDATE tokens SET last_used=? WHERE id=?`, ts(at), id)
+	_, err := s.exec(`UPDATE tokens SET last_used=? WHERE id=?`, ts(at), id)
 	return err
 }
 
 // ListTokens returns all tokens, newest first.
 func (s *Store) ListTokens() ([]*Token, error) {
-	rows, err := s.db.Query(`SELECT ` + tokenCols + ` FROM tokens ORDER BY created_at DESC`)
+	rows, err := s.query(`SELECT ` + tokenCols + ` FROM tokens ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (s *Store) ListTokens() ([]*Token, error) {
 
 // RevokeToken revokes by id or name.
 func (s *Store) RevokeToken(idOrName string, at time.Time) (bool, error) {
-	res, err := s.db.Exec(`UPDATE tokens SET revoked_at=? WHERE (id=? OR name=?) AND revoked_at=''`, ts(at), idOrName, idOrName)
+	res, err := s.exec(`UPDATE tokens SET revoked_at=? WHERE (id=? OR name=?) AND revoked_at=''`, ts(at), idOrName, idOrName)
 	if err != nil {
 		return false, err
 	}

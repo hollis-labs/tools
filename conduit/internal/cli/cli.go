@@ -64,6 +64,9 @@ const usage = `conduit — governed command runtime
 Exit: the command's own code for run; 2 not found, 3 denied, 4 needs approval.
 `
 
+// PrintUsage writes the command overview.
+func PrintUsage(w io.Writer) { fmt.Fprint(w, usage) }
+
 // Main runs the CLI and returns the process exit code.
 func Main(ctx context.Context, svc *service.Service, args []string, in *os.File, stdout, stderr io.Writer, paths func() string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
