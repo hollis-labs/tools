@@ -224,6 +224,8 @@ var forwarded = []struct{ name, short string }{
 	{"init", "Shell integration for bash or zsh"},
 	{"pending", "Runs waiting for approval"},
 	{"cancel", "Cancel a run"},
+	{"approve", "Approve a pending run on a server, signed in as a person (password from the terminal)"},
+	{"reject", "Reject a pending run on a server, signed in as a person (password from the terminal)"},
 	{"runbooks", "Named operations: fixed argv, typed parameters"},
 	{"reap", "Clean up after a crash: fail orphaned runs, stop their process groups"},
 	{"panics", "Internal errors conduit recovered from"},

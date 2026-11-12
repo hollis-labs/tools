@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -156,10 +157,17 @@ func TestOldDatabaseAloneIsRefusedAndNothingIsCreated(t *testing.T) {
 	}
 }
 
-// approve and reject are not commands: no local-trust path reaches them.
-func TestNoLocalApproveOrRejectCommand(t *testing.T) {
+// approve and reject are clients of a running server, signed in as a person: they never open the database, and there
+// is no local-trust path to them. token is gone.
+func TestApproveAndRejectAreServerClientsOnly(t *testing.T) {
+	for _, w := range []string{"approve", "reject"} {
+		pl := plan([]string{w, "--server", "http://127.0.0.1:1", "--user", "u", "run"}, commandNames())
+		if !pl.noStore || pl.prepare || slices.Contains(pl.modules, "database") || slices.Contains(pl.modules, "identity") {
+			t.Errorf("%s must open no store and create nothing: %+v", w, pl)
+		}
+	}
 	for _, w := range commandNames() {
-		if w == "approve" || w == "reject" || w == "token" {
+		if w == "token" {
 			t.Errorf("command %q must not exist", w)
 		}
 	}

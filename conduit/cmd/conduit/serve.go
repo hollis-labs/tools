@@ -57,7 +57,7 @@ func serve(ctx context.Context, app *module.App, svc *service.Service) error {
 	srv.RegisterScopes(table)
 	conduitmcp.Register(app, svc, table, conduitmcp.Options{AllowDirs: roots})
 
-	handler, err := httphost.Handler(app, httphost.Options{Routes: srv.Handler()})
+	handler, err := httphost.Handler(app, httphost.Options{Routes: srv.Handler(), Mounts: []httphost.Mount{{Pattern: "/v1/", Handler: api.NotFound(), Open: true}}})
 	if err != nil {
 		return err
 	}

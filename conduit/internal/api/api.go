@@ -107,7 +107,15 @@ func (s *Server) Handler() *http.ServeMux {
 	for _, rt := range s.routes() {
 		mux.Handle(rt.Method+" "+rt.Pattern, httpguard.Handler(s.wrap(rt.h)))
 	}
+	// An unknown /api path answers a JSON 404, not the mux's plain text.
+	mux.Handle("/", NotFound())
 	return mux
+}
+
+// NotFound answers a JSON 404. It is mounted at the old /v1/ prefix (an open mount: it names no run and reveals
+// nothing) so a client of the old API gets an error it can read instead of the host's placeholder page.
+func NotFound() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { writeErr(w, 404, "not_found", "no such route") })
 }
 
 // RegisterScopes declares each route's scope on the table the auth guard enforces. A route not listed is refused in

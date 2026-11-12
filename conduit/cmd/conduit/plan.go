@@ -34,7 +34,7 @@ var (
 // stateless commands never touch the database; writers may create it; every other command word that is a command of
 // the tree only reads an existing one.
 var (
-	stateless = []string{"check", "parse", "runbooks", "init", "paths"}
+	stateless = []string{"check", "parse", "runbooks", "init", "paths", "approve", "reject"}
 	writers   = []string{"run", "cancel", "reap"}
 )
 

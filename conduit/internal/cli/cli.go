@@ -44,7 +44,9 @@ const usage = `conduit — governed command runtime
                               fuzzy picker over command history (prints the choice; -run runs it)
   conduit init bash|zsh [-key K]
                               shell integration: eval "$(conduit init bash)" binds the picker and adds cx
-  conduit pending               runs waiting for a signed-in person's approval (approve in the web UI or API)
+  conduit pending               runs waiting for a signed-in person's approval
+  conduit approve|reject --server URL --user NAME <run>
+                              sign in as a person (password from the terminal only) and approve or reject a pending run
   conduit cancel <run>
   conduit runbooks              named operations: fixed argv, typed parameters
   conduit serve                 HTTP API and /mcp (identity keys, scoped)
@@ -101,6 +103,8 @@ func (c *cmd) dispatch(args []string) int {
 		code = c.pending()
 	case "cancel":
 		code = c.cancel(args[1:])
+	case "approve", "reject":
+		code = c.remote(args[0], args[1:])
 	case "runbooks":
 		code = c.runbooks()
 	case "panics":

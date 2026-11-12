@@ -60,6 +60,7 @@ func testIdentity(table *libauth.ScopeTable, next http.Handler) http.Handler {
 type env struct {
 	t    *testing.T
 	svc  *service.Service
+	srv  *Server
 	ts   *httptest.Server
 	root string
 }
@@ -91,7 +92,7 @@ func setupWith(t *testing.T, svc *service.Service) *env {
 	srv.RegisterScopes(table)
 	ts := httptest.NewServer(testIdentity(table, srv.Handler()))
 	t.Cleanup(ts.Close)
-	return &env{t: t, svc: svc, ts: ts, root: root}
+	return &env{t: t, svc: svc, srv: srv, ts: ts, root: root}
 }
 
 // do sends a request as the named caller ("" sends no identity).
@@ -468,5 +469,28 @@ func TestReadScopesOwnVersusAll(t *testing.T) {
 	// but read alone cannot run
 	if code, _ := e.do("POST", "/api/exec", "own", map[string]any{"command": "echo x"}); code != 403 {
 		t.Errorf("read-only caller ran a command: %d", code)
+	}
+}
+
+// The old /v1 paths and unknown /api paths answer a JSON 404 from the route set itself.
+func TestOldAndUnknownPathsAreJSON404(t *testing.T) {
+	e := setup(t)
+	mux := http.NewServeMux()
+	mux.Handle("/api/", e.srv.Handler())
+	mux.Handle("/v1/", NotFound())
+	h := httptest.NewServer(mux)
+	defer h.Close()
+	for _, path := range []string{"/v1/runs", "/v1/exec", "/v1/check", "/api/nope", "/api/runs/x/nope"} {
+		resp, err := noKeepAlive.Get(h.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&m)
+		ct := resp.Header.Get("Content-Type")
+		_ = resp.Body.Close()
+		if resp.StatusCode != 404 || errCode(m) != "not_found" || !strings.HasPrefix(ct, "application/json") {
+			t.Errorf("%s: %d %v %s", path, resp.StatusCode, m, ct)
+		}
 	}
 }
