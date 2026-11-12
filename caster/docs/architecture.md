@@ -139,7 +139,11 @@ The old tables survive only as `legacy_devices` and `legacy_grants` history.
 One way, once: `caster migrate [--from DIR] [--report FILE]` reads the pre-Substrate `main.db` and `blobs/` in
 `DIR` (default: the data directory this build resolves) and builds `caster.db` and `cas/` beside them. It is
 the only command that has no legacy guard, and it refuses a target that exists (`caster.db`, `-wal`, `-shm`
-or `cas/`), so a store is migrated once.
+or `cas/`), so a store is migrated once. It also refuses to run while something listens on the address this
+configuration serves (`httphost.addr`; only that address is probed), and refuses an old `main.db-wal` that
+holds data: unmerged writes mean a writer may still be running, and a copy of the main file alone would lose
+them. The cutover therefore takes an online backup first (SQLite `.backup` or `VACUUM INTO` while the old
+service runs), stops the service, and migrates from the backup (`--from`).
 
 - The old files are only read. `main.db` and its `-wal` are hashed, copied to a scratch directory, hashed
   again (a difference means the old service was still writing: the run fails), and SQLite opens the copy,

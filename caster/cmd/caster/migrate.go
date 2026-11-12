@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -46,6 +48,14 @@ func (m *migration) prepare(app *module.App) error {
 		}
 		return nil
 	}
+	// Refuse while a service is listening on the address this configuration serves: the old service
+	// (or a new one) still has the data open. Only the configured address is probed.
+	if addr := httpAddr(app); addr != "" {
+		if conn, err := net.DialTimeout("tcp", addr, time.Second); err == nil {
+			_ = conn.Close()
+			return fmt.Errorf("something is listening on %s, the address this configuration serves: stop the service before migrating. Nothing was changed", addr)
+		}
+	}
 	for _, p := range []string{m.finalDB, m.finalDB + "-wal", m.finalDB + "-shm", m.finalCas} {
 		if _, err := os.Stat(p); err == nil {
 			return fmt.Errorf("%s already exists: a store is migrated once, into a data directory that has no caster.db and no cas/. Nothing was changed", p)
@@ -64,6 +74,13 @@ func (m *migration) prepare(app *module.App) error {
 	sq, _ := db["sqlite"].(map[string]any)
 	sq["path"] = m.stageDB
 	return nil
+}
+
+// httpAddr is the address the http host module would bind, from the merged configuration.
+func httpAddr(app *module.App) string {
+	h, _ := app.Config["httphost"].(map[string]any)
+	a, _ := h["addr"].(string)
+	return a
 }
 
 // migrateCmd copies a pre-Substrate data directory into the new store and proves the copy.

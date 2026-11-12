@@ -160,6 +160,13 @@ func run(ctx context.Context, o Options, copyData bool) (Report, error) {
 		return rep, err
 	}
 	rep.SourceFiles = before
+	for _, f := range before {
+		if f.Name == "main.db-wal" && f.Size > 0 {
+			// Rows in a write-ahead log that was never merged are part of the live data; a copy of the
+			// main file alone would silently lose them, and a live log means a writer may still be running.
+			return rep, fmt.Errorf("%s/main.db-wal holds %d bytes: the old database has unmerged writes (is the old service still running?). Take an online backup (SQLite .backup or VACUUM INTO) while it runs, stop it, and migrate from the backup", o.OldDir, f.Size)
+		}
+	}
 	src, err := openCopy(o)
 	if err != nil {
 		return rep, err

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -295,5 +296,42 @@ func TestMigrateVerifyCatchesADriftedRow(t *testing.T) {
 	out, _, code := s.run("", nil, "migrate", "--verify-only")
 	if code == 0 || !strings.Contains(out, "DIFFERENT") || !strings.Contains(out, "NOT PROVED") {
 		t.Fatalf("a changed row must fail verification: %d\n%s", code, out)
+	}
+}
+
+// migrate refuses while something listens on the address the configuration serves, and refuses an
+// old database whose write-ahead log was not merged. Neither changes anything.
+func TestMigrateRefusesALiveServiceAndAnUnmergedWAL(t *testing.T) {
+	s, ws := newMigrateSite(t)
+	buildOld(t, ws)
+	before := snapshotOld(t, ws)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	must(t, err)
+	defer func() { _ = ln.Close() }()
+	cfg := filepath.Join(s.dir, "live.yaml")
+	must(t, os.WriteFile(cfg, []byte("httphost:\n  addr: \""+ln.Addr().String()+"\"\n"), 0o600))
+	_, errs, code := s.run("", []string{"SUBSTRATE_CONFIG=" + cfg}, "migrate")
+	if code == 0 || !strings.Contains(errs, "listening") {
+		t.Fatalf("a listening service must stop the migration: %d %s", code, errs)
+	}
+	_ = ln.Close()
+
+	must(t, os.WriteFile(filepath.Join(ws, "main.db-wal"), []byte("pretend frames"), 0o600))
+	before["main.db-wal"] = snapshotOld(t, ws)["main.db-wal"]
+	_, errs, code = s.run("", nil, "migrate")
+	if code == 0 || !strings.Contains(errs, "unmerged") {
+		t.Fatalf("an unmerged WAL must stop the migration: %d %s", code, errs)
+	}
+	after := snapshotOld(t, ws)
+	for k, v := range before {
+		if after[k] != v {
+			t.Fatalf("%s changed", k)
+		}
+	}
+	for _, p := range []string{"caster.db", "cas", "caster.db.migrating", "cas.migrating"} {
+		if _, err := os.Stat(filepath.Join(ws, p)); err == nil {
+			t.Fatalf("%s left behind", p)
+		}
 	}
 }
