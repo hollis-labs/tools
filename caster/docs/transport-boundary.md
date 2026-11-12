@@ -6,10 +6,10 @@ Run this from the tool's module directory, with golangci-lint v2.11.4:
 GOWORK=off golangci-lint run --config .golangci.transport.yml ./...
 ```
 
-The dedicated config rejects direct `store.Store` method calls and raw
+The dedicated config rejects direct `storage.Storage` method calls and raw
 `database/sql` operations in `internal/api`, `internal/mcp` and `internal/cli`.
 Transports decode requests, call the service layer and encode results. The
-composition root under `cmd/` opens the store and wires the service.
+composition root under `cmd/` opens the storage and wires the service.
 
 The [monorepo workflow](../../.github/workflows/tool-checks.yml) runs this
 check alongside ordinary lint, vet, race tests and vulnerability scanning.
@@ -22,7 +22,7 @@ local multi-project workspace cannot hide a missing dependency.
   relative to the module (`run.relative-path-mode: gomod`).
 - Tests are excluded. A newly added transport directory must be included in
   the config's path expression.
-- Interface-mediated calls and promoted methods on embedded store handles
+- Interface-mediated calls and promoted methods on embedded storage handles
   may escape this matcher. Review those boundaries directly.
 - Storage DTO types are allowed. This is not a transport-parity check:
   authorization and behavior still need service-level tests.

@@ -1,0 +1,30 @@
+:root{--bg:#fff;--fg:#1c1c1e;--mut:#6b6b70;--line:#dcdce0;--acc:#2f5fd0;--code:#f3f3f5;--err:#b3261e}
+@media (prefers-color-scheme:dark){:root{--bg:#161618;--fg:#e8e8ea;--mut:#9a9aa0;--line:#2e2e33;--acc:#7fa3ff;--code:#222226;--err:#ff8a80}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif;height:100vh;display:flex;flex-direction:column}
+header{display:flex;gap:.6rem;align-items:center;padding:.5rem 1rem;border-bottom:1px solid var(--line)}
+header input[type=search]{flex:1;max-width:28rem}
+.muted{color:var(--mut)} .err{color:var(--err);min-height:1.2em}
+main{flex:1;display:flex;min-height:0}
+nav{width:20rem;max-width:40%;overflow:auto;border-right:1px solid var(--line)}
+nav .ns{padding:.5rem 1rem .1rem;color:var(--mut);font-size:.8rem;text-transform:uppercase;letter-spacing:.05em}
+nav a{display:block;padding:.35rem 1rem;color:inherit;text-decoration:none;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+nav a:hover,nav a.on{background:var(--code)}
+nav a small{color:var(--mut);margin-left:.4rem}
+#doc{flex:1;overflow:auto;padding:1rem 1.5rem}
+#doc .bar{display:flex;gap:.5rem;align-items:center;margin-bottom:.8rem;flex-wrap:wrap}
+#doc h1.t{margin:0;font-size:1.3rem;flex:1}
+input,textarea,select,button{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:.3rem .6rem}
+button{cursor:pointer} button:hover{border-color:var(--acc)}
+textarea{width:100%;min-height:55vh;font-family:ui-monospace,monospace;font-size:13px;line-height:1.45;resize:vertical}
+.fields{display:flex;gap:.5rem;margin-bottom:.5rem;flex-wrap:wrap}.fields input{flex:1;min-width:10rem}
+.md{max-width:48rem}.md pre{background:var(--code);padding:.7rem;border-radius:6px;overflow:auto}
+.md code{background:var(--code);padding:.05rem .3rem;border-radius:4px}.md pre code{padding:0;background:none}
+.md a{color:var(--acc);cursor:pointer}.md blockquote{margin:.5rem 0;padding-left:.8rem;border-left:3px solid var(--line);color:var(--mut)}
+.md h1,.md h2,.md h3{margin:1.1rem 0 .4rem}
+.hist a{display:block;color:var(--acc);cursor:pointer;padding:.15rem 0}
+dialog{border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);max-width:26rem;width:90%}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+dialog label{display:block;margin:.5rem 0}dialog input{width:100%;margin-top:.2rem}
+menu{padding:0;text-align:right}
+@media (max-width:700px){main{flex-direction:column}nav{width:auto;max-width:none;max-height:35%;border-right:0;border-bottom:1px solid var(--line)}}
