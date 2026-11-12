@@ -151,7 +151,7 @@ func TestOldDatabaseAloneIsRefusedAndNothingIsCreated(t *testing.T) {
 	if got := strings.Join(seen, " "); got != " /workspaces /workspaces/default /workspaces/default/main.db" {
 		t.Errorf("the old directory changed: %q", got)
 	}
-	if b, _ := os.ReadFile(old); string(b) != "not opened" {
+	if b, _ := os.ReadFile(old); string(b) != "not opened" { //nolint:gosec // a test reading its own temp file
 		t.Error("the old database was written")
 	}
 }

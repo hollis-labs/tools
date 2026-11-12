@@ -240,8 +240,8 @@ func TestAgentDirectoryIsConfined(t *testing.T) {
 		}
 	}
 	res, errText := c.call("exec_run", map[string]any{"command": "pwd"})
-	real, _ := filepath.EvalSymlinks(e.allow)
-	if errText != "" || !strings.Contains(res["stdout"].(string), real) {
+	resolved, _ := filepath.EvalSymlinks(e.allow)
+	if errText != "" || !strings.Contains(res["stdout"].(string), resolved) {
 		t.Fatalf("default dir should be the first allowed root: %v %s", res, errText)
 	}
 }

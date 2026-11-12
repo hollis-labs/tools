@@ -126,9 +126,12 @@ func run(ctx context.Context, getenv func(string) string, args []string) (int, e
 		addCommands(rootCmd, nil)
 		// The identity commands come from the module when it started; otherwise `identity` is not in the tree and
 		// the framework's help is not shown. serve and mcp are described by the usage text only.
-		for _, name := range []string{"serve", "mcp"} {
-			rootCmd.AddCommand(&cobra.Command{Use: name, Short: map[string]string{"serve": "Serve the REST API and the MCP endpoint", "mcp": "Serve the MCP tools on stdio for an agent launched locally"}[name],
+		for _, name := range []string{"serve", "mcp", "migrate-legacy"} {
+			rootCmd.AddCommand(&cobra.Command{Use: name, Short: map[string]string{"serve": "Serve the REST API and the MCP endpoint", "mcp": "Serve the MCP tools on stdio for an agent launched locally", "migrate-legacy": "Copy the pre-Substrate database into this installation and prove the copy"}[name],
 				DisableFlagParsing: true, RunE: func(cmd *cobra.Command, _ []string) error { conduitcli.PrintUsage(cmd.OutOrStdout()); return nil }})
+		}
+		if c, _, _ := rootCmd.Find([]string{"identity"}); c == nil || c == rootCmd {
+			rootCmd.AddCommand(identityHelp()) // the identity module did not start: help text only
 		}
 		return execute(ctx, rootCmd, args)
 	}
@@ -145,7 +148,7 @@ func run(ctx context.Context, getenv func(string) string, args []string) (int, e
 	panics.SetDefault(panics.Config{Reporter: panicReporter{svc: svc, logf: logf}, Redact: rd.Text})
 	addCommands(rootCmd, &forwarder{ctx: ctx, svc: svc, describe: describe})
 	if !pl.noStore {
-		rootCmd.AddCommand(serveCmd(ctx, app, svc), mcpCmd(ctx, app, svc))
+		rootCmd.AddCommand(serveCmd(ctx, app, svc), mcpCmd(ctx, app, svc), migrateLegacyCmd(ctx, app, dirs))
 	}
 	return execute(ctx, rootCmd, args)
 }
@@ -208,9 +211,9 @@ type forwarder struct {
 	code     int
 }
 
-// legacy names the commands implemented in internal/cli. token is gone (identity API keys replace it); serve and mcp
+// forwarded names the commands implemented in internal/cli. token is gone (identity API keys replace it); serve and mcp
 // are added by their own files.
-var legacy = []struct{ name, short string }{
+var forwarded = []struct{ name, short string }{
 	{"run", "Run a command through policy; output is captured, redacted and stored"},
 	{"check", "Policy dry run: verdict and reasons (exit 0 allow, 4 ask, 3 deny)"},
 	{"parse", "Show how a command is parsed: segments, wrappers, effect classes"},
@@ -228,8 +231,8 @@ var legacy = []struct{ name, short string }{
 }
 
 func commandNames() []string {
-	names := make([]string, 0, len(legacy))
-	for _, c := range legacy {
+	names := make([]string, 0, len(forwarded))
+	for _, c := range forwarded {
 		names = append(names, c.name)
 	}
 	return names
@@ -237,7 +240,7 @@ func commandNames() []string {
 
 // addCommands adds the app's commands. With a nil forwarder (the help plan) they only print the usage text.
 func addCommands(root *cobra.Command, f *forwarder) {
-	for _, l := range legacy {
+	for _, l := range forwarded {
 		name := l.name
 		root.AddCommand(&cobra.Command{
 			Use: name, Short: l.short, DisableFlagParsing: true, SilenceUsage: true,

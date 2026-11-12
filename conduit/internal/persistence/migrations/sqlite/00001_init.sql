@@ -36,7 +36,10 @@ CREATE TABLE runs (
     pgid_start INTEGER NOT NULL DEFAULT 0,
     failure_class TEXT NOT NULL DEFAULT '',
     failure_message TEXT NOT NULL DEFAULT '',
-    panic_ref TEXT NOT NULL DEFAULT ''
+    panic_ref TEXT NOT NULL DEFAULT '',
+    -- 1 for a row copied by migrate-legacy: history only. No code path changes its state, runs it, reaps it or signals
+    -- a process for it, whatever its owner_pid, pgid or state say.
+    legacy INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX runs_session ON runs(session, created_at);
 CREATE INDEX runs_created ON runs(created_at);

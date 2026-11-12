@@ -67,7 +67,9 @@ type Run struct {
 	State          string
 	CreatedAt      time.Time
 	EndedAt        time.Time
-	Attempts       []Attempt
+	// Legacy marks a row migrate-legacy copied from the pre-Substrate database: history only (see the migration).
+	Legacy   bool
+	Attempts []Attempt
 }
 
 // Attempt is one execution of a run; a retry is a new linked attempt.
@@ -170,7 +172,7 @@ func (s *Store) InsertRun(r *Run) error {
 
 // UpdateRun sets the mutable fields of a run: approval, state, end time.
 func (s *Store) UpdateRun(id, state, approval string, ended time.Time) error {
-	_, err := s.exec(`UPDATE runs SET state=?, approval=CASE WHEN ?<>'' THEN ? ELSE approval END, ended_at=? WHERE id=?`,
+	_, err := s.exec(`UPDATE runs SET state=?, approval=CASE WHEN ?<>'' THEN ? ELSE approval END, ended_at=? WHERE id=? AND legacy=0`,
 		state, approval, approval, ts(ended), id)
 	return err
 }
@@ -192,17 +194,19 @@ func orJSON(s string) string {
 	return s
 }
 
-const runCols = `id,session,parent,principal,host,cwd,command,parsed,effect,policy_verdict,policy_reasons,policy_mode,approval,state,created_at,ended_at,sandbox,request,approved_by,approved_at,heartbeat_at,owner_pid,owner_start,pgid,pgid_start,failure_class,failure_message,panic_ref`
+const runCols = `id,session,parent,principal,host,cwd,command,parsed,effect,policy_verdict,policy_reasons,policy_mode,approval,state,created_at,ended_at,sandbox,request,approved_by,approved_at,heartbeat_at,owner_pid,owner_start,pgid,pgid_start,failure_class,failure_message,panic_ref,legacy`
 
 func scanRun(sc interface{ Scan(...any) error }) (*Run, error) {
 	var r Run
 	var created, ended, approvedAt, heartbeat string
+	var legacy int
 	if err := sc.Scan(&r.ID, &r.Session, &r.Parent, &r.Principal, &r.Host, &r.Cwd, &r.Command, &r.Parsed, &r.Effect,
 		&r.PolicyVerdict, &r.PolicyReasons, &r.PolicyMode, &r.Approval, &r.State, &created, &ended, &r.Sandbox, &r.Request, &r.ApprovedBy, &approvedAt, &heartbeat, &r.OwnerPID, &r.OwnerStart, &r.PGID, &r.PGIDStart,
-		&r.FailureClass, &r.FailureMessage, &r.PanicRef); err != nil {
+		&r.FailureClass, &r.FailureMessage, &r.PanicRef, &legacy); err != nil {
 		return nil, err
 	}
 	r.CreatedAt, r.EndedAt, r.ApprovedAt, r.HeartbeatAt = parseTS(created), parseTS(ended), parseTS(approvedAt), parseTS(heartbeat)
+	r.Legacy = legacy == 1
 	return &r, nil
 }
 
@@ -280,6 +284,10 @@ func (s *Store) ListRuns(f Filter) ([]*Run, error) {
 	if f.State != "" {
 		q += ` AND state=?`
 		args = append(args, f.State)
+		// A migrated row is history: it is never listed as work to approve, start, reap or expire.
+		if f.State == StatePending || f.State == StateApproved || f.State == StateRunning {
+			q += ` AND legacy=0`
+		}
 	}
 	if f.Limit <= 0 {
 		f.Limit = 50
@@ -350,7 +358,7 @@ func (s *Store) History(limit int) ([]HistoryEntry, error) {
 // Approve moves a pending run to approved, atomically: it only succeeds when
 // the run is still pending, so two approvals cannot both win.
 func (s *Store) Approve(id, kind, by string) (bool, error) {
-	res, err := s.exec(`UPDATE runs SET state=?, approval=?, approved_by=?, approved_at=? WHERE id=? AND state=?`,
+	res, err := s.exec(`UPDATE runs SET state=?, approval=?, approved_by=?, approved_at=? WHERE id=? AND state=? AND legacy=0`,
 		StateApproved, kind, by, ts(time.Now()), id, StatePending)
 	if err != nil {
 		return false, err
@@ -362,7 +370,7 @@ func (s *Store) Approve(id, kind, by string) (bool, error) {
 // Transition moves a run from one state to another only if it is in the
 // expected state, so concurrent callers cannot double-start a run.
 func (s *Store) Transition(id, from, to string) (bool, error) {
-	res, err := s.exec(`UPDATE runs SET state=? WHERE id=? AND state=?`, to, id, from)
+	res, err := s.exec(`UPDATE runs SET state=? WHERE id=? AND state=? AND legacy=0`, to, id, from)
 	if err != nil {
 		return false, err
 	}
@@ -374,7 +382,7 @@ func (s *Store) Transition(id, from, to string) (bool, error) {
 // approved and not yet started, or running.
 func (s *Store) CountActive(principal string) (int, error) {
 	var n int
-	err := s.queryRow(`SELECT COUNT(*) FROM runs WHERE principal=? AND state IN(?,?,?)`,
+	err := s.queryRow(`SELECT COUNT(*) FROM runs WHERE principal=? AND legacy=0 AND state IN(?,?,?)`,
 		principal, StatePending, StateApproved, StateRunning).Scan(&n)
 	return n, err
 }

@@ -59,12 +59,12 @@ func resolvePaths(app *module.App, getenv func(string) string, pl runPlan) (appd
 	// database must be refused with nothing created.
 	if pl.prepare {
 		if path, ok := dbPathOf(app); ok {
-			if err := persistence.Check(dirs.Data, path, pl.open); err != nil {
-				return dirs, err
+			if cerr := persistence.Check(dirs.Data, path, pl.open); cerr != nil {
+				return dirs, cerr
 			}
 		}
-		if err = dirs.Prepare(); err != nil {
-			return dirs, fmt.Errorf("prepare the data directory %s: %w", dirs.Data, err)
+		if perr := dirs.Prepare(); perr != nil {
+			return dirs, fmt.Errorf("prepare the data directory %s: %w", dirs.Data, perr)
 		}
 	}
 	return dirs, nil

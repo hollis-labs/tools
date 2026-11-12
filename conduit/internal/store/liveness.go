@@ -10,7 +10,7 @@ import (
 // owns it and when it last proved it is alive. It reports false if the run was
 // not approved any more (another process got there first).
 func (s *Store) MarkRunning(id string, ownerPID int, ownerStart int64, now time.Time) (bool, error) {
-	res, err := s.exec(`UPDATE runs SET state=?, owner_pid=?, owner_start=?, heartbeat_at=? WHERE id=? AND state=?`,
+	res, err := s.exec(`UPDATE runs SET state=?, owner_pid=?, owner_start=?, heartbeat_at=? WHERE id=? AND state=? AND legacy=0`,
 		StateRunning, ownerPID, ownerStart, ts(now), id, StateApproved)
 	if err != nil {
 		return false, err
@@ -21,20 +21,20 @@ func (s *Store) MarkRunning(id string, ownerPID int, ownerStart int64, now time.
 
 // Heartbeat records that the owner of a running run is alive.
 func (s *Store) Heartbeat(id string, now time.Time) error {
-	_, err := s.exec(`UPDATE runs SET heartbeat_at=? WHERE id=? AND state=?`, ts(now), id, StateRunning)
+	_, err := s.exec(`UPDATE runs SET heartbeat_at=? WHERE id=? AND state=? AND legacy=0`, ts(now), id, StateRunning)
 	return err
 }
 
 // SetProcess records the process group of the command once it has started.
 func (s *Store) SetProcess(id string, pgid int, start int64) error {
-	_, err := s.exec(`UPDATE runs SET pgid=?, pgid_start=? WHERE id=?`, pgid, start, id)
+	_, err := s.exec(`UPDATE runs SET pgid=?, pgid_start=? WHERE id=? AND legacy=0`, pgid, start, id)
 	return err
 }
 
 // Fail moves a run from one state to failed with a structured failure, only if
 // it is still in the expected state.
 func (s *Store) Fail(id, from, class, message, panicRef string, now time.Time) (bool, error) {
-	res, err := s.exec(`UPDATE runs SET state=?, failure_class=?, failure_message=?, panic_ref=?, ended_at=? WHERE id=? AND state=?`,
+	res, err := s.exec(`UPDATE runs SET state=?, failure_class=?, failure_message=?, panic_ref=?, ended_at=? WHERE id=? AND state=? AND legacy=0`,
 		StateFailed, class, message, panicRef, ts(now), id, from)
 	if err != nil {
 		return false, err
@@ -67,13 +67,6 @@ func (s *Store) ApprovedBefore(t time.Time) ([]*Run, error) {
 	}
 	return out, nil
 }
-
-const panicSchema = `
-CREATE TABLE IF NOT EXISTS panics(
-  ref TEXT PRIMARY KEY, at TEXT NOT NULL, where_ TEXT NOT NULL, value TEXT NOT NULL, stack TEXT NOT NULL,
-  run_id TEXT NOT NULL DEFAULT '');
-CREATE INDEX IF NOT EXISTS panics_at ON panics(at);
-`
 
 // PanicRow is a recorded panic.
 type PanicRow struct {

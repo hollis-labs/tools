@@ -26,6 +26,7 @@ var (
 	ErrDenied       = errors.New("denied by policy")
 	ErrNotAsked     = errors.New("approval required: a signed-in person must approve this run")
 	ErrNotPerson    = errors.New("only a signed-in person may approve a run")
+	ErrLegacy       = errors.New("this run was migrated from the previous version and is history only: it is never approved, started, canceled or reaped; submit the command again")
 	ErrNoBlobs      = errors.New("no output store configured")
 	ErrNotPending   = errors.New("run is not awaiting approval")
 	ErrNotRunnable  = errors.New("run is not approved to execute")
@@ -172,12 +173,13 @@ func (s *Service) submit(ctx context.Context, rq RunRequest, rb *runbook.Runbook
 		PolicyVerdict: string(dec.Verdict), PolicyReasons: string(rj), PolicyMode: mode, Sandbox: sbx,
 		Request: string(ep), State: store.StatePending, CreatedAt: time.Now(),
 	}
-	switch {
-	case dec.Verdict == policy.Deny:
+	switch dec.Verdict {
+	case policy.Deny:
 		run.State = store.StateDenied
 		run.EndedAt = run.CreatedAt
-	case dec.Verdict == policy.Allow:
+	case policy.Allow:
 		run.State, run.Approval, run.ApprovedAt = store.StateApproved, "auto", run.CreatedAt
+	case policy.Ask: // stays pending for a person
 	}
 	if err := s.store.InsertRun(run); err != nil {
 		return nil, err
@@ -220,6 +222,9 @@ func (s *Service) Approve(ctx context.Context, idFrag string) (*store.Run, error
 	if err != nil {
 		return nil, err
 	}
+	if run.Legacy {
+		return run, ErrLegacy
+	}
 	if run.State != store.StatePending {
 		return run, fmt.Errorf("%w (state %s)", ErrNotPending, run.State)
 	}
@@ -255,6 +260,9 @@ func (s *Service) Reject(ctx context.Context, idFrag string) (*store.Run, error)
 	run, err := s.Get(idFrag)
 	if err != nil {
 		return nil, err
+	}
+	if run.Legacy {
+		return run, ErrLegacy
 	}
 	moved, err := s.store.Transition(run.ID, store.StatePending, store.StateDenied)
 	if err != nil {
@@ -297,6 +305,9 @@ func (s *Service) Start(runID string, opts ExecOpts) error {
 	if err != nil {
 		return err
 	}
+	if run.Legacy {
+		return ErrLegacy
+	}
 	if run.State != store.StateApproved {
 		return fmt.Errorf("%w (state %s)", ErrNotRunnable, run.State)
 	}
@@ -312,6 +323,9 @@ func (s *Service) Cancel(ctx context.Context, idFrag string, admin bool) (*store
 	run, err := s.Get(idFrag)
 	if err != nil {
 		return nil, err
+	}
+	if run.Legacy {
+		return run, ErrLegacy
 	}
 	if !admin && run.Principal != s.principalOf(ctx) {
 		return run, ErrForbidden
@@ -370,6 +384,9 @@ func (s *Service) execute(ctx context.Context, runID string, opts ExecOpts) (*st
 	run, err := s.store.GetRun(runID)
 	if err != nil {
 		return nil, err
+	}
+	if run.Legacy {
+		return run, ErrLegacy
 	}
 	if run.State == store.StateApproved {
 		// Approval is not a bearer token for later: a human approval goes stale,
