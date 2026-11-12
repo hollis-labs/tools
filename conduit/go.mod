@@ -7,9 +7,12 @@ require (
 	github.com/hollis-labs/libs/core/panics v0.1.0
 	github.com/hollis-labs/libs/core/store v0.1.0
 	github.com/hollis-labs/libs/core/util v0.6.0
+	github.com/hollis-labs/libs/mcp/plugin-mcp v0.6.0
+	github.com/hollis-labs/libs/security/auth v0.3.1
 	github.com/hollis-labs/libs/security/redact v0.2.0
 	github.com/hollis-labs/substrate v0.1.1-0.20261112164520-da9f59bb59b7
 	github.com/spf13/cobra v1.10.2
+	github.com/spf13/pflag v1.0.9
 	golang.org/x/term v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.60.1
@@ -25,8 +28,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hollis-labs/go-safefs v0.1.0 // indirect
 	github.com/hollis-labs/libs/app/app-host v0.1.0 // indirect
-	github.com/hollis-labs/libs/mcp/plugin-mcp v0.6.0 // indirect
-	github.com/hollis-labs/libs/security/auth v0.3.1 // indirect
 	github.com/hollis-labs/libs/security/secrets v0.1.0 // indirect
 	github.com/hollis-labs/libs/ui/ui-go v0.1.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
@@ -43,7 +44,6 @@ require (
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/sethvargo/go-retry v0.5.0 // indirect
-	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/zalando/go-keyring v0.2.8 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
