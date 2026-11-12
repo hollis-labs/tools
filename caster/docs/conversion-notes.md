@@ -9,6 +9,9 @@ CLI and MCP arrive with the slices that change them.
 |---|---|
 | OpenTelemetry (`CASTER_OTEL_ENABLED`, `CASTER_ENV`, go-otel) | Opt-in, off on the live instance. Not part of the framework shell; follow-up if wanted. |
 
+| Pairing: `caster pair`, `login`, `renew`, `revoke`, `devices`, `POST /v1/pair/exchange`, `/v1/renew`, `cst_` tokens | Replaced by the identity module's API keys (S3/S4); the old rows are kept as history. |
+| The local operator with every scope (`*`) | `service.LocalScopes`: read, resolve, write, observe. admin and act need a key. |
+
 ## Environment and paths (so far)
 
 | Old | New |

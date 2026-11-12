@@ -37,27 +37,21 @@ type ShadowAPI interface {
 	Label(context.Context, LabelRequest) (LabelResult, error)
 }
 
-// AccessAPI is pairing and device tokens. CreateGrant is local-only by rule; a
-// remote client refuses it.
-type AccessAPI interface {
-	CreateGrant(context.Context, PairRequest) (PairResult, error)
-	Exchange(context.Context, ExchangeRequest) (ExchangeResult, error)
+// IdentityAPI reports who the caller is.
+type IdentityAPI interface {
 	Whoami(context.Context, struct{}) (WhoamiResult, error)
-	Renew(context.Context, RenewRequest) (DeviceInfo, error)
-	Devices(context.Context, struct{}) (DevicesResult, error)
-	Revoke(context.Context, RevokeRequest) (RevokeResult, error)
 }
 
 var (
-	_ NotesAPI   = (*Notes)(nil)
-	_ RefsAPI    = (*Refs)(nil)
-	_ ActionsAPI = (*Actions)(nil)
-	_ ShadowAPI  = (*Shadow)(nil)
-	_ AccessAPI  = (*Access)(nil)
+	_ NotesAPI    = (*Notes)(nil)
+	_ RefsAPI     = (*Refs)(nil)
+	_ ActionsAPI  = (*Actions)(nil)
+	_ ShadowAPI   = (*Shadow)(nil)
+	_ IdentityAPI = (*Identity)(nil)
 )
 
 // Compose assembles a Service from any implementations of the contract. The
 // remote client uses it; there is no store behind such a Service.
-func Compose(n NotesAPI, r RefsAPI, a ActionsAPI, s ShadowAPI, ac AccessAPI) *Service {
-	return &Service{Notes: n, Refs: r, Actions: a, Shadow: s, Access: ac}
+func Compose(n NotesAPI, r RefsAPI, a ActionsAPI, s ShadowAPI, id IdentityAPI) *Service {
+	return &Service{Notes: n, Refs: r, Actions: a, Shadow: s, Identity: id}
 }

@@ -32,21 +32,19 @@ const (
 	ScopeAdmin   = "caster.admin"
 )
 
-// AllScopes lists every scope a device may be granted.
+// AllScopes lists every scope an identity key may be given.
 var AllScopes = []string{ScopeRead, ScopeResolve, ScopeWrite, ScopeAct, ScopeObserve, ScopeAdmin}
 
-// LocalOperatorID identifies the operator at this machine's terminal or stdio
-// pipe: the process owner, who can already read the store directly.
-const LocalOperatorID = "operator(local)"
-
-// AsLocalOperator stamps ctx with the local operator (all scopes). Only
-// transports whose caller is the process owner (the CLI, MCP over stdio) call it.
-func AsLocalOperator(ctx context.Context) context.Context {
-	return auth.WithPrincipal(ctx, auth.Principal{Verified: true, ID: LocalOperatorID, Kind: auth.KindOperator, Scopes: []string{"*"}})
-}
+// LocalScopes are the scopes of the local principal: a stdio MCP process or CLI command run by a
+// user who can open the data file, with no key (mcp.StdioOptions{LocalTrust: true}). Local trust
+// is the trust of anyone who can run the binary as that user, which on the agent hosts includes
+// agents, so it never covers caster.admin (detection reports and labels) or caster.act (actions
+// with effects on other systems): those need a key. TestLocalScopesNeverHoldAdminOrAct holds the
+// list to that.
+var LocalScopes = []string{ScopeRead, ScopeResolve, ScopeWrite, ScopeObserve}
 
 // WithPrincipal stamps a verified identity (the HTTP transport does this from
-// its auth middleware).
+// the identity middleware).
 func WithPrincipal(ctx context.Context, p auth.Principal) context.Context {
 	return auth.WithPrincipal(ctx, p)
 }
