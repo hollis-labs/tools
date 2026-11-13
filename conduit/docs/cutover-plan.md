@@ -247,7 +247,7 @@ On the host, by the driver with the owner at the keyboard, 2026-11-12/13 (UTC):
 | Time | Step | Result |
 |---|---|---|
 | 23:43:08 | stop the old unit (`systemctl --user stop`) | stopped; Cerberus had refused a stop from a read-only session |
-| after | online backup of the old database | taken; integrity ok |
+| after | online backup of the old database | taken |
 | after | `migrate-legacy` from the backup | runs 2/2, attempts 2/2, panics 0/0, retired_tokens 1/1, blobs copied 1, proven equal; the old files' sha256 identical to before |
 | before | `conduit config` and `version` | created nothing |
 | after | the owner created his account with `identity setup` at a terminal | done by him; the password written nowhere |
@@ -256,6 +256,6 @@ On the host, by the driver with the owner at the keyboard, 2026-11-12/13 (UTC):
 Checks on the host after start: `/healthz` 200, setup closed (`POST /api/setup` 403), no credential 401, `/v1` JSON 404, a foreign
 `Host` 403, listening on loopback only, both migrated runs shown as legacy, the old files byte-identical.
 
-Not done at the time of writing: the owner's sign-in and a real approval (his), no API key issued (none was found to be needed),
+Not done at the time of writing: the owner's sign-in and a real approval (his), no API key issued,
 the proxy name's removal and the descriptor's `url` edit (his). Corrections the run made to this plan: the installer needs
 `--repo` and `--run` (step 5), and either stop method is acceptable (step 1).
