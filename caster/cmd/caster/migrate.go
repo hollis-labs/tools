@@ -46,7 +46,7 @@ func (m *migration) prepare(app *module.App) error {
 		if _, err := os.Stat(m.finalDB); err != nil {
 			return fmt.Errorf("--verify-only needs the migrated store: %w", err)
 		}
-		return nil
+		return secureDatabase(m.finalDB)
 	}
 	// Refuse while a service is listening on the address this configuration serves: the old service
 	// (or a new one) still has the data open. Only the configured address is probed.
@@ -73,7 +73,7 @@ func (m *migration) prepare(app *module.App) error {
 	db, _ := app.Config["database"].(map[string]any)
 	sq, _ := db["sqlite"].(map[string]any)
 	sq["path"] = m.stageDB
-	return nil
+	return secureDatabase(m.stageDB)
 }
 
 // httpAddr is the address the http host module would bind, from the merged configuration.
