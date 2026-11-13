@@ -177,7 +177,7 @@ descriptor is the record, and it is updated to what was deployed.
 One name forwarded to `127.0.0.1:7421` with no `Host` rewrite. **Decided by the owner (2026-11-12): the name is removed.** No caller
 was found, so nothing is served behind it afterwards, and the config has no `conduit.allowed_hosts` entry: Conduit answers only
 loopback names, and a request for any other `Host` is refused with 403. The proxy edit (deleting the name's block and reloading the
-proxy) is the owner's, done after the service is healthy.
+proxy) is the owner's; it was done before the window.
 
 If a name is wanted again later, the two ways are: the proxy rewrites `Host` to the loopback address (the MCP library's localhost
 protection refuses `/mcp` otherwise; framework request open, Gap 4 in the conversion notes), or the name is listed in
@@ -257,5 +257,6 @@ Checks on the host after start: `/healthz` 200, setup closed (`POST /api/setup` 
 `Host` 403, listening on loopback only, both migrated runs shown as legacy, the old files byte-identical.
 
 Not done at the time of writing: the owner's sign-in and a real approval (his), no API key issued,
-the proxy name's removal and the descriptor's `url` edit (his). Corrections the run made to this plan: the installer needs
+the descriptor edit (its flags and the `url` field; his). The proxy name was removed by the owner before the window (his backup of
+the proxy configuration is dated 23:37 UTC on 12 November). Corrections the run made to this plan: the installer needs
 `--repo` and `--run` (step 5), and either stop method is acceptable (step 1).
