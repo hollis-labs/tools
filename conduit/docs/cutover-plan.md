@@ -159,7 +159,7 @@ OLD=$HOME/.local/share/conduit
 
 ## 8. The Cerberus descriptor
 
-The unit is regenerated from the descriptor by an apply. In the same window, and by whoever owns that file:
+The unit is regenerated from the descriptor by an apply. By whoever owns that file (the owner; **still open after the run**, see section 14):
 
 | Descriptor item | Today | After |
 |---|---|---|
@@ -170,7 +170,7 @@ The unit is regenerated from the descriptor by an apply. In the same window, and
 | health | `http://127.0.0.1:7421/healthz` | unchanged. The descriptor's separate `url` field still names the removed proxy name: the owner's edit (point it at the loopback address or drop it) |
 
 Until the descriptor is changed, an apply puts the old command back; the drop-in resets `ExecStart` and so wins, but the
-descriptor is the record, and it is updated to what was deployed.
+descriptor is the record, and it is to be updated to what was deployed. **Until then nobody runs a Cerberus apply for the resource.**
 
 ## 9. The proxy
 
@@ -224,7 +224,7 @@ build misbehaves after it:
 | An agent launched locally with `conduit mcp` | none found | unchanged in use: read and run only, and it cannot approve |
 | The reverse proxy name | forwards without rewriting `Host` | removed (owner's decision), section 9 |
 | The Tether gateway | no catalog entry found | none is added by this port. A gateway entry would be an owner choice, through a catalog plan and a hub reload |
-| Cerberus | the descriptor of section 8 | updated |
+| Cerberus | the descriptor of section 8 | **pending** (the owner's edit; the drop-in holds the new command meanwhile) |
 | Scripts | none found | none |
 
 The survey found no live caller. The producers, read from the rehearsal copy with `select principal, count(*) from runs group by 1`: one principal, the operator token above, 2 runs, nothing else. Run the same query on the fresh backup before keys are minted.
@@ -247,16 +247,26 @@ On the host, by the driver with the owner at the keyboard, 2026-11-12/13 (UTC):
 | Time | Step | Result |
 |---|---|---|
 | 23:43:08 | stop the old unit (`systemctl --user stop`) | stopped; Cerberus had refused a stop from a read-only session |
-| after | online backup of the old database | taken |
+| after | online backup of the old database | taken; `pragma integrity_check` printed `ok` (23:43 UTC) |
 | after | `migrate-legacy` from the backup | runs 2/2, attempts 2/2, panics 0/0, retired_tokens 1/1, blobs copied 1, proven equal; the old files' sha256 identical to before |
 | before | `conduit config` and `version` | created nothing |
 | after | the owner created his account with `identity setup` at a terminal | done by him; the password written nowhere |
 | 00:04:52 | `fleet-install deploy conduit --repo hollis-labs/tools --run 43322242607`, then start | live on `e5a9267` |
 
-Checks on the host after start: `/healthz` 200, setup closed (`POST /api/setup` 403), no credential 401, `/v1` JSON 404, a foreign
+Checks on the host after start (00:04:52 UTC): `/healthz` 200, setup closed (`POST /api/setup` 403), no credential 401, `/v1` JSON 404, a foreign
 `Host` 403, listening on loopback only, both migrated runs shown as legacy, the old files byte-identical.
 
+Checks added later by the driver, 00:12 UTC on 13 November:
+
+| Check | Result |
+|---|---|
+| 7.3 the retired operator token as a bearer | 401 on `GET /api/runs` and on `POST /api/exec` (the token went from its file into the header and was never printed) |
+| 7.8 a restart of the unit | stopped cleanly (systemd `Result=success`, exit status 0); `/healthz` 200 again within a second |
+| 7.9 the unit's journal since the cutover | no panic |
+
+The old operator token file is left in place on purpose: deleting it is the owner's cleanup after a quiet period (section 13).
+
 Not done at the time of writing: the owner's sign-in and a real approval (his), no API key issued,
-the descriptor edit (its flags and the `url` field; his). The proxy name was removed by the owner before the window (his backup of
+the descriptor edit (its flags and the `url` field; his; until it is done nobody runs a Cerberus apply for the resource). The proxy name was removed by the owner before the window (his backup of
 the proxy configuration is dated 23:37 UTC on 12 November). Corrections the run made to this plan: the installer needs
 `--repo` and `--run` (step 5), and either stop method is acceptable (step 1).
