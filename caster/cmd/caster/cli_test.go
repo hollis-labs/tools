@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -83,5 +84,66 @@ func TestDataCommandsRefuseTheOldDatabase(t *testing.T) {
 	}
 	if after := s.dataFiles(); !slices.Equal(before, after) {
 		t.Fatalf("a refused command changed the data directory: %v -> %v", before, after)
+	}
+}
+
+// The database is private: created 0600 (the process umask is not trusted), an existing wider one is
+// tightened at start, and so are its -wal and -shm. The migrated store is 0600 too.
+func TestDatabaseFileIsPrivate(t *testing.T) {
+	s := newSite(t)
+	ws := filepath.Join(s.dir, "data", appName, "workspaces", "default")
+	mode := func(name string) os.FileMode {
+		t.Helper()
+		fi, err := os.Stat(filepath.Join(ws, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return fi.Mode().Perm()
+	}
+	umaskRun := func(args ...string) { // a data command creates the database; 0 = the widest umask
+		t.Helper()
+		cmd := exec.Command("sh", append([]string{"-c", `umask 0; exec "$0" "$@"`, s.bin}, args...)...) //nolint:gosec // the binary this test just built
+		cmd.Env, cmd.Stdin = s.env, strings.NewReader("hello\n")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+	umaskRun("put", "-n", "a/b", "-")
+	if m := mode("caster.db"); m != 0o600 {
+		t.Fatalf("a new caster.db must be 0600 whatever the umask, got %o", m)
+	}
+	// Widen it (and its sidecar files, if any) the way the live one was; the next start tightens it.
+	for _, n := range []string{"caster.db", "caster.db-wal", "caster.db-shm"} {
+		if _, err := os.Stat(filepath.Join(ws, n)); err == nil {
+			must(t, os.Chmod(filepath.Join(ws, n), 0o644)) //nolint:gosec // widening on purpose, to prove the next start tightens it
+		}
+	}
+	umaskRun("put", "-n", "a/c", "-")
+	for _, n := range []string{"caster.db", "caster.db-wal", "caster.db-shm"} {
+		if _, err := os.Stat(filepath.Join(ws, n)); err == nil && mode(n) != 0o600 {
+			t.Fatalf("%s must be tightened to 0600, got %o", n, mode(n))
+		}
+	}
+}
+
+// A configured database path whose parent directory does not exist is created (private), as the
+// database module itself would, and the database inside is 0600.
+func TestDatabaseInAMissingDirectoryIsCreated(t *testing.T) {
+	s := newSite(t)
+	db := filepath.Join(s.dir, "nodir", "sub", "caster.db")
+	cfg := filepath.Join(s.dir, "custom.yaml")
+	must(t, os.WriteFile(cfg, []byte("database:\n  sqlite:\n    path: "+db+"\n"), 0o600))
+	cmd := exec.Command(s.bin, "put", "-n", "a/b", "-") //nolint:gosec // the binary this test just built
+	cmd.Env, cmd.Stdin = append(append([]string{}, s.env...), "SUBSTRATE_CONFIG="+cfg), strings.NewReader("hello\n")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("put with a database in a missing directory: %v\n%s", err, out)
+	}
+	fi, err := os.Stat(db)
+	must(t, err)
+	if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("got %o", fi.Mode().Perm())
+	}
+	if di, err := os.Stat(filepath.Dir(db)); err != nil || di.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("the created directory must be private: %v %v", di, err)
 	}
 }

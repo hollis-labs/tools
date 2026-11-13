@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/hollis-labs/substrate/module"
 
@@ -21,11 +22,46 @@ func guardLegacy(app *module.App, layout paths.Layout) error {
 		return errors.New("no database path configured")
 	}
 	old := layout.MainDB()
-	if _, err := os.Stat(target); err == nil {
-		return nil // already migrated, or created by this version
+	if _, err := os.Stat(target); err != nil {
+		if _, oldErr := os.Stat(old); oldErr == nil {
+			return fmt.Errorf("found the pre-Substrate database %s and no %s: run `caster migrate` to copy the data (the old files are not changed), or move the old data directory aside to start empty", old, target)
+		}
 	}
-	if _, err := os.Stat(old); err == nil {
-		return fmt.Errorf("found the pre-Substrate database %s and no %s: run `caster migrate` to copy the data (the old files are not changed), or move the old data directory aside to start empty", old, target)
+	return secureDatabase(target) // already migrated, or created by this version
+}
+
+// secureDatabase makes the database file private: a missing one is created empty with mode 0600 (SQLite
+// opens an empty file as a new database, and gives its -wal and -shm files the same mode), an existing
+// one, and any -wal or -shm beside it, is tightened to 0600. It runs before the database module opens the
+// file, so the module never creates it with the process umask.
+func secureDatabase(path string) error {
+	// The database module would create a missing parent directory (CreateParentDir); this hook runs
+	// first, so it does the same, private.
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // the configured database path
+	switch {
+	case err == nil:
+		if err = f.Close(); err != nil {
+			return err
+		}
+	case !errors.Is(err, os.ErrExist):
+		return err
+	}
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		fi, statErr := os.Stat(p)
+		if errors.Is(statErr, os.ErrNotExist) {
+			continue
+		}
+		if statErr != nil {
+			return statErr
+		}
+		if fi.Mode().Perm()&0o077 != 0 {
+			if err = os.Chmod(p, 0o600); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

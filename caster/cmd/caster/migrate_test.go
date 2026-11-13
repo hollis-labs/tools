@@ -140,6 +140,9 @@ func TestMigrateFixture(t *testing.T) {
 			t.Fatalf("staging %s left behind", p)
 		}
 	}
+	if fi, err := os.Stat(filepath.Join(ws, "caster.db")); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("the migrated database must be 0600: %v %v", fi, err)
+	}
 	// Every blob is in the new tree, byte for byte, and read-only; the leftover tmp file is not.
 	for h, b := range old.files {
 		got, err := os.ReadFile(filepath.Join(ws, "cas", "sha256", h[:2], h[2:])) //nolint:gosec // temp dir
