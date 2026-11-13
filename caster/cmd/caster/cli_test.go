@@ -125,3 +125,25 @@ func TestDatabaseFileIsPrivate(t *testing.T) {
 		}
 	}
 }
+
+// A configured database path whose parent directory does not exist is created (private), as the
+// database module itself would, and the database inside is 0600.
+func TestDatabaseInAMissingDirectoryIsCreated(t *testing.T) {
+	s := newSite(t)
+	db := filepath.Join(s.dir, "nodir", "sub", "caster.db")
+	cfg := filepath.Join(s.dir, "custom.yaml")
+	must(t, os.WriteFile(cfg, []byte("database:\n  sqlite:\n    path: "+db+"\n"), 0o600))
+	cmd := exec.Command(s.bin, "put", "-n", "a/b", "-") //nolint:gosec // the binary this test just built
+	cmd.Env, cmd.Stdin = append(append([]string{}, s.env...), "SUBSTRATE_CONFIG="+cfg), strings.NewReader("hello\n")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("put with a database in a missing directory: %v\n%s", err, out)
+	}
+	fi, err := os.Stat(db)
+	must(t, err)
+	if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("got %o", fi.Mode().Perm())
+	}
+	if di, err := os.Stat(filepath.Dir(db)); err != nil || di.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("the created directory must be private: %v %v", di, err)
+	}
+}

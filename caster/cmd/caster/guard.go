@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/hollis-labs/substrate/module"
 
@@ -34,6 +35,11 @@ func guardLegacy(app *module.App, layout paths.Layout) error {
 // one, and any -wal or -shm beside it, is tightened to 0600. It runs before the database module opens the
 // file, so the module never creates it with the process umask.
 func secureDatabase(path string) error {
+	// The database module would create a missing parent directory (CreateParentDir); this hook runs
+	// first, so it does the same, private.
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // the configured database path
 	switch {
 	case err == nil:

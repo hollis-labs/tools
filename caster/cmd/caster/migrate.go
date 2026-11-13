@@ -46,7 +46,7 @@ func (m *migration) prepare(app *module.App) error {
 		if _, err := os.Stat(m.finalDB); err != nil {
 			return fmt.Errorf("--verify-only needs the migrated store: %w", err)
 		}
-		return secureDatabase(m.finalDB)
+		return secureDatabase(m.finalDB) // --verify-only tightens the final database's mode and changes nothing else
 	}
 	// Refuse while a service is listening on the address this configuration serves: the old service
 	// (or a new one) still has the data open. Only the configured address is probed.
