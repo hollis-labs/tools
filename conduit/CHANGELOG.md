@@ -9,6 +9,8 @@ section before running the repository release script. No releases are tagged yet
 
 ## Unreleased
 
+The live instance was cut over to this build on 2026-11-13 (`docs/cutover-plan.md`, section 14).
+
 ### Changed
 
 - Conduit runs on the Substrate framework: identity module (offline `identity setup`, API keys, sessions), auth guard in

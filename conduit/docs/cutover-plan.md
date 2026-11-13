@@ -1,7 +1,8 @@
 # Cutover plan: the live Conduit moves to the Substrate build
 
-Status: **written and rehearsed on a copy of the live database; not run.** Nothing here touches the live service until the
-owner approves the cutover (section 13). The rehearsal record is section 10; what it could not cover is listed there.
+Status: **run on 2026-11-12/13 (live since 00:04:52 UTC on 13 November)** on the build of `main` at `e5a9267`. The record of
+the run is section 14; the rehearsal record is section 10; what neither could cover is listed there. The steps below are kept
+as they were written, with the corrections the run made (marked).
 
 Related: `docs/conversion-notes.md` (what changed and why, the old-to-new tables), `docs/architecture.md`, `deploy.yaml`
 (the installer descriptor), `.github/workflows/conduit-build.yml` (the build; artifacts from every build of `main`, no tag
@@ -117,7 +118,8 @@ export CONDUIT_DATA_DIR=$HOME/.local/share/conduit-substrate
 OLD=$HOME/.local/share/conduit
 ```
 
-1. **Stop**: stop the unit through Cerberus (`service-stop`), not by killing the process. Confirm no `conduit` process remains.
+1. **Stop**: stop the unit through Cerberus (`service-stop`) or with `systemctl --user stop <unit>`; either is acceptable (the run
+   used the second, because Cerberus refused a stop from a read-only session). Do not kill the process. Confirm no `conduit` process remains.
    Then step zero 3.
 2. **Backup**, read-only on the old file: an online-backup copy of `$OLD/workspaces/default/main.db` to a new file in a
    backups directory (mode 0600). `sqlite3 <copy> 'pragma integrity_check'` must print `ok`.
@@ -165,7 +167,7 @@ The unit is regenerated from the descriptor by an apply. In the same window, and
 | environment | `CONDUIT_BLOBS`, `CONDUIT_POLICY` | `SUBSTRATE_CONFIG`, `CONDUIT_DATA_DIR`; the two old variables are removed (the new build does not read them) |
 | build target | `./cmd/conduit` to `bin/conduit`, installed as `conduit-api` | the installed binary is the symlink `~/.local/bin/conduit` set by the installer |
 | working directory | the build checkout | no longer relevant to the binary |
-| health | `http://127.0.0.1:7421/healthz` | unchanged |
+| health | `http://127.0.0.1:7421/healthz` | unchanged. The descriptor's separate `url` field still names the removed proxy name: the owner's edit (point it at the loopback address or drop it) |
 
 Until the descriptor is changed, an apply puts the old command back; the drop-in resets `ExecStart` and so wins, but the
 descriptor is the record, and it is updated to what was deployed.
@@ -236,4 +238,24 @@ The survey found no live caller. The producers, read from the rehearsal copy wit
   window gets connection refused.
 - **Unavailable afterwards**: local approve by terminal, `-yes`, `-shadow`, local `reject`, `token`, the `/v1` API, old
   tokens, OpenTelemetry, a unix socket and `-unsafe-bind`.
-- **Approval**: the owner approves the cutover. Until then, nothing here is run on the host by anyone.
+- **Approval**: given by the owner on 2026-11-12; the run is section 14.
+
+## 14. Record of the run
+
+On the host, by the driver with the owner at the keyboard, 2026-11-12/13 (UTC):
+
+| Time | Step | Result |
+|---|---|---|
+| 23:43:08 | stop the old unit (`systemctl --user stop`) | stopped; Cerberus had refused a stop from a read-only session |
+| after | online backup of the old database | taken; integrity ok |
+| after | `migrate-legacy` from the backup | runs 2/2, attempts 2/2, panics 0/0, retired_tokens 1/1, blobs copied 1, proven equal; the old files' sha256 identical to before |
+| before | `conduit config` and `version` | created nothing |
+| after | the owner created his account with `identity setup` at a terminal | done by him; the password written nowhere |
+| 00:04:52 | `fleet-install deploy conduit --repo hollis-labs/tools --run 43322242607`, then start | live on `e5a9267` |
+
+Checks on the host after start: `/healthz` 200, setup closed (`POST /api/setup` 403), no credential 401, `/v1` JSON 404, a foreign
+`Host` 403, listening on loopback only, both migrated runs shown as legacy, the old files byte-identical.
+
+Not done at the time of writing: the owner's sign-in and a real approval (his), no API key issued (none was found to be needed),
+the proxy name's removal and the descriptor's `url` edit (his). Corrections the run made to this plan: the installer needs
+`--repo` and `--run` (step 5), and either stop method is acceptable (step 1).
