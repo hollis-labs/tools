@@ -57,7 +57,7 @@ func TestToolPresets_RenderTrees(t *testing.T) {
 				}
 			}
 			project := readText(t, filepath.Join(dir, "project.yaml"))
-			for _, s := range []string{"schema: project/1", "id: " + c.name, "class: 2", "owner: user:chrispian"} {
+			for _, s := range []string{"schema: project/1", "id: " + c.name, "class: 2", "owner: user:owner"} {
 				if !strings.Contains(project, s) {
 					t.Errorf("project.yaml missing %q", s)
 				}
@@ -118,6 +118,16 @@ func TestToolPresets_Refusals(t *testing.T) {
 	}
 	if _, err := renderTool(t, "substrate-service", "svc-bad", map[string]any{"auth": "open"}); err == nil {
 		t.Error("an unknown auth mode was accepted")
+	}
+	for _, port := range []string{"0", "00", "99999", "65536", "100000", "80a"} {
+		if _, err := renderTool(t, "substrate-service", "svc-port", map[string]any{"http_port": port}); err == nil {
+			t.Errorf("http_port %q was accepted", port)
+		}
+	}
+	for _, port := range []string{"1", "8080", "65535"} {
+		if _, err := renderTool(t, "substrate-service", "svc-port", map[string]any{"http_port": port}); err != nil {
+			t.Errorf("http_port %q refused: %v", port, err)
+		}
 	}
 }
 
