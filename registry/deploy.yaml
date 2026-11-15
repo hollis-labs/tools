@@ -1,0 +1,19 @@
+# Generated from project.yaml settings.runtime; regenerate with folio deploy render.
+schema: fleet-deploy/v1
+app: registry
+repo: hollis-labs/tools
+artifact: {name: "registry-{sha12}", tarball: "registry_{version}_{os}_{arch}.tar.gz", sums: SHA256SUMS}
+targets:
+  - id: registry-linux-amd64
+    when: {os: linux, arch: amd64}
+    hosts: [fleet-host]
+    binary: registry
+    install_root: "~/.local/share/fleet/releases/registry"
+    symlinks:
+      - path: "~/.local/bin/registry"
+    # Cerberus supervises the process (Option B): it runs the symlink above and never builds or places the binary.
+    restart: {via: cerberus, resource: registry}
+    health:
+      url: "http://127.0.0.1:18190/healthz"
+      expect_status: [200]
+      timeout: 30s

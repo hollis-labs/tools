@@ -8,6 +8,8 @@ Go tools and other command-line utilities from Hollis Labs. One public repositor
   and exposes one service through CLI, browser, MCP and HTTP.
 - [Conduit](conduit/) parses commands, applies policy, records outcomes and lets
   operators approve work submitted by agents.
+- [Registry](registry/) stores operational definitions and typed relationships
+  through HTTP, CLI and MCP, with immutable revisions and scoped review.
 - [Outpost](outpost/) hosts trusted subprocess plugins on a machine and routes
   authenticated requests to them using per-plugin controller pairings.
 

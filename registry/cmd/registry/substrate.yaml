@@ -1,0 +1,10 @@
+# registry on Substrate (class 2). The manifest is the shell: modules and config.
+app: registry
+variant: microservice
+profiles: [agentic]
+modules:
+  add: [httphost, cli, database]
+config:
+  auth: { mode: enforce }
+  logging: { level: info, format: text }
+  httphost: { addr: "127.0.0.1:18190" }
