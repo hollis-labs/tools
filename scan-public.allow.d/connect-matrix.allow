@@ -1,0 +1,3 @@
+agent-box-host connect-matrix/CHANGELOG.md@814080b227ce Historical fleet host label in prose; removed from the current tree, no credential.
+agent-box-host connect-matrix/README.md@814080b227ce Historical fleet host label in prose; removed from the current tree, no credential.
+nanite-cloud-host connect-matrix/examples/agent[-]os.json@814080b227ce Historical example hostname; absent from the current tree, no credential.
