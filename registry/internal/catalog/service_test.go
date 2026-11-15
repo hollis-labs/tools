@@ -321,3 +321,121 @@ func TestIncomingRelationsDeriveInverseWithoutRewritingStoredDirection(t *testin
 		t.Fatalf("inverse: %+v", edges)
 	}
 }
+
+func TestGroundCannotEraseSameHashAuthoritativeDecision(t *testing.T) {
+	for _, state := range []string{"reviewed", "denied", "quarantined"} {
+		for _, proposal := range []bool{false, true} {
+			t.Run(state+map[bool]string{false: "-direct", true: "-proposal"}[proposal], func(t *testing.T) {
+				s := openTest(t, filepath.Join(t.TempDir(), "db"))
+				in := toolInput("prior", "declared-read", "")
+				var tool kinds.Tool
+				if err := json.Unmarshal(in.Payload, &tool); err != nil {
+					t.Fatal(err)
+				}
+				tool.Definition.Annotations = json.RawMessage(`{"readOnlyHint":true,"destructiveHint":false,"openWorldHint":false}`)
+				in.Payload, _ = json.Marshal(tool)
+				r := create(t, s, in)
+				no := false
+				high := &kinds.Classification{SideEffect: []string{"destructive"}, Idempotent: &no, ApprovalTier: "elevated", Egress: "external", SecretAccess: "reads"}
+				low := &kinds.Classification{SideEffect: []string{"read"}, Idempotent: &no, ApprovalTier: "ground", Egress: "none", SecretAccess: "none"}
+				r = callRecord(t, s, reviewer, "review_decide", Args{ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Decision: state, Classification: high, Reason: "restrictive evidence", Approval: &kinds.Reference{Authority: "approval", Kind: "decision", ID: "elevated/1"}})
+				if proposal {
+					r = callRecord(t, s, writer, "tool_propose", Args{ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Classification: low, Reason: "new proposal"})
+				}
+				r = callRecord(t, s, caller("ground", "registry.review"), "review_decide", Args{ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Decision: "reviewed", Classification: low, Reason: "declared read"})
+				if r.Review.Effective != nil || r.Review.QueueState != "needs_human" || r.Review.Approval != nil || r.Review.ReviewedBy != "" {
+					t.Fatalf("same-hash decision bypass: %+v", r.Review)
+				}
+				// Existing elevated authority can replace it, with newly bound evidence.
+				r = callRecord(t, s, reviewer, "review_decide", Args{ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Decision: "reviewed", Classification: low, Reason: "new evidence", Approval: &kinds.Reference{Authority: "approval", Kind: "decision", ID: "elevated/2"}})
+				if r.Review.State != "reviewed" || r.Review.Approval == nil || r.Review.Approval.ID != "elevated/2" {
+					t.Fatal("elevation path lost")
+				}
+			})
+		}
+	}
+}
+func TestGroundConditionalRulesNeedElevation(t *testing.T) {
+	for _, conditional := range []string{`"input_dependent":true`, `"rule_ref":"policy/rule"`, `"arg_rules":"policy/args"`, `"flag_patterns":[{"pattern":"--delete","side_effect":["destructive"],"reason":"deletes"}]`} {
+		s := openTest(t, filepath.Join(t.TempDir(), "db"))
+		in := toolInput("flags", "conditional", "")
+		var tool kinds.Tool
+		if err := json.Unmarshal(in.Payload, &tool); err != nil {
+			t.Fatal(err)
+		}
+		tool.Definition.Annotations = json.RawMessage(`{"readOnlyHint":true,"destructiveHint":false,"openWorldHint":false}`)
+		in.Payload, _ = json.Marshal(tool)
+		r := create(t, s, in)
+		var cls kinds.Classification
+		if err := json.Unmarshal([]byte(`{"side_effect":["read"],"idempotent":false,"approval_tier":"ground","egress":"none","secret_access":"none",`+conditional+`}`), &cls); err != nil {
+			t.Fatal(err)
+		}
+		r = callRecord(t, s, caller("ground", "registry.review"), "review_decide", Args{ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Decision: "reviewed", Classification: &cls, Reason: "read default"})
+		if r.Review.Effective != nil || r.Review.QueueState != "needs_human" {
+			t.Fatalf("conditional ground approval: %+v", r.Review)
+		}
+	}
+}
+func TestIncomingAndBothResolveArchivedTarget(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	a := create(t, s, input("from"))
+	b := create(t, s, input("to"))
+	rel := &kinds.Relation{Schema: kinds.RelationSchema, Type: kinds.Consumes, From: kinds.Reference{Authority: "registry", Kind: "project", ID: a.ID}, To: kinds.Reference{Authority: "registry", Kind: "project", ID: b.ID}, Source: "authored", Status: "proposed"}
+	callRecord(t, s, writer, "relation_create", Args{ID: a.ID, Version: a.VersionToken, Relation: rel})
+	callRecord(t, s, writer, "record_archive", Args{ID: b.ID, Version: b.VersionToken})
+	for _, direction := range []string{"incoming", "both"} {
+		out, err := s.Call(writer, "relation_list", Args{ID: b.ID, Direction: direction})
+		if err != nil {
+			t.Fatal(err)
+		}
+		edges := out.(map[string]any)["edges"].([]Edge)
+		if len(edges) != 1 || edges[0].TargetState != "archived" || edges[0].CheckedAt == "" || edges[0].Relation.From.ID != a.ID {
+			t.Fatalf("%s resolution: %+v", direction, edges)
+		}
+	}
+}
+
+func TestEnvelopeMetadataAdmissionRejectsWithoutRowsOrReceipts(t *testing.T) {
+	for _, n := range []string{"9007199254740993", "1e-400", "1e400"} {
+		t.Run(n, func(t *testing.T) {
+			s := openTest(t, filepath.Join(t.TempDir(), "db"))
+			in := input("metadata")
+			in.Metadata = map[string]any{"nested": []any{json.Number(n)}}
+			_, err := s.Call(writer, "record_create", Args{Record: in, IdempotencyKey: "metadata-request"})
+			code(t, err, "validation_error")
+			for _, table := range []string{"records", "revisions", "receipts"} {
+				var count int
+				var query string
+				switch table {
+				case "records":
+					query = "SELECT COUNT(*) FROM records"
+				case "revisions":
+					query = "SELECT COUNT(*) FROM revisions"
+				case "receipts":
+					query = "SELECT COUNT(*) FROM receipts"
+				}
+				if checkErr := s.DB.QueryRowContext(context.Background(), query).Scan(&count); checkErr != nil {
+					t.Fatal(checkErr)
+				}
+				if count != 0 {
+					t.Fatalf("rejected write left %d %s", count, table)
+				}
+			}
+			// Reusing the rejected creation key for admitted data must succeed: no receipt.
+			in.Metadata = map[string]any{"number": json.Number("9007199254740991"), "exact": "9007199254740993"}
+			r := callRecord(t, s, writer, "record_create", Args{Record: in, IdempotencyKey: "metadata-request"})
+			got := callRecord(t, s, writer, "record_get", Args{ID: r.ID})
+			if got.Metadata["number"] != float64(9007199254740991) || got.Metadata["exact"] != "9007199254740993" {
+				t.Fatalf("admitted metadata changed: %+v", got.Metadata)
+			}
+			// Invalid replacement must leave the old revision current and readable.
+			in.Metadata = map[string]any{"number": json.Number(n)}
+			_, err = s.Call(writer, "record_update", Args{ID: r.ID, Version: r.VersionToken, Record: in})
+			code(t, err, "validation_error")
+			unchanged := callRecord(t, s, writer, "record_get", Args{ID: r.ID})
+			if unchanged.VersionToken != r.VersionToken {
+				t.Fatal("invalid update advanced revision")
+			}
+		})
+	}
+}

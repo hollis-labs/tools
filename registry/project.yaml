@@ -25,7 +25,7 @@ interfaces:
   - type: mcp
     name: registry mcp
     auth: enforce
-substrate: { variant: microservice, profile: agentic, version: v0.1.1-0.20261115174809-67661a157571 }
+substrate: { variant: microservice, profile: agentic, version: v0.1.1-0.20261115180133-3a0d1b3d6781 }
 deploy:
   fleet: deploy.yaml
   cerberus: registry.cerberus.yaml

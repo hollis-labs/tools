@@ -155,6 +155,26 @@ func TestAPIClientCLIMCPShareDataAndErrors(t *testing.T) {
 	if !bytes.Contains(b, []byte("underflows")) {
 		t.Fatalf("wrong numeric rejection: %s", b)
 	}
+	for _, number := range []string{"9007199254740993", "1e-400", "1e400"} {
+		badEnvelope := strings.Replace(doc, `"record":{`, `"record":{"metadata":{"number":`+number+`},`, 1)
+		rejected, callErr := cs.CallTool(ctx, &mcpsdk.CallToolParams{Name: "registry_record_create", Arguments: json.RawMessage(badEnvelope)})
+		// Overflow can be refused by the SDK decoder before reaching the handler;
+		// either protocol or structured execution rejection must remain a failure.
+		if callErr == nil && (rejected == nil || !rejected.IsError) {
+			t.Fatalf("MCP envelope metadata admitted %s", number)
+		}
+		var args catalog.Args
+		// UseNumber here mirrors operator input without invoking Registry Decode.
+		decoder := json.NewDecoder(strings.NewReader(badEnvelope))
+		decoder.UseNumber()
+		if decodeErr := decoder.Decode(&args); decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		if _, callErr = client.Call(ctx, "record_create", args); callErr == nil {
+			t.Fatalf("HTTP envelope metadata admitted %s", number)
+		}
+	}
+
 }
 func TestHTTPMCPWriteScopesAndExactIdentity(t *testing.T) {
 	endpoint := testService(t)

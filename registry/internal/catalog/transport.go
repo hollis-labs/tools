@@ -92,7 +92,11 @@ func Handler(call CallFunc) http.Handler {
 				return
 			}
 			if record, ok := result.(Record); ok {
-				w.Header().Set("ETag", `"`+record.VersionToken+`"`)
+				// Resolution can change when a target changes without a source revision.
+				// Conditional reads of a representation with edges must be revalidated.
+				if len(record.Edges) == 0 {
+					w.Header().Set("ETag", `"`+record.VersionToken+`"`)
+				}
 			}
 			if page, ok := result.(Page); ok {
 				w.Header().Set("ETag", `"`+digest(struct {

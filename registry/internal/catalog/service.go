@@ -39,6 +39,13 @@ func (s *Service) Call(ctx context.Context, op string, a Args) (any, error) {
 	if !ok || !p.Verified || p.ID == "" || !p.HasScope(scope(op)) {
 		return nil, failure("forbidden", "scope", scope(op)+" required")
 	}
+	raw, err := json.Marshal(a)
+	if err != nil {
+		return nil, invalid("arguments", err)
+	}
+	if err = kinds.ValidateJSONValue(raw); err != nil {
+		return nil, invalid("arguments", err)
+	}
 	known := false
 	for _, v := range Operations {
 		if v == op {
@@ -380,6 +387,7 @@ func (s *Service) mutate(ctx context.Context, p libauth.Principal, op string, a 
 				r.Review.ReviewedAt = ""
 				r.Review.Approval = nil
 			} else {
+				r.Review.Approval = nil // Every decision owns its own evidence.
 				switch a.Decision {
 				case "reviewed":
 					if a.Classification == nil {
@@ -389,7 +397,11 @@ func (s *Service) mutate(ctx context.Context, p libauth.Principal, op string, a 
 					if role != "ground" && role != "elevated" && role != "owner" {
 						return failure("forbidden", "reviewer", "reviewer has no configured review authority")
 					}
-					if !groundReview(r, a.Classification) {
+					priorRestrictive, err := priorRestrictsGround(ctx, tx, r)
+					if err != nil {
+						return err
+					}
+					if !groundReview(r, a.Classification) || priorRestrictive {
 						if role == "ground" {
 							a.Decision = "needs_human"
 							r.Review.Proposed = a.Classification
@@ -669,6 +681,9 @@ func internalError(err error) *Error {
 // relax declared hints. Every other approval needs configured elevation and
 // an existing approval reference; Registry does not implement that workflow.
 func groundReview(r Record, c *kinds.Classification) bool {
+	if (c.InputDependent != nil && *c.InputDependent) || c.RuleRef != "" || c.ArgRules != "" || len(c.FlagPatterns) > 0 {
+		return false
+	}
 	if len(c.SideEffect) != 1 || c.SideEffect[0] != "read" || c.ApprovalTier != "ground" || c.Idempotent == nil || c.Egress != "none" || c.SecretAccess != "none" {
 		return false
 	}
@@ -717,5 +732,36 @@ func incomingEdges(ctx context.Context, q store.Querier, id string) ([]Edge, err
 			}
 		}
 	}
-	return edges, rows.Err()
+	if checkErr := rows.Err(); checkErr != nil {
+		return nil, checkErr
+	}
+	if checkErr := rows.Close(); checkErr != nil {
+		return nil, checkErr
+	}
+	resolved := Record{Edges: edges}
+	if checkErr := resolveEdges(ctx, q, &resolved, -1); checkErr != nil {
+		return nil, checkErr
+	}
+	return resolved.Edges, nil
+}
+
+// Proposals and metadata revisions cannot erase an authoritative same-hash
+// decision. Compare the latest immutable decided revision, not current state.
+func priorRestrictsGround(ctx context.Context, q store.Querier, r Record) (bool, error) {
+	var raw []byte
+	err := q.QueryRowContext(ctx, `SELECT body FROM revisions WHERE id=? AND json_extract(body,'$.review.definition_hash')=? AND COALESCE(json_extract(body,'$.review.reviewed_by'),'')!='' AND json_extract(body,'$.review.state') IN ('reviewed','denied','quarantined') ORDER BY seq DESC LIMIT 1`, r.ID, r.Review.DefinitionHash).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var prior Record
+	if err := json.Unmarshal(raw, &prior); err != nil {
+		return false, err
+	}
+	if prior.Review.State != "reviewed" || prior.Review.Effective == nil {
+		return true, nil
+	}
+	return !groundReview(prior, prior.Review.Effective), nil
 }

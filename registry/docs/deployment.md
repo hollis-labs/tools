@@ -39,8 +39,10 @@ shared gateway.
    Archive/tombstone those test records afterward; no bulk data population.
 8. Prepare the supported Tether HTTP upstream registration pointing at `/mcp`,
    with protected token-file reference and only intended client grants. Current
-   onboarding guidance says a new upstream can remain pending_restart until a
-   daemon reload. Present the exact affected gateway, consumers, reload/recovery
+   installed Tether catalog workflow requires an operator passphrase to approve
+   the concrete catalog plan before apply. Use that supported workflow; do not
+   bypass it with direct configuration edits. A new upstream may remain
+   pending_restart until a daemon reload. Present the exact affected gateway, consumers, reload/recovery
    steps and timing to the driver. No shared Tether reload, protected opt-in
    expansion or active workstream restart belongs to this PR's implementation.
 9. At the separately coordinated gateway activation checkpoint, prove tool

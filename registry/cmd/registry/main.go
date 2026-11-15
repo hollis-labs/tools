@@ -4,9 +4,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -22,7 +25,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if checkErr := run(ctx); checkErr != nil {
-		fmt.Fprintln(os.Stderr, "registry:", checkErr)
+		var reported reportedError
+		if !errors.As(checkErr, &reported) {
+			if slices.Contains(os.Args[1:], "--json") {
+				_ = json.NewEncoder(os.Stderr).Encode(map[string]any{"error": commandError(checkErr)})
+			} else {
+				fmt.Fprintln(os.Stderr, "registry:", checkErr)
+			}
+		}
 		stop()
 		os.Exit(1)
 	}

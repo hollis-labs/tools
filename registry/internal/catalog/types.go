@@ -155,6 +155,9 @@ func Decode(data []byte, out any) error {
 	if len(data) > MaxRequestBytes {
 		return failure("validation_error", "request", "request exceeds 2 MiB")
 	}
+	if checkErr := kinds.ValidateJSONValue(data); checkErr != nil {
+		return invalid("request", checkErr)
+	}
 	if _, ok := out.(*Args); ok {
 		var original struct {
 			Relation       json.RawMessage `json:"relation"`

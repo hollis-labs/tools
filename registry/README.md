@@ -67,8 +67,8 @@ registry snapshot --full --limit 100 --json
 registry mcp --token-file /absolute/protected/credential
 ```
 
-Success output is always JSON. `--json` also prints the structured error before
-returning a nonzero exit status. `--file -` reads operation arguments from stdin.
+Success output is always JSON. `--json` emits one structured error envelope, including input decoding and
+file errors, before returning a nonzero exit status. `--file -` reads operation arguments from stdin.
 `create` and `update` take an operation envelope, for example:
 
 ```json
@@ -99,7 +99,10 @@ applicable. Use discovery to retrieve each kind's strict schema.
 local-trust bypass or independent authority. Its named `registry_*` tools have
 operation-specific input schemas. HTTP MCP at `/mcp` calls the same service layer.
 Both preserve original argument JSON before generic SDK float conversion, so
-strict payload numeric admission and absent/null definition hashing agree with HTTP.
+strict numeric admission across payloads and envelope metadata, plus absent/null
+definition hashing, agree with HTTP. The shared admission policy rejects unsafe
+integral values, nonzero underflow and overflow before any mutation or receipt.
+Represent exact values outside the safe numeric range as strings.
 
 ## HTTP and tool contract
 
@@ -134,8 +137,11 @@ arguments as HTTP/MCP. Discovery documents `relation`, `edge_id`, `direction`,
 No shell interpolation is needed for authored bodies.
 
 Mutations require the current `version` token; HTTP also accepts `If-Match`.
-Responses contain immutable `revision_id`, `version_token`, timestamps and an
-ETag. Stale writes/reviews return `version_conflict` (409). Creation receipts
+Responses contain immutable `revision_id`, `version_token` and timestamps.
+Records without edges also carry an ETag. Live records with resolved edges omit
+it because target state can change independently of the source version; their
+`version_token` still controls writes. Fixed-boundary snapshots retain ETags.
+Stale writes/reviews return `version_conflict` (409). Creation receipts
 bind the authenticated caller, authority, key and complete request content;
 changed-content retries conflict. A retry returns the original creation response.
 
@@ -192,10 +198,14 @@ runtime enforcement or policy exports.
 
 Ground reviewers can confirm only read-only, ground-tier, no-egress/no-secret
 classifications consistent with explicit non-destructive/read-only/closed-world
-declared hints. Everything else stays `needs_human` for a ground reviewer.
+declared hints. Conditional argument/flag rules require elevation. A ground
+reviewer cannot override a same-hash restrictive, denied or quarantined decision,
+even after a new proposal; the latest immutable decision remains authoritative.
+Everything else stays `needs_human` for a ground reviewer.
 Configured elevated/owner reviewers require an `approval` typed reference to an
 existing approval/evidence record for those decisions, plus a reason. Registry
-records that attestation; the existing authority owns the approval workflow.
+records that attestation, bound only to the new decision; the existing authority
+owns the approval workflow.
 No request can select its own reviewer role. Review scopes and publication
 scopes are separate.
 

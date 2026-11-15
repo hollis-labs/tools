@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -36,6 +37,8 @@ func registryClient(endpoint, tokenFile string) *catalog.Client {
 	}}
 }
 func addClientCommands(root *cobra.Command) {
+	root.SilenceErrors = true
+	root.SilenceUsage = true
 	// Human commands and the discoverable exact operation names share one path.
 	names := map[string]string{"kinds_list": "kinds", "schema_get": "schema", "record_create": "create", "record_get": "get", "record_list": "list", "record_search": "search", "record_update": "update", "record_archive": "archive", "record_delete": "delete", "record_verify": "verify", "revision_list": "history", "revision_get": "revision", "snapshot_get": "snapshot", "diagnostics": "doctor"}
 	for _, op := range catalog.Operations {
@@ -46,7 +49,13 @@ func addClientCommands(root *cobra.Command) {
 		var endpoint, tokenFile, file, id, version, key, schema, cursor, kind, search string
 		var full, jsonOutput, allow bool
 		var limit int
-		cmd := &cobra.Command{Use: name + " [id]", Short: "Registry " + strings.ReplaceAll(op, "_", " "), Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, pos []string) error {
+		cmd := &cobra.Command{Use: name + " [id]", Short: "Registry " + strings.ReplaceAll(op, "_", " "), Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, pos []string) (runErr error) {
+			defer func() {
+				if runErr != nil && jsonOutput {
+					_ = json.NewEncoder(cmd.ErrOrStderr()).Encode(map[string]any{"error": commandError(runErr)})
+					runErr = reportedError{runErr}
+				}
+			}()
 			a := catalog.Args{}
 			if file != "" {
 				reader := cmd.InOrStdin()
@@ -101,9 +110,6 @@ func addClientCommands(root *cobra.Command) {
 			}
 			out, err := registryClient(endpoint, tokenFile).Call(cmd.Context(), op, a)
 			if err != nil {
-				if jsonOutput {
-					_ = json.NewEncoder(cmd.ErrOrStderr()).Encode(map[string]any{"error": err})
-				}
 				return err
 			}
 			encoder := json.NewEncoder(cmd.OutOrStdout())
@@ -126,4 +132,18 @@ func addClientCommands(root *cobra.Command) {
 		cmd.Flags().BoolVar(&jsonOutput, "json", false, "Include structured errors; success output is always JSON")
 		root.AddCommand(cmd)
 	}
+}
+
+// reportedError prevents main from printing a second plain-text copy after a
+// command has emitted its machine-readable error envelope.
+type reportedError struct{ error }
+
+func (e reportedError) Unwrap() error { return e.error }
+
+func commandError(err error) *catalog.Error {
+	var serviceError *catalog.Error
+	if errors.As(err, &serviceError) {
+		return serviceError
+	}
+	return &catalog.Error{Code: "validation_error", Field: "input", Message: "unable to read or process command input", Remedy: "Check arguments and local input/credential file access."}
 }
