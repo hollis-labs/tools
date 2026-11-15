@@ -56,7 +56,7 @@ jobs:
       - name: go test -race
         env:
           FOLIO_REQUIRE_TOOLS: "1"
-          FOLIO_SUBSTRATE_VERSION: v0.1.1-0.20261115140033-66978e9d84cd
+          FOLIO_SUBSTRATE_VERSION: v0.1.1-0.20261115173848-45b018004dd2
         run: go test -race ./...
 
   lint:
