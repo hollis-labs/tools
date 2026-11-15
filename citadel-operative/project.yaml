@@ -1,0 +1,21 @@
+schema: project/1
+id: citadel-operative
+name: Citadel Operative
+description: Experimental SDK definition validator and explicit synthetic fixture CLI
+class: 2
+lifecycle: active
+visibility: public
+owner: user:chrispian
+org: hollis-labs
+repo: https://github.com/hollis-labs/tools
+location: citadel-operative
+interfaces:
+  - { type: cli, name: citadel-operative, auth: none }
+release: { tagging: semver }
+settings: {}
+metadata:
+  runtime_note: >-
+    A local CLI governed by caller OS permissions, with explicitly selected
+    in-memory SDK fixtures. No Substrate runtime or production authentication,
+    credential, policy or environment authority adapter is implemented.
+    Fixture labels and references grant no authority outside the synthetic host.
