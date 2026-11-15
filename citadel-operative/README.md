@@ -64,7 +64,10 @@ repeat a run ID, even with changed input, a fresh provider call ID or a replacem
 attempt. Distinct logical run IDs remain distinct work, even with equal arguments.
 
 The ledger is deliberately **process-local**. Each independent CLI invocation
-starts a new synthetic universe. This is not durable replay protection across
+explicitly starts a new synthetic universe at the executable boundary. Runner
+constructors require an injected ledger and never create or reset admission
+state; missing fixture state refuses execution. Independent runner instances
+within a process must share that universe. This is not durable replay protection across
 process restarts or a production identity/admission implementation. An installed
 production runner still needs authenticated durable run/effect admission,
 environment verification and lifecycle ownership supplied by its host. Pending

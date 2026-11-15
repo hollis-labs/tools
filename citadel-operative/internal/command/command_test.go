@@ -37,7 +37,7 @@ func TestValidateAndExplicitFixtureScenarios(t *testing.T) {
 		{"cancel", Cancelled, "cancelled", 1, 0},
 	} {
 		t.Run(test.mode, func(t *testing.T) {
-			code, out, stderr := invoke(New(nil), context.Background(), "run", "--fixture", test.mode, "--definition", fixture, "--run-id", "run-1", "--input", "Read the synthetic value.")
+			code, out, stderr := invoke(New(fixturehost.NewLedger()), context.Background(), "run", "--fixture", test.mode, "--definition", fixture, "--run-id", "run-1", "--input", "Read the synthetic value.")
 			var result struct {
 				Fixture, Status string
 				ModelCalls      int64 `json:"model_calls"`
@@ -89,7 +89,7 @@ func TestMalformedUnsupportedAndUnboundDefinitionsHaveNoEffects(t *testing.T) {
 			if err := os.WriteFile(file, []byte(test.data), 0600); err != nil {
 				t.Fatal(err)
 			}
-			code, out, stderr := invoke(New(nil), context.Background(), "run", "--fixture", "allow", "--definition", file, "--run-id", "r1", "--input", "hello")
+			code, out, stderr := invoke(New(fixturehost.NewLedger()), context.Background(), "run", "--fixture", "allow", "--definition", file, "--run-id", "r1", "--input", "hello")
 			if code != Failure || stderr == "" {
 				t.Fatalf("code=%d out=%s stderr=%s", code, out, stderr)
 			}
@@ -121,7 +121,7 @@ func TestSharedRunIDRefusesAcrossCommandInstances(t *testing.T) {
 func TestCallerCancellationAndWriteFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	code, out, stderr := invoke(New(nil), ctx, "run", "--fixture", "allow", "--definition", fixture, "--run-id", "cancel-input", "--input", "hello")
+	code, out, stderr := invoke(New(fixturehost.NewLedger()), ctx, "run", "--fixture", "allow", "--definition", fixture, "--run-id", "cancel-input", "--input", "hello")
 	if code != Cancelled || !strings.Contains(out, `"tool_effects":0`) || !strings.Contains(stderr, "canceled") {
 		t.Fatalf("cancel code=%d out=%s err=%s", code, out, stderr)
 	}
@@ -133,3 +133,13 @@ func TestCallerCancellationAndWriteFailure(t *testing.T) {
 type brokenWriter struct{}
 
 func (brokenWriter) Write([]byte) (int, error) { return 0, os.ErrClosed }
+
+func TestMissingLedgerNeverCreatesFreshAuthority(t *testing.T) {
+	args := []string{"run", "--fixture", "allow", "--definition", fixture, "--run-id", "same-input", "--input", "Read the fixture."}
+	for range 2 {
+		code, out, stderr := invoke(New(nil), context.Background(), args...)
+		if code != Failure || out != "" || !strings.Contains(stderr, "ledger required") {
+			t.Fatalf("missing state created authority: code=%d out=%s stderr=%s", code, out, stderr)
+		}
+	}
+}

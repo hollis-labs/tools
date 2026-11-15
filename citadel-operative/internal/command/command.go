@@ -40,12 +40,9 @@ Production host configuration/adapters are not implemented; unconfigured run fai
 
 type Runner struct{ ledger *fixturehost.Ledger }
 
-// New shares fixture reservations with other runners only when given the same
-// ledger. Nil starts a fresh in-memory fixture universe. No persistence is implied.
+// New uses the caller's explicit fixture universe, shared across independent
+// runners. It never creates/reset state; nil refuses fixture execution.
 func New(ledger *fixturehost.Ledger) *Runner {
-	if ledger == nil {
-		ledger = fixturehost.NewLedger()
-	}
 	return &Runner{ledger: ledger}
 }
 
