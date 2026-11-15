@@ -1,0 +1,41 @@
+# project.yaml — the project descriptor (project/1, release candidate 1: fields may change without a version bump
+# until 1.0). Written once by Folio and never overwritten; edit it by hand. `internal/descriptor` validates it
+# and checks that deploy.yaml, registry.cerberus.yaml and the code agree with it.
+schema: project/1
+id: registry
+name: Registry
+description: "Operational definitions and typed relationships"
+class: 2
+lifecycle: experimental
+visibility: public
+owner: user:chrispian
+org: hollis-labs
+repo: https://github.com/hollis-labs/tools
+location: registry
+interfaces:
+  - type: cli
+    name: registry
+    auth: enforce
+  - type: api
+    name: registry HTTP
+    auth: enforce
+  - type: daemon
+    name: registry
+    auth: enforce
+  - type: mcp
+    name: registry mcp
+    auth: enforce
+substrate: { variant: microservice, profile: agentic, version: v0.1.1-0.20261115174809-67661a157571 }
+deploy:
+  fleet: deploy.yaml
+  cerberus: registry.cerberus.yaml
+release: { tagging: ci-artifact-only }
+settings:
+  # Folio-owned deployment projection; credentials belong in operator config.
+  runtime:
+    target_os: linux
+    target_arch: amd64
+    host: fleet-host
+    http_port: 18190
+    binary_link: ~/.local/bin/registry
+    install_root: ~/.local/share/fleet/releases/registry

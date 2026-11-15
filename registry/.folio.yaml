@@ -1,0 +1,152 @@
+repository_location: registry
+folio_version: "0.1"
+generated_at: 2026-11-15T11:39:30.44061-06:00
+generator: folio/0.1.0
+presets:
+  - id: go-baseline
+    version: 0.1.0
+    source: bundled
+    resolved_path: bundled:presets/go-baseline
+  - id: substrate-tool-baseline
+    version: 0.1.0
+    source: bundled
+    resolved_path: bundled:presets/substrate-tool-baseline
+  - id: substrate-service
+    version: 0.1.0
+    source: bundled
+    resolved_path: bundled:presets/substrate-service
+inputs:
+  agents_boundaries: |-
+    - project.yaml, deploy.yaml and (services) the Cerberus manifest describe one thing. Change a shared value (id, binary path, port, auth mode) in all of them; `internal/descriptor` tests fail when they differ.
+    - Pins are edited only in the Substrate `bom/bom.yaml`: run `substrate pins sync --app .`, never hand-edit a version in `go.mod`.
+    - Services: `auth: loopback_open` is for dev on a loopback bind only; the service refuses to start otherwise (`TestLoopbackOpenRefusesNonLoopback`). Cerberus-managed runs use `enforce`.
+    - Services: fleet-install places the binary; the Cerberus manifest has no build_strategy and no artifact_path (they would overwrite the fleet-install link).
+    - No secret, host name, address or personal path in a file, a commit or CI: `substrate scan-public --ref HEAD` must stay clean.
+  agents_start_here: |-
+    - `project.yaml` — the project descriptor (project/1, class 2): identity, interfaces, auth mode. Folio never overwrites it.
+    - `deploy.yaml` — fleet-install descriptor (fleet-deploy/v1).
+    - `registry.cerberus.yaml` — services only: what Cerberus supervises (Option B: it does not build or place the binary).
+    - `cmd/registry/substrate.yaml` — the manifest. `substrate_wiring.go` is generated from it (`substrate generate`); never edit it.
+    - `internal/descriptor/` — validates project.yaml and checks that deploy.yaml, the Cerberus manifest and the code agree with it.
+    - `internal/authmode/authmode.go` — services only: the auth mode and the refusal of `loopback_open` on a non-loopback bind.
+    - `.github/workflows/check.yml` — the class 2 gate (vet, pins check, build, race tests, scan-public).
+  auth: enforce
+  build_workflow_ref: 145fb50d827a1af7e38236eda5751cee22970ba5
+  copyright_holder: Hollis Labs
+  deploy_host: fleet-host
+  description: Operational definitions and typed relationships
+  github_owner: hollis-labs
+  go_packages: ./...
+  go_toolchain: ""
+  go_version: 1.26.11
+  http_port: "18190"
+  owner: user:chrispian
+  repo_name: registry
+  repository_location: registry
+  repository_name: tools
+  substrate_version: v0.1.1-0.20261115173848-45b018004dd2
+  target_arch: amd64
+  target_os: linux
+  tool_kind: service
+  with_mcp: true
+computed:
+  app_title: Registry
+  env_prefix: REGISTRY
+  module_path: github.com/hollis-labs/tools/registry
+  repository_slug: tools
+  workflow_directory: registry/
+  year: "2026"
+files:
+  .github/workflows/build.yml:
+    repository_path: .github/workflows/registry-build.yml
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:57df59f26d70b05134aa6ddb2815298affa3b5a1d080541dc730d473201aff5f
+  .github/workflows/check.yml:
+    repository_path: .github/workflows/registry-check.yml
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:8c738c412e4c739b67d70257e205b553c3f8fb440bd3eacf42de3bd1082b978f
+  .gitignore:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:55979b0f66743b7c09604a4dfecfc5b1bbf28b9ae50184090590c0e3d1f26901
+  .golangci.yml:
+    preset: go-baseline
+    digest_at_gen: sha256:05520c358d010ae44e2bf14fc945edc54665752a3eb94e25af6ce53dc06e5adc
+  AGENTS.md:
+    preset: go-baseline
+    digest_at_gen: sha256:55b3b5ffdbdbfd96404a3fd39648a569dc16c32c24afb1ebfa6286a8d735f8dc
+  CHANGELOG.md:
+    preset: go-baseline
+    digest_at_gen: sha256:bfa8502a1146b779a01df4df3166117e0273a9b705300eff4d482a89e6440a03
+  LICENSE:
+    preset: go-baseline
+    digest_at_gen: sha256:29fde794587339581b8d68aa7753337b321da45cbe49cf5a0be907db7e67e7d8
+  README.md:
+    preset: substrate-service
+    digest_at_gen: sha256:a8556d38ee864423c00c114f22eba0d6c03140ec5f7e8525a5a44ebe6d187c04
+  cmd/registry/config.go:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:76db99e456561e1b1036c27e7129e06a6e5232bd2e841e75963aa2ec7efc846a
+  cmd/registry/config_test.go:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:57a6e32d5aa26e41008ddf5853f3632130bdfe498e9f12bc421269f30f8b25b3
+  cmd/registry/main.go:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:ef35306847fc414d54106b76625800d6841eb9d42f7a05bebf03c14e0a689900
+  cmd/registry/main_test.go:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:ab12baa9fe991838d9c7bdaed697fa971a5d2861e880a7dbb410b7a90176f903
+  cmd/registry/mcp.go:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:16a850aa0ce5d430f076275eb4fc4fadfdb4df0efffd268275885fc014a58728
+  cmd/registry/mcp_test.go:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:f351b324fdb95530955286c4e6b94368da7f0755931616b9240a6d6d93a32712
+  cmd/registry/serve.go:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:95158bb77d920134eb63d578a6dcf225b244270cecdb447d77e67988b69a9e3f
+  cmd/registry/substrate.yaml:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:9e076487e9ca909c935876ea26133ef28a9f4db5967727690d030678511cb154
+  cmd/registry/substrate_wiring.go:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:24b079e7ad4e72c8ccd336679d72e40ab04e68be6e61aa252099050b2ccf9662
+  deploy.yaml:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:5f012fb1bef588b55e9c65399ec70c41ed923190d70ddc31f118b7c8ff6afee6
+  go.mod:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:777ca293314f0c7280d630fbe7149de782afbab045e3b43c904f59f1e9bc04e8
+  internal/authmode/authmode.go:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:38b693509b107eabc02af1e175e3aaaa69be08649fce25e576ff59ff7aacfa62
+  internal/authmode/authmode_test.go:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:a3b5ec6377277db8861d58a5b742eb8b6a9e3b5276e44495589a95cc2d89e37e
+  internal/descriptor/descriptor.go:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:9addf9d5ee6017de1be332050f20f8496c9b008ff793f71a8fafd50f227ae6a8
+  internal/descriptor/descriptor_test.go:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:4c7158267beb21763c26f6849af5c7259698c9d28ebc2ed063d1966727276a46
+  lefthook.yml:
+    preset: go-baseline
+    digest_at_gen: sha256:3c829519885e2f797a35d1e0a22d5bbb887793359a450bd4765cc65ce09623ac
+  project.yaml:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:a1e642942e564551196f2c7f75795a6f781d272cc312413f9c86c8f912f0c5b1
+  registry.cerberus.yaml:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:944099490cd53a59736285102fcca8740836c103fa15c467716d4f101eaa3aff
+  scan-public.allow:
+    preset: substrate-tool-baseline
+    digest_at_gen: sha256:61bcec710295e34495164d618be37202875040f96e2ef4663f83233cdefeb2b0
+sync_history:
+  - at: 2026-11-15T11:39:30.44061-06:00
+    operation: init
+    presets:
+      - id: go-baseline
+        version: 0.1.0
+      - id: substrate-tool-baseline
+        version: 0.1.0
+      - id: substrate-service
+        version: 0.1.0
