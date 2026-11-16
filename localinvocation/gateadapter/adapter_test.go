@@ -182,6 +182,32 @@ func TestCancelAndStaleAttemptNeverStart(t *testing.T) {
 	}
 }
 
+func TestLateReceiptSidebandKeepsDeliveryAndEffectDistinct(t *testing.T) {
+	adapter, port, _ := setup(t)
+	prepared, err := adapter.Prepare(context.Background(), invocation.Options{Argv: []string{"true"}, CWD: "/tmp", Environ: []string{}}, runner.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	port.selected = port.request.Options[0].ID
+	resolution, err := adapter.Reconcile(context.Background(), prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delivery := gate.DeliveryReceipt{DecisionRef: resolution.Decision.Resolution.ResolutionID, Binding: prepared.Request.Binding, AdapterID: prepared.Request.Adapter.AdapterID, NativeRequestID: prepared.Request.NativeRequestID, Status: gate.DeliverySent, EvidenceRef: "delivery-1"}
+	execution := gate.ExecutionReceipt{DecisionRef: resolution.Decision.Resolution.ResolutionID, OperationID: prepared.Request.OperationID, Binding: prepared.Request.Binding, State: gate.ExecutionUnknown, EvidenceRef: "execution-uncertain-1"}
+	record, err := gateadapter.ProjectReceipts(prepared, *resolution.Decision, &delivery, &execution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.AttemptID != prepared.Command.IDs.AttemptID || record.DecisionRef != "decision-1" || record.DeliveryReceiptRef != "delivery-1" || record.ExecutionReceiptRef != "execution-uncertain-1" || record.ExecutionState != gate.ExecutionUnknown {
+		t.Fatalf("lost late evidence: %+v", record)
+	}
+	execution.DecisionRef = "other-decision"
+	if _, err := gateadapter.ProjectReceipts(prepared, *resolution.Decision, &delivery, &execution); !errors.Is(err, gate.ErrBinding) {
+		t.Fatalf("mismatched receipt accepted: %v", err)
+	}
+}
+
 func TestDenyExpiryChangedDigestAndFlagChangeNeverStart(t *testing.T) {
 	for _, state := range []string{"deny", "expired", "changed", "off"} {
 		t.Run(state, func(t *testing.T) {

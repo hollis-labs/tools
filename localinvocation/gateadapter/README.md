@@ -20,6 +20,9 @@ host reconciliation. The callback rehashes the prepared operation and
 rechecks authority immediately before starting. The returned record contains
 the decision and operation references known before execution; a later
 execution receipt belongs in a separate sideband record keyed by attempt.
+`ProjectReceipts` checks late delivery and execution receipt correlation and
+returns that sideband shape with separate refs and an honest execution state.
+The host must append it durably; the existing preparation journal is immutable.
 
 The existing Gatecrasher HTTP API does not expose GatePort Request, Await or
 Cancel. Use an injected full GatePort and the host's durable journal until
