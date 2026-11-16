@@ -6,53 +6,21 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/hollis-labs/libs/agent/resultenv"
 )
 
-func sharedSchema(t *testing.T) *jsonschema.Schema {
+func validate(t *testing.T, raw []byte) {
 	t.Helper()
-	c := jsonschema.NewCompiler()
-	s, err := c.Compile("testdata/resultenv.schema.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return s
-}
-
-func validate(t *testing.T, schema *jsonschema.Schema, raw []byte) {
-	t.Helper()
-	var value any
+	var value resultenv.Envelope
 	if err := json.Unmarshal(raw, &value); err != nil {
 		t.Fatal(err)
 	}
-	if err := schema.Validate(value); err != nil {
-		t.Fatalf("schema: %v\n%s", err, raw)
+	if err := value.Validate(); err != nil {
+		t.Fatalf("resultenv: %v\n%s", err, raw)
 	}
 }
 
-func TestSharedResultFixturesValidate(t *testing.T) {
-	schema := sharedSchema(t)
-	b, err := os.ReadFile("testdata/resultenv-fixtures.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var fixtures []struct {
-		Name     string          `json:"name"`
-		Envelope json.RawMessage `json:"envelope"`
-	}
-	if err := json.Unmarshal(b, &fixtures); err != nil {
-		t.Fatal(err)
-	}
-	if len(fixtures) < 10 {
-		t.Fatalf("only %d shared fixtures", len(fixtures))
-	}
-	for _, fixture := range fixtures {
-		t.Run(fixture.Name, func(t *testing.T) { validate(t, schema, fixture.Envelope) })
-	}
-}
-
-func TestRunnerEnvelopeMatchesSharedSchema(t *testing.T) {
-	schema := sharedSchema(t)
+func TestRunnerEnvelopeMatchesSharedContract(t *testing.T) {
 	zero, seven := 0, 7
 	cases := []struct {
 		name    string
@@ -98,7 +66,7 @@ func TestRunnerEnvelopeMatchesSharedSchema(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			validate(t, schema, b)
+			validate(t, b)
 			var got map[string]any
 			if err := json.Unmarshal(b, &got); err != nil {
 				t.Fatal(err)

@@ -281,7 +281,7 @@ func TestRunConvenience(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	validate(t, sharedSchema(t), envelope)
+	validate(t, envelope)
 }
 
 func TestPTYResizeAndCombinedLabel(t *testing.T) {

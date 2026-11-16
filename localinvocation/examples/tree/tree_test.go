@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hollis-labs/libs/agent/resultenv"
 	"github.com/hollis-labs/tools/localinvocation/invocation"
 	"github.com/hollis-labs/tools/localinvocation/runner"
-	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 type fixture struct {
@@ -85,10 +85,9 @@ func TestWrappedInvocationTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	observed := fixture{Children: map[string]string{}}
-	schema := resultSchema(t)
-	observed.Root = outcome(t, m, schema, parent.IDs.AttemptID)
-	observed.Children["wrapped_success"] = outcome(t, m, schema, wrapped["wrapped-ok"].IDs.AttemptID)
-	observed.Children["wrapped_nonzero"] = outcome(t, m, schema, wrapped["wrapped-fail"].IDs.AttemptID)
+	observed.Root = outcome(t, m, parent.IDs.AttemptID)
+	observed.Children["wrapped_success"] = outcome(t, m, wrapped["wrapped-ok"].IDs.AttemptID)
+	observed.Children["wrapped_nonzero"] = outcome(t, m, wrapped["wrapped-fail"].IDs.AttemptID)
 
 	prepare := func(argv []string, callID string, attempt uint32) invocation.Command {
 		t.Helper()
@@ -116,7 +115,7 @@ func TestWrappedInvocationTree(t *testing.T) {
 	if _, err := m.Wait(timeoutID); err != nil {
 		t.Fatal(err)
 	}
-	observed.Children["timeout"] = outcome(t, m, schema, timeoutID)
+	observed.Children["timeout"] = outcome(t, m, timeoutID)
 
 	cancel := prepare([]string{"sh", "-c", "printf first; sleep 10"}, "", 1)
 	cancelID := start(cancel, runner.Options{})
@@ -127,7 +126,7 @@ func TestWrappedInvocationTree(t *testing.T) {
 	if _, err := m.Wait(cancelID); err != nil {
 		t.Fatal(err)
 	}
-	observed.Children["cancel"] = outcome(t, m, schema, cancelID)
+	observed.Children["cancel"] = outcome(t, m, cancelID)
 
 	lost := prepare([]string{"sh", "-c", "sleep .2; printf maybe"}, "", 1)
 	lostID := start(lost, runner.Options{})
@@ -135,7 +134,7 @@ func TestWrappedInvocationTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed.Children["lost"] = outcome(t, reopened, schema, lostID)
+	observed.Children["lost"] = outcome(t, reopened, lostID)
 	if _, err := m.Wait(lostID); err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +147,7 @@ func TestWrappedInvocationTree(t *testing.T) {
 	if _, err := m.Wait(retryID); err != nil {
 		t.Fatal(err)
 	}
-	observed.Children["retry"] = outcome(t, m, schema, retryID)
+	observed.Children["retry"] = outcome(t, m, retryID)
 
 	reconnect := prepare([]string{"sh", "-c", "printf abc; sleep .1; printf def"}, "", 1)
 	reconnectID := start(reconnect, runner.Options{})
@@ -165,7 +164,7 @@ func TestWrappedInvocationTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	observed.ReconnectFirst, observed.ReconnectSecond = string(first.Data), string(second.Data)
-	observed.Children["reconnect"] = outcome(t, reopened, schema, reconnectID)
+	observed.Children["reconnect"] = outcome(t, reopened, reconnectID)
 
 	wantBytes, err := os.ReadFile("expected.json")
 	if err != nil {
@@ -223,30 +222,21 @@ func waitForOutput(t *testing.T, m *runner.Manager, id, expected string) runner.
 	return runner.OutputPage{}
 }
 
-func resultSchema(t *testing.T) *jsonschema.Schema {
-	t.Helper()
-	schema, err := jsonschema.NewCompiler().Compile(filepath.Join("..", "..", "runner", "testdata", "resultenv.schema.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return schema
-}
-
-func outcome(t *testing.T, m *runner.Manager, schema *jsonschema.Schema, id string) string {
+func outcome(t *testing.T, m *runner.Manager, id string) string {
 	t.Helper()
 	raw, err := m.Envelope(id, 64)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var value map[string]any
+	var value resultenv.Envelope
 	if err := json.Unmarshal(raw, &value); err != nil {
 		t.Fatal(err)
 	}
-	if err := schema.Validate(value); err != nil {
-		t.Fatalf("resultenv schema: %v: %s", err, raw)
+	if err := value.Validate(); err != nil {
+		t.Fatalf("resultenv contract: %v: %s", err, raw)
 	}
-	got, ok := value["outcome"].(string)
-	if !ok || strings.TrimSpace(got) == "" {
+	got := string(value.Outcome)
+	if strings.TrimSpace(got) == "" {
 		t.Fatal(fmt.Errorf("missing outcome in %s", raw))
 	}
 	return got

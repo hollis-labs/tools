@@ -4,33 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/hollis-labs/libs/agent/resultenv"
 )
-
-// resultEnvelope is the CLI projection of libs/agent/resultenv/v1. The full
-// byte streams remain in the runner's output refs; this is a bounded view.
-type resultEnvelope struct {
-	Version         string      `json:"version"`
-	Outcome         string      `json:"outcome"`
-	ExitCode        *int        `json:"exit_code,omitempty"`
-	Signal          string      `json:"signal,omitempty"`
-	CancelRequested *bool       `json:"cancel_requested,omitempty"`
-	CancelConfirmed *bool       `json:"cancel_confirmed,omitempty"`
-	Stdout          string      `json:"stdout,omitempty"`
-	Stderr          string      `json:"stderr,omitempty"`
-	CombinedOutput  string      `json:"combined_output,omitempty"`
-	Truncation      *truncation `json:"truncation,omitempty"`
-	Error           *failure    `json:"error,omitempty"`
-}
-
-type failure struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
-type truncation struct {
-	Truncated bool   `json:"truncated"`
-	Cursor    string `json:"cursor,omitempty"`
-}
 
 // Envelope returns a resultenv/v1 JSON envelope with bounded text output.
 // Binary output is retained byte-for-byte by Observe; this view is for JSON
@@ -43,7 +19,7 @@ func (m *Manager) Envelope(id string, maxBytes int) ([]byte, error) {
 	if !r.Done {
 		return nil, errors.New("invocation still running")
 	}
-	e := resultEnvelope{Version: "resultenv/v1", ExitCode: r.Outcome.ExitCode, Signal: r.Outcome.Signal}
+	e := resultenv.Envelope{Version: resultenv.Version, ExitCode: r.Outcome.ExitCode, Signal: r.Outcome.Signal}
 	if r.Outcome.CancelRequested {
 		e.CancelRequested = &r.Outcome.CancelRequested
 		e.CancelConfirmed = &r.Outcome.CancelConfirmed
@@ -54,27 +30,27 @@ func (m *Manager) Envelope(id string, maxBytes int) ([]byte, error) {
 			return nil, errors.New("exit outcome missing code")
 		}
 		if *r.Outcome.ExitCode == 0 {
-			e.Outcome = "success"
+			e.Outcome = resultenv.Success
 		} else {
-			e.Outcome = "nonzero_exit"
+			e.Outcome = resultenv.NonzeroExit
 		}
 	case OutcomeSignal:
-		e.Outcome = "signal"
+		e.Outcome = resultenv.Signal
 	case OutcomeToolError:
-		e.Outcome = "tool_error"
-		e.Error = &failure{Code: "exec_failed", Message: r.Outcome.Error}
+		e.Outcome = resultenv.ToolError
+		e.Error = &resultenv.Failure{Code: "exec_failed", Message: r.Outcome.Error}
 	case OutcomeTransport:
-		e.Outcome = "transport_error"
-		e.Error = &failure{Code: "transport_error", Message: r.Outcome.Error}
+		e.Outcome = resultenv.TransportError
+		e.Error = &resultenv.Failure{Code: "transport_error", Message: r.Outcome.Error}
 	case OutcomeTimeout:
-		e.Outcome = "timeout"
-		e.Error = &failure{Code: "deadline_exceeded", Message: "invocation timed out"}
+		e.Outcome = resultenv.Timeout
+		e.Error = &resultenv.Failure{Code: "deadline_exceeded", Message: "invocation timed out"}
 	case OutcomeCancelled:
-		e.Outcome = "cancelled"
-		e.Error = &failure{Code: "cancelled", Message: "cancellation confirmed"}
+		e.Outcome = resultenv.Cancelled
+		e.Error = &resultenv.Failure{Code: "cancelled", Message: "cancellation confirmed"}
 	case OutcomeUnknown:
-		e.Outcome = "unknown"
-		e.Error = &failure{Code: "result_lost", Message: "effect may have completed; reconcile before retry"}
+		e.Outcome = resultenv.Unknown
+		e.Error = &resultenv.Failure{Code: "result_lost", Message: "effect may have completed; reconcile before retry"}
 	default:
 		return nil, fmt.Errorf("unsupported outcome %q", r.Outcome.Kind)
 	}
@@ -104,7 +80,10 @@ func (m *Manager) Envelope(id string, maxBytes int) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		e.Truncation = &truncation{Truncated: true, Cursor: string(cursor)}
+		e.Truncation = &resultenv.Truncation{Truncated: true, Cursor: string(cursor)}
+	}
+	if err := e.Validate(); err != nil {
+		return nil, err
 	}
 	return json.Marshal(e)
 }
