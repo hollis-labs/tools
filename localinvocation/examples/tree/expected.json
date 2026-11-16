@@ -1,0 +1,15 @@
+{
+  "root": "success",
+  "children": {
+    "wrapped_success": "success",
+    "wrapped_nonzero": "nonzero_exit",
+    "timeout": "timeout",
+    "cancel": "cancelled",
+    "lost": "unknown",
+    "retry": "success",
+    "reconnect": "success"
+  },
+  "retry_attempt": 2,
+  "reconnect_first": "abc",
+  "reconnect_second": "def"
+}
