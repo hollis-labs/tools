@@ -68,6 +68,7 @@ func TestRunnerEnvelopeMatchesSharedSchema(t *testing.T) {
 		{"transport_error", Outcome{Kind: OutcomeTransport, Error: "connection lost"}, "", "", "transport_error"},
 		{"timeout", Outcome{Kind: OutcomeTimeout}, "", "", "timeout"},
 		{"cancelled", Outcome{Kind: OutcomeCancelled, CancelRequested: true, CancelConfirmed: true}, "", "", "cancelled"},
+		{"cancel_requested_exit", Outcome{Kind: OutcomeExit, ExitCode: &seven, CancelRequested: true, CancelConfirmed: false}, "", "", "nonzero_exit"},
 		{"unknown", Outcome{Kind: OutcomeUnknown}, "", "", "unknown"},
 		{"pty_combined", Outcome{Kind: OutcomeExit, ExitCode: &zero}, "combined", "both streams", "success"},
 		{"truncated", Outcome{Kind: OutcomeExit, ExitCode: &zero}, "stdout", "long output", "success"},
@@ -104,6 +105,11 @@ func TestRunnerEnvelopeMatchesSharedSchema(t *testing.T) {
 			}
 			if got["outcome"] != tc.expect {
 				t.Fatalf("outcome %v", got["outcome"])
+			}
+			if tc.outcome.CancelRequested {
+				if got["cancel_requested"] != true || got["cancel_confirmed"] != tc.outcome.CancelConfirmed {
+					t.Fatalf("cancel state %v", got)
+				}
 			}
 			if tc.stream == "combined" {
 				if got["combined_output"] != tc.bytes || got["stdout"] != nil || got["stderr"] != nil {
