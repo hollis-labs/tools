@@ -5,6 +5,7 @@ import (
 
 	"github.com/hollis-labs/tools/localinvocation/gateadapter"
 	"github.com/hollis-labs/tools/localinvocation/invocation"
+	"github.com/hollis-labs/tools/localinvocation/runner"
 )
 
 func TestDigestBindsPreparedCommandAndAttempt(t *testing.T) {
@@ -12,7 +13,7 @@ func TestDigestBindsPreparedCommandAndAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	baseline, err := gateadapter.Digest(command)
+	baseline, err := gateadapter.Digest(command, runner.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,16 +34,23 @@ func TestDigestBindsPreparedCommandAndAttempt(t *testing.T) {
 	attempt := command
 	attempt.IDs.AttemptID = "new-attempt"
 	changed = append(changed, attempt)
+	form := command
+	form.SourceForm = invocation.FormShellCommand
+	changed = append(changed, form)
 	for _, candidate := range changed {
-		digest, err := gateadapter.Digest(candidate)
+		digest, err := gateadapter.Digest(candidate, runner.Options{})
 		if err != nil || digest == baseline {
 			t.Fatalf("change did not alter digest: %v %v", candidate, err)
 		}
 	}
+	withPTY, err := gateadapter.Digest(command, runner.Options{PTY: true})
+	if err != nil || withPTY == baseline {
+		t.Fatalf("runner options did not alter digest: %v", err)
+	}
 }
 
 func TestDescribeRejectsUnpreparedCommand(t *testing.T) {
-	if _, err := gateadapter.Describe(invocation.Command{}); err == nil {
+	if _, err := gateadapter.Describe(invocation.Command{}, runner.Options{}); err == nil {
 		t.Fatal("accepted empty command")
 	}
 }
