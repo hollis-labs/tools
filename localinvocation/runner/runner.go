@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -147,6 +148,9 @@ func (m *Manager) Start(ctx context.Context, command invocation.Command, opts Op
 		return "", err // includes an existing ID: never execute twice
 	}
 	cmd := exec.Command(command.Argv[0], command.Argv[1:]...)
+	if !strings.ContainsRune(command.Argv[0], os.PathSeparator) {
+		cmd.Path, cmd.Err = lookupInEnv(command.Argv[0], command.CWD, env)
+	}
 	cmd.Dir, cmd.Env = command.CWD, env
 	r := &run{cmd: cmd, done: make(chan struct{})}
 	r.record = diskRecord{Command: command, Options: opts, Result: Result{ID: id, OutputRef: map[string]string{}}}
@@ -280,9 +284,9 @@ func (m *Manager) wait(id string, r *run) {
 	o.CancelRequested = r.cancel
 	var exit *exec.ExitError
 	switch {
-	case r.timedOut:
+	case r.timedOut && wasTerminated(err):
 		o.Kind = OutcomeTimeout
-	case r.cancel && errors.As(err, &exit):
+	case r.cancel && wasTerminated(err):
 		o.Kind, o.CancelConfirmed = OutcomeCancelled, true
 	case err == nil:
 		code := 0
@@ -304,6 +308,39 @@ func (m *Manager) wait(id string, r *run) {
 	m.mu.Lock()
 	delete(m.runs, id)
 	m.mu.Unlock()
+}
+
+func wasTerminated(err error) bool {
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		return false
+	}
+	status, ok := exit.Sys().(syscall.WaitStatus)
+	return ok && status.Signaled() && (status.Signal() == syscall.SIGTERM || status.Signal() == syscall.SIGKILL)
+}
+
+// lookupInEnv uses the lease's PATH and the child's cwd, never the manager's PATH.
+func lookupInEnv(name, cwd string, env []string) (string, error) {
+	path := "/bin:/usr/bin"
+	for _, item := range env {
+		if strings.HasPrefix(item, "PATH=") {
+			path = strings.TrimPrefix(item, "PATH=")
+		}
+	}
+	for _, dir := range filepath.SplitList(path) {
+		if dir == "" {
+			dir = "."
+		}
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(cwd, dir)
+		}
+		candidate := filepath.Join(dir, name)
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() && info.Mode().Perm()&0111 != 0 {
+			return candidate, nil
+		}
+	}
+	return "", &exec.Error{Name: name, Err: exec.ErrNotFound}
 }
 
 func (m *Manager) Cancel(id string) error { return m.cancel(id, false) }

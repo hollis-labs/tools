@@ -134,6 +134,58 @@ func TestTimeoutAndCancellationDuringOutput(t *testing.T) {
 	}
 }
 
+func TestCancelRequestPreservesNormalNonzeroExit(t *testing.T) {
+	m := manager(t)
+	m.grace = time.Second
+	id := start(t, m, request{Argv: []string{"sh", "-c", "trap '' TERM; printf ready; sleep .2; exit 7"}})
+	deadline := time.Now().Add(time.Second)
+	for {
+		page, err := m.Observe(id, "stdout", 0, 32)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(page.Data) == "ready" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("child did not become ready")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := m.Cancel(id); err != nil {
+		t.Fatal(err)
+	}
+	result := finished(t, m, id)
+	if result.Outcome.Kind != OutcomeExit || result.Outcome.ExitCode == nil || *result.Outcome.ExitCode != 7 || !result.Outcome.CancelRequested || result.Outcome.CancelConfirmed {
+		t.Fatalf("normal exit after cancel request: %+v", result.Outcome)
+	}
+}
+
+func TestLeasePATHResolvesExecutable(t *testing.T) {
+	dir := t.TempDir()
+	name := "review-lease-command"
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\nprintf leased"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	m, err := New(t.TempDir(), func(_ context.Context, ref string) ([]string, error) {
+		if ref != "lease_1" {
+			return nil, fmt.Errorf("unexpected lease %q", ref)
+		}
+		return []string{"PATH=" + dir}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := start(t, m, request{Argv: []string{name}, EnvRef: "lease_1"})
+	result := finished(t, m, id)
+	if result.Outcome.Kind != OutcomeExit || result.Outcome.ExitCode == nil || *result.Outcome.ExitCode != 0 {
+		t.Fatalf("leased executable: %+v", result.Outcome)
+	}
+	if got := string(output(t, m, id, "stdout")); got != "leased" {
+		t.Fatalf("output %q", got)
+	}
+}
+
 func TestReconnectFromByteCursor(t *testing.T) {
 	m := manager(t)
 	id := start(t, m, request{Argv: []string{"sh", "-c", "printf abc; sleep .1; printf def"}})
