@@ -37,7 +37,7 @@ func TestTreeRetryAndPrivateJournal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	childOpts := invocation.Options{Argv: fixture["child"].Argv, CWD: fixture["child"].CWD, EnvironmentRef: fixture["child"].EnvironmentRef, Environ: append(invocation.ChildEnv(root.IDs), "API_KEY="+secret)}
+	childOpts := invocation.Options{Argv: fixture["child"].Argv, CWD: fixture["child"].CWD, Environ: append(invocation.ChildEnv(root.IDs, root.EnvironmentRef), "API_KEY="+secret)}
 	child, childRecord, err := invocation.Prepare(childOpts)
 	if err != nil {
 		t.Fatal(err)
@@ -54,6 +54,9 @@ func TestTreeRetryAndPrivateJournal(t *testing.T) {
 	}
 	if child.IDs.RootCallID != root.IDs.CallID || child.IDs.ParentCallID != root.IDs.CallID || child.IDs.SessionID != root.IDs.SessionID {
 		t.Fatalf("bad child: %+v", child.IDs)
+	}
+	if child.EnvironmentRef != root.EnvironmentRef {
+		t.Fatalf("child lost environment reference: %q", child.EnvironmentRef)
 	}
 	if retry.IDs.CallID != root.IDs.CallID || retry.IDs.AttemptID == root.IDs.AttemptID || retry.IDs.Attempt != 2 {
 		t.Fatalf("bad retry: %+v", retry.IDs)
@@ -138,5 +141,28 @@ func TestJournalRejectsSharedExistingFile(t *testing.T) {
 	data, err := os.ReadFile(path)
 	if err != nil || string(data) != "original\n" {
 		t.Fatalf("existing data changed: %q, %v", data, err)
+	}
+}
+
+func TestGateReferencesAreOptionalAndCopied(t *testing.T) {
+	_, off, err := invocation.Prepare(invocation.Options{Argv: []string{"true"}, CWD: "/tmp", Environ: []string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if off.Gate != nil {
+		t.Fatal("gate unexpectedly enabled")
+	}
+	refs := &invocation.GateReferences{PreparedOperationRef: "prepared:1", DecisionRef: "decision:1", ReceiptRef: "receipt:1"}
+	cmd, on, err := invocation.Prepare(invocation.Options{Argv: []string{"true"}, CWD: "/tmp", Environ: []string{}, Gate: refs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs.DecisionRef = "changed"
+	if on.Gate.DecisionRef != "decision:1" || cmd.Gate.DecisionRef != "decision:1" {
+		t.Fatal("gate reference mutated after preparation")
+	}
+	cmd.Gate.DecisionRef = "command-changed"
+	if on.Gate.DecisionRef != "decision:1" {
+		t.Fatal("record shared mutable gate references with runner command")
 	}
 }
