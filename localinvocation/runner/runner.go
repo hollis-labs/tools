@@ -141,7 +141,7 @@ func (m *Manager) Start(ctx context.Context, command invocation.Command, opts Op
 	} else {
 		env = os.Environ()
 	}
-	env = append(append([]string(nil), env...), invocation.ChildEnv(command.IDs)...)
+	env = append(append([]string(nil), env...), invocation.ChildEnv(command.IDs, command.EnvironmentRef)...)
 	path := m.runPath(id)
 	if err := os.Mkdir(path, 0700); err != nil {
 		return "", err // includes an existing ID: never execute twice

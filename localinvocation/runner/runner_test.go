@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -191,7 +192,9 @@ func TestRunConvenience(t *testing.T) {
 		t.Fatalf("run %+v", r)
 	}
 	envelope, err := m.Envelope(r.ID, 128)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	validate(t, sharedSchema(t), envelope)
 }
 
@@ -292,8 +295,12 @@ func TestEnvLeaseValuesNotRecorded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := start(t, m, request{Argv: []string{"sh", "-c", "test -n \"$SECRET\""}, EnvRef: "lease_1"})
-	_ = finished(t, m, id)
+	check := fmt.Sprintf("test -n \"$SECRET\" && test \"$%s\" = lease_1", invocation.EnvRefEnv)
+	id := start(t, m, request{Argv: []string{"sh", "-c", check}, EnvRef: "lease_1"})
+	result := finished(t, m, id)
+	if result.Outcome.ExitCode == nil || *result.Outcome.ExitCode != 0 {
+		t.Fatalf("environment lease not propagated: %+v", result.Outcome)
+	}
 	b, err := os.ReadFile(filepath.Join(root, id, "record.json"))
 	if err != nil {
 		t.Fatal(err)
