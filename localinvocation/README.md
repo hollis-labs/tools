@@ -19,13 +19,17 @@ it supplies an environment reference.
 The wrapper propagates only root call, parent call and session IDs through
 `LOCALINVOCATION_*` variables. A child appears in the tree only when it is
 itself wrapped. A provider hook that supplies a shell command string is
-represented as `sh -c <script>`; the wrapper does not infer its leaf commands
-from that string.
+represented as `sh -c <script>` with `source_form=provider_shell_command`;
+this is a normalized record, not proof of the provider's actual shell. The
+wrapper does not infer leaf commands from that string.
 
 The default journal is a private JSONL file under the user's state directory.
 An existing journal with group or world access is refused. A journal record is
 preparation evidence, not proof of a command's effect; the runner's result is
 the separate execution evidence.
+Optional Gatecrasher references in a preparation record must already exist at
+that point. Later execution receipts are separate records keyed by attempt;
+the preparation line is never rewritten to predict an outcome.
 
 ## Entry points
 
@@ -39,7 +43,8 @@ The shim can also be symlinked under a command name in `PATH`. It searches
 later `PATH` entries for the real executable and skips itself, so it cannot
 recurse. Its record names the resolved executable. `localinvocation hook`
 accepts `argv` or a provider `tool_input.argv`; a `command` string is recorded
-as a shell script. Hooks append a preparation record only. The standalone CLI
+as a shell script. Configure the hook for `PreToolUse`; later events do not
+create a second invocation. Hooks append a preparation record only. The standalone CLI
 uses the current process environment; it refuses a nonempty environment
 reference because it has no host resolver. Hosts can supply a resolver through
 the runner API.

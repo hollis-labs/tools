@@ -13,6 +13,13 @@ import (
 
 const Version = 1
 
+type SourceForm string
+
+const (
+	FormArgv         SourceForm = "argv"
+	FormShellCommand SourceForm = "provider_shell_command"
+)
+
 // The propagation variables contain identifiers only. They must never contain
 // arguments, command output, or environment values.
 const (
@@ -33,8 +40,10 @@ type IDs struct {
 	ProviderCallID string `json:"provider_call_id,omitempty"`
 }
 
-// GateReferences are opaque references returned by an optional approval
-// adapter. The invocation layer does not infer approval from their presence.
+// GateReferences are opaque references already available before execution.
+// ReceiptRef is a pre-execution Gatecrasher receipt, if one exists. A later
+// execution receipt belongs in a separate record keyed by AttemptID; the
+// preparation record is immutable. Presence never implies approval.
 type GateReferences struct {
 	PreparedOperationRef string `json:"prepared_operation_ref,omitempty"`
 	DecisionRef          string `json:"decision_ref,omitempty"`
@@ -45,6 +54,7 @@ type GateReferences struct {
 // scripts (for example ["sh", "-c", script]); no shell splitting occurs here.
 type Command struct {
 	Argv           []string        `json:"argv"`
+	SourceForm     SourceForm      `json:"source_form"`
 	CWD            string          `json:"cwd"`
 	EnvironmentRef string          `json:"environment_ref,omitempty"`
 	IDs            IDs             `json:"ids"`
@@ -56,6 +66,7 @@ type Command struct {
 type Record struct {
 	Version        int             `json:"version"`
 	Argv           []string        `json:"argv"`
+	SourceForm     SourceForm      `json:"source_form"`
 	CWD            string          `json:"cwd"`
 	EnvironmentRef string          `json:"environment_ref,omitempty"`
 	IDs            IDs             `json:"ids"`
@@ -65,6 +76,7 @@ type Record struct {
 
 type Options struct {
 	Argv           []string
+	SourceForm     SourceForm
 	CWD            string
 	EnvironmentRef string
 	CallID         string // set with Attempt > 1 to retry the same logical call
@@ -98,6 +110,12 @@ func envValue(environ []string, name string) string {
 func Prepare(o Options) (Command, Record, error) {
 	if len(o.Argv) == 0 || o.Argv[0] == "" {
 		return Command{}, Record{}, errors.New("argv must name an executable")
+	}
+	if o.SourceForm == "" {
+		o.SourceForm = FormArgv
+	}
+	if o.SourceForm != FormArgv && o.SourceForm != FormShellCommand {
+		return Command{}, Record{}, errors.New("unsupported command source form")
 	}
 	cwd := o.CWD
 	if cwd == "" {
@@ -173,8 +191,8 @@ func Prepare(o Options) (Command, Record, error) {
 		cmdCopy, recCopy := *o.Gate, *o.Gate
 		commandGate, recordGate = &cmdCopy, &recCopy
 	}
-	cmd := Command{Argv: argv, CWD: cwd, EnvironmentRef: o.EnvironmentRef, IDs: ids, Gate: commandGate}
-	rec := Record{Version: Version, Argv: append([]string(nil), argv...), CWD: cwd, EnvironmentRef: o.EnvironmentRef, IDs: ids, Gate: recordGate, PreparedAt: now.UTC().Format(time.RFC3339Nano)}
+	cmd := Command{Argv: argv, SourceForm: o.SourceForm, CWD: cwd, EnvironmentRef: o.EnvironmentRef, IDs: ids, Gate: commandGate}
+	rec := Record{Version: Version, Argv: append([]string(nil), argv...), SourceForm: o.SourceForm, CWD: cwd, EnvironmentRef: o.EnvironmentRef, IDs: ids, Gate: recordGate, PreparedAt: now.UTC().Format(time.RFC3339Nano)}
 	return cmd, rec, nil
 }
 

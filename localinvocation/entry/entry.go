@@ -30,6 +30,7 @@ type hookCommand struct {
 type hookEnvelope struct {
 	hookCommand
 	ToolInput      hookCommand `json:"tool_input"`
+	HookEventName  string      `json:"hook_event_name"`
 	SessionID      string      `json:"session_id"`
 	ToolUseID      string      `json:"tool_use_id"`
 	CallID         string      `json:"call_id"`
@@ -44,6 +45,9 @@ func Hook(data []byte, common invocation.Options) (invocation.Command, invocatio
 	if err := json.Unmarshal(data, &h); err != nil {
 		return invocation.Command{}, invocation.Record{}, fmt.Errorf("decode exec hook: %w", err)
 	}
+	if h.HookEventName != "" && h.HookEventName != "PreToolUse" {
+		return invocation.Command{}, invocation.Record{}, errors.New("exec hook must run at PreToolUse")
+	}
 	spec := h.hookCommand
 	if len(h.ToolInput.Argv) != 0 || h.ToolInput.Command != "" {
 		spec = h.ToolInput
@@ -56,10 +60,14 @@ func Hook(data []byte, common invocation.Options) (invocation.Command, invocatio
 			return invocation.Command{}, invocation.Record{}, errors.New("exec hook has no command")
 		}
 		spec.Argv = []string{"sh", "-c", spec.Command}
+		common.SourceForm = invocation.FormShellCommand
 	}
 	common.Argv = spec.Argv
 	if common.CWD == "" {
 		common.CWD = spec.CWD
+		if common.CWD == "" {
+			common.CWD = h.CWD
+		}
 	}
 	if common.SessionID == "" {
 		common.SessionID = h.SessionID

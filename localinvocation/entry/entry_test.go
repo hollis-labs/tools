@@ -27,18 +27,31 @@ func TestThreeEntriesNormalizeIdentically(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, rec := range []invocation.Record{shim, hook} {
-		if !reflect.DeepEqual(rec.Argv, terminal.Argv) || rec.CWD != terminal.CWD || rec.EnvironmentRef != terminal.EnvironmentRef || rec.IDs.CallID != terminal.IDs.CallID || rec.IDs.SessionID != terminal.IDs.SessionID || rec.IDs.ProviderCallID != terminal.IDs.ProviderCallID || rec.PreparedAt != terminal.PreparedAt {
+		if !reflect.DeepEqual(rec.Argv, terminal.Argv) || rec.SourceForm != terminal.SourceForm || rec.CWD != terminal.CWD || rec.EnvironmentRef != terminal.EnvironmentRef || rec.IDs.CallID != terminal.IDs.CallID || rec.IDs.SessionID != terminal.IDs.SessionID || rec.IDs.ProviderCallID != terminal.IDs.ProviderCallID || rec.PreparedAt != terminal.PreparedAt {
 			t.Fatalf("entry mismatch: %+v vs %+v", rec, terminal)
 		}
 	}
 }
 
 func TestHookShellStringIsOpaque(t *testing.T) {
-	_, rec, err := entry.Hook([]byte(`{"tool_input":{"command":"printf 'a b'"},"session_id":"session"}`), invocation.Options{CWD: "/tmp", Environ: []string{}})
+	_, rec, err := entry.Hook([]byte(`{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/workspace","tool_input":{"command":"printf 'a b'"},"session_id":"session","tool_use_id":"provider-call"}`), invocation.Options{Environ: []string{}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(rec.Argv, []string{"sh", "-c", "printf 'a b'"}) {
 		t.Fatalf("shell script split: %#v", rec.Argv)
+	}
+	if rec.SourceForm != invocation.FormShellCommand {
+		t.Fatalf("shell source form hidden: %q", rec.SourceForm)
+	}
+	if rec.CWD != "/workspace" || rec.IDs.SessionID != "session" || rec.IDs.ProviderCallID != "provider-call" {
+		t.Fatalf("hook fields lost: %+v", rec)
+	}
+}
+
+func TestPostToolUseIsNotAnotherInvocation(t *testing.T) {
+	_, _, err := entry.Hook([]byte(`{"hook_event_name":"PostToolUse","tool_input":{"command":"true"}}`), invocation.Options{CWD: "/tmp", Environ: []string{}})
+	if err == nil {
+		t.Fatal("post-hook duplicated the pre-hook invocation")
 	}
 }
