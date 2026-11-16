@@ -19,8 +19,8 @@ type FileRecorder struct {
 }
 
 func (f FileRecorder) Append(record Record) error {
-	if f.Path == "" {
-		return errors.New("record path is required")
+	if !filepath.IsAbs(f.Path) {
+		return errors.New("record path must be absolute")
 	}
 	if err := os.MkdirAll(filepath.Dir(f.Path), 0700); err != nil {
 		return err

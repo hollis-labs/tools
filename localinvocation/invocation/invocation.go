@@ -19,6 +19,7 @@ const (
 	RootEnv    = "LOCALINVOCATION_ROOT_ID"
 	ParentEnv  = "LOCALINVOCATION_PARENT_CALL_ID"
 	SessionEnv = "LOCALINVOCATION_SESSION_ID"
+	EnvRefEnv  = "LOCALINVOCATION_ENVIRONMENT_REF"
 	StoreEnv   = "LOCALINVOCATION_STORE"
 )
 
@@ -32,24 +33,34 @@ type IDs struct {
 	ProviderCallID string `json:"provider_call_id,omitempty"`
 }
 
+// GateReferences are opaque references returned by an optional approval
+// adapter. The invocation layer does not infer approval from their presence.
+type GateReferences struct {
+	PreparedOperationRef string `json:"prepared_operation_ref,omitempty"`
+	DecisionRef          string `json:"decision_ref,omitempty"`
+	ReceiptRef           string `json:"receipt_ref,omitempty"`
+}
+
 // Command is the runner input. Argv is always a list, including for shell
 // scripts (for example ["sh", "-c", script]); no shell splitting occurs here.
 type Command struct {
-	Argv           []string `json:"argv"`
-	CWD            string   `json:"cwd"`
-	EnvironmentRef string   `json:"environment_ref,omitempty"`
-	IDs            IDs      `json:"ids"`
+	Argv           []string        `json:"argv"`
+	CWD            string          `json:"cwd"`
+	EnvironmentRef string          `json:"environment_ref,omitempty"`
+	IDs            IDs             `json:"ids"`
+	Gate           *GateReferences `json:"gate,omitempty"`
 }
 
 // Record is the immutable preparation receipt. It intentionally has no env
 // map; the environment reference is a host-issued locator, not its contents.
 type Record struct {
-	Version        int      `json:"version"`
-	Argv           []string `json:"argv"`
-	CWD            string   `json:"cwd"`
-	EnvironmentRef string   `json:"environment_ref,omitempty"`
-	IDs            IDs      `json:"ids"`
-	PreparedAt     string   `json:"prepared_at"`
+	Version        int             `json:"version"`
+	Argv           []string        `json:"argv"`
+	CWD            string          `json:"cwd"`
+	EnvironmentRef string          `json:"environment_ref,omitempty"`
+	IDs            IDs             `json:"ids"`
+	Gate           *GateReferences `json:"gate,omitempty"`
+	PreparedAt     string          `json:"prepared_at"`
 }
 
 type Options struct {
@@ -60,6 +71,7 @@ type Options struct {
 	Attempt        uint32
 	SessionID      string
 	ProviderCallID string
+	Gate           *GateReferences
 	Parent         *IDs     // explicit parent, otherwise inherited from propagation env
 	Environ        []string // optional environment snapshot for identity propagation only
 	Now            time.Time
@@ -107,6 +119,9 @@ func Prepare(o Options) (Command, Record, error) {
 	if o.Environ == nil {
 		o.Environ = os.Environ()
 	}
+	if o.EnvironmentRef == "" {
+		o.EnvironmentRef = envValue(o.Environ, EnvRefEnv)
+	}
 	ids := IDs{CallID: o.CallID, Attempt: o.Attempt, SessionID: o.SessionID, ProviderCallID: o.ProviderCallID}
 	if ids.CallID == "" {
 		var err error
@@ -153,13 +168,22 @@ func Prepare(o Options) (Command, Record, error) {
 		now = time.Now()
 	}
 	argv := append([]string(nil), o.Argv...)
-	cmd := Command{Argv: argv, CWD: cwd, EnvironmentRef: o.EnvironmentRef, IDs: ids}
-	rec := Record{Version: Version, Argv: append([]string(nil), argv...), CWD: cwd, EnvironmentRef: o.EnvironmentRef, IDs: ids, PreparedAt: now.UTC().Format(time.RFC3339Nano)}
+	var commandGate, recordGate *GateReferences
+	if o.Gate != nil {
+		cmdCopy, recCopy := *o.Gate, *o.Gate
+		commandGate, recordGate = &cmdCopy, &recCopy
+	}
+	cmd := Command{Argv: argv, CWD: cwd, EnvironmentRef: o.EnvironmentRef, IDs: ids, Gate: commandGate}
+	rec := Record{Version: Version, Argv: append([]string(nil), argv...), CWD: cwd, EnvironmentRef: o.EnvironmentRef, IDs: ids, Gate: recordGate, PreparedAt: now.UTC().Format(time.RFC3339Nano)}
 	return cmd, rec, nil
 }
 
 // ChildEnv returns the identifiers a runner must add or replace in a child's
 // process environment. Other environment entries remain the runner's concern.
-func ChildEnv(ids IDs) []string {
-	return []string{RootEnv + "=" + ids.RootCallID, ParentEnv + "=" + ids.CallID, SessionEnv + "=" + ids.SessionID}
+func ChildEnv(ids IDs, environmentRef ...string) []string {
+	vars := []string{RootEnv + "=" + ids.RootCallID, ParentEnv + "=" + ids.CallID, SessionEnv + "=" + ids.SessionID}
+	if len(environmentRef) != 0 && environmentRef[0] != "" {
+		vars = append(vars, EnvRefEnv+"="+environmentRef[0])
+	}
+	return vars
 }
