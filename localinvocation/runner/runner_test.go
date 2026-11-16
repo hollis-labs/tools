@@ -190,6 +190,9 @@ func TestRunConvenience(t *testing.T) {
 	if !r.Done || r.Outcome.Kind != OutcomeExit || r.Outcome.ExitCode == nil || *r.Outcome.ExitCode != 0 {
 		t.Fatalf("run %+v", r)
 	}
+	envelope, err := m.Envelope(r.ID, 128)
+	if err != nil { t.Fatal(err) }
+	validate(t, sharedSchema(t), envelope)
 }
 
 func TestPTYResizeAndCombinedLabel(t *testing.T) {

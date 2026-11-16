@@ -20,6 +20,14 @@ request stays an exit. Timeout is separate. If the manager restarts before it
 records a final result, the stored attempt reports `unknown`; it is not
 re-executed. A new manager can still read completed output from the same root.
 
+`Envelope` projects a final outcome and a bounded output page to the shared
+`resultenv/v1` wire shape. The checked fixture/schema snapshot in `testdata/`
+comes from libs `agent/resultenv` branch
+`chatsdk/CW-20261116-0007-result-envelope` at `6fe38f6b`, including the PTY
+`combined_output` extension. The runner tests validate
+both the shared fixtures and generated CLI envelopes against that schema.
+The full output remains under the runner's output refs.
+
 The host must retain one manager per output root while runs are active and
 must authorize access to IDs before exposing `Observe`, `Cancel`, or `Resize`.
 The runner does not supply admission policy, approval, a network transport,
