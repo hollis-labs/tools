@@ -186,6 +186,40 @@ func TestLeasePATHResolvesExecutable(t *testing.T) {
 	}
 }
 
+func TestTransientInputDoesNotEnterRecord(t *testing.T) {
+	m := manager(t)
+	command, _, err := invocation.Prepare(invocation.Options{Argv: []string{"cat"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := "private-stdin-value\n"
+	result, err := m.RunWithInput(context.Background(), command, Options{}, strings.NewReader(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Outcome.Kind != OutcomeExit || string(output(t, m, result.ID, "stdout")) != input {
+		t.Fatalf("stdin result: %+v", result)
+	}
+	record, err := os.ReadFile(filepath.Join(m.runPath(result.ID), "record.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(record, []byte(input)) {
+		t.Fatal("stdin bytes persisted in runner record")
+	}
+	ptyCommand, _, err := invocation.Prepare(invocation.Options{Argv: []string{"sh", "-c", "IFS= read -r line; printf 'got:%s' \"$line\""}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ptyResult, err := m.RunWithInput(context.Background(), ptyCommand, Options{PTY: true}, strings.NewReader("hello\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ptyResult.Outcome.Kind != OutcomeExit || !bytes.Contains(output(t, m, ptyResult.ID, "combined"), []byte("got:hello")) {
+		t.Fatalf("PTY stdin result: %+v", ptyResult)
+	}
+}
+
 func TestReconnectFromByteCursor(t *testing.T) {
 	m := manager(t)
 	id := start(t, m, request{Argv: []string{"sh", "-c", "printf abc; sleep .1; printf def"}})

@@ -119,6 +119,11 @@ func New(root string, resolve EnvResolver) (*Manager, error) {
 }
 
 func (m *Manager) Start(ctx context.Context, command invocation.Command, opts Options) (string, error) {
+	return m.StartWithInput(ctx, command, opts, nil)
+}
+
+// StartWithInput passes transient input to the child without persisting its bytes.
+func (m *Manager) StartWithInput(ctx context.Context, command invocation.Command, opts Options, input io.Reader) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -170,6 +175,9 @@ func (m *Manager) Start(ctx context.Context, command invocation.Command, opts Op
 		}
 		r.ptyFile, err = pty.StartWithSize(cmd, &pty.Winsize{Rows: rows, Cols: cols})
 		if err == nil {
+			if input != nil {
+				go func() { _, _ = io.Copy(r.ptyFile, input) }()
+			}
 			var out *os.File
 			out, err = os.OpenFile(filepath.Join(path, "combined"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 			if err == nil {
@@ -195,6 +203,7 @@ func (m *Manager) Start(ctx context.Context, command invocation.Command, opts Op
 		}
 		if err == nil {
 			cmd.Stdout, cmd.Stderr = r.outputs[0], r.outputs[1]
+			cmd.Stdin = input
 			err = cmd.Start()
 		}
 	}
@@ -242,7 +251,12 @@ func (m *Manager) Start(ctx context.Context, command invocation.Command, opts Op
 // environment resolution and process start; dropping the caller does not kill
 // the invocation. The caller may separately request Cancel using the ID.
 func (m *Manager) Run(ctx context.Context, command invocation.Command, opts Options) (Result, error) {
-	id, err := m.Start(ctx, command, opts)
+	return m.RunWithInput(ctx, command, opts, nil)
+}
+
+// RunWithInput is the blocking form of StartWithInput.
+func (m *Manager) RunWithInput(ctx context.Context, command invocation.Command, opts Options, input io.Reader) (Result, error) {
+	id, err := m.StartWithInput(ctx, command, opts, input)
 	if err != nil {
 		return Result{}, err
 	}
