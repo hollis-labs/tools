@@ -144,6 +144,29 @@ func TestJournalRejectsSharedExistingFile(t *testing.T) {
 	}
 }
 
+func TestJournalRejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.jsonl")
+	link := filepath.Join(dir, "records.jsonl")
+	if err := os.WriteFile(target, []byte("original\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	_, record, err := invocation.Prepare(invocation.Options{Argv: []string{"true"}, CWD: "/tmp", Environ: []string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (invocation.FileRecorder{Path: link}).Append(record); err == nil {
+		t.Fatal("journal symlink followed")
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "original\n" {
+		t.Fatalf("target changed: %q %v", data, err)
+	}
+}
+
 func TestGateReferencesAreOptionalAndCopied(t *testing.T) {
 	_, off, err := invocation.Prepare(invocation.Options{Argv: []string{"true"}, CWD: "/tmp", Environ: []string{}})
 	if err != nil {

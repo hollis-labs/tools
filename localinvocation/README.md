@@ -24,7 +24,7 @@ this is a normalized record, not proof of the provider's actual shell. The
 wrapper does not infer leaf commands from that string.
 
 The default journal is a private JSONL file under the user's state directory.
-An existing journal with group or world access is refused. A journal record is
+An existing journal with group or world access, or a symlink, is refused. A journal record is
 preparation evidence, not proof of a command's effect; the runner's result is
 the separate execution evidence.
 Optional Gatecrasher references in a preparation record must already exist at
@@ -52,7 +52,8 @@ the runner API.
 `LOCALINVOCATION_STORE` can select the journal path. The `run` entry point
 propagates the chosen path to wrapped children. Runner output is kept under a
 private sibling `runs/` directory and streamed to stdout and stderr by the
-terminal entry point.
+terminal entry point. Terminal and shim entries pass stdin to the runner
+without placing its bytes in either record.
 
 Run `go test -race ./...` from this directory for the tree, argv, entry,
 concurrency and secret-exclusion fixtures.

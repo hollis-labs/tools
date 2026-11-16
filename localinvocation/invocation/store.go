@@ -30,10 +30,11 @@ func (f FileRecorder) Append(record Record) error {
 		return err
 	}
 	line = append(line, '\n')
-	file, err := os.OpenFile(f.Path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	fd, err := syscall.Open(f.Path, syscall.O_CREAT|syscall.O_APPEND|syscall.O_WRONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0600)
 	if err != nil {
 		return err
 	}
+	file := os.NewFile(uintptr(fd), f.Path)
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil {
