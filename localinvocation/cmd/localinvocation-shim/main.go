@@ -42,7 +42,7 @@ func run(invoked string, args []string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	code, err := cli.Execute(ctx, command, record, store, os.Stdout, os.Stderr)
+	code, err := cli.Execute(ctx, command, record, store, os.Stdin, os.Stdout, os.Stderr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 	}

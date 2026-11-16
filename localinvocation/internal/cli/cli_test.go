@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -30,7 +31,7 @@ func TestWrappedHelper(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		code, err := cli.Execute(context.Background(), command, record, os.Getenv(invocation.StoreEnv), os.Stdout, os.Stderr)
+		code, err := cli.Execute(context.Background(), command, record, os.Getenv(invocation.StoreEnv), os.Stdin, os.Stdout, os.Stderr)
 		if err != nil || code != 0 {
 			t.Fatalf("nested execution: code=%d err=%v", code, err)
 		}
@@ -51,7 +52,7 @@ func TestWrappedParentChildTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	code, err := cli.Execute(context.Background(), command, record, store, &stdout, &stderr)
+	code, err := cli.Execute(context.Background(), command, record, store, os.Stdin, &stdout, &stderr)
 	if err != nil || code != 0 {
 		t.Fatalf("root execution: code=%d err=%v stderr=%s", code, err, stderr.String())
 	}
@@ -86,5 +87,27 @@ func TestWrappedParentChildTree(t *testing.T) {
 	}
 	if child.IDs.ParentCallID != root.IDs.CallID || child.IDs.RootCallID != root.IDs.CallID || child.IDs.SessionID != root.IDs.SessionID {
 		t.Fatalf("bad child: %+v", child.IDs)
+	}
+}
+
+func TestPipedStdinReachesWrappedCommand(t *testing.T) {
+	cat, err := exec.LookPath("cat")
+	if err != nil {
+		t.Skip("cat is unavailable")
+	}
+	store := filepath.Join(t.TempDir(), "records.jsonl")
+	command, record, err := entry.Terminal([]string{cat}, invocation.Options{Environ: []string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := "wrapped input fixture\n"
+	var stdout, stderr bytes.Buffer
+	code, err := cli.Execute(context.Background(), command, record, store, strings.NewReader(input), &stdout, &stderr)
+	if err != nil || code != 0 || stdout.String() != input {
+		t.Fatalf("stdin lost: code=%d err=%v stdout=%q stderr=%q", code, err, stdout.String(), stderr.String())
+	}
+	journal, err := os.ReadFile(store)
+	if err != nil || bytes.Contains(journal, []byte(input)) {
+		t.Fatalf("stdin leaked to journal: %q %v", journal, err)
 	}
 }

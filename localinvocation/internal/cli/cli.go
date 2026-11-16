@@ -16,7 +16,7 @@ import (
 
 // Execute records preparation before calling the runner. The runner owns
 // streams, cancellation, PTY and outcome classification.
-func Execute(ctx context.Context, cmd invocation.Command, record invocation.Record, store string, stdout, stderr io.Writer) (int, error) {
+func Execute(ctx context.Context, cmd invocation.Command, record invocation.Record, store string, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
 	if cmd.EnvironmentRef != "" {
 		return 1, errors.New("standalone CLI has no environment resolver for this reference")
 	}
@@ -32,7 +32,7 @@ func Execute(ctx context.Context, cmd invocation.Command, record invocation.Reco
 	if err != nil {
 		return 1, err
 	}
-	id, err := manager.Start(ctx, cmd, runner.Options{})
+	id, err := manager.StartWithInput(ctx, cmd, runner.Options{}, stdin)
 	if err != nil {
 		return 1, err
 	}
