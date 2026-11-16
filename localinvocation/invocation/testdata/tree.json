@@ -1,0 +1,5 @@
+{
+  "root": {"argv": ["worker", "first arg", "quote\"", "雪", ""], "cwd": "/work", "environment_ref": "lease:example", "session_id": "session-example", "attempt": 1},
+  "child": {"argv": ["child", ""], "cwd": "/work", "environment_ref": "lease:example", "attempt": 1},
+  "retry": {"argv": ["worker", "first arg", "quote\"", "雪", ""], "cwd": "/work", "environment_ref": "lease:example", "attempt": 2}
+}
