@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { ChatInput, ChatStream, createChatStreamBinding } from '@hollis-labs/kit-chat'
+import { ChatComposer, ChatStream, createChatStreamBinding } from '@hollis-labs/kit-chat'
 import { GateApprovalCard, ToolCard } from '@hollis-labs/kit-cards'
 import './style.css'
 
@@ -20,8 +20,8 @@ async function api(path: string, body?: unknown) {
 function project(event: Event): Item | null {
   if (event.kind === 'input') return { kind: 'message', id: `event-${event.cursor}`, role: 'user', content: event.text || '' }
   if (event.kind === 'output') {
-    // The kit-chat binding consumes the same ordered chatstream vocabulary as
-    // production adapters. The host event cursor remains the durable position.
+    // Project the host's committed event through the merged chatstream binding.
+    // The host cursor remains the durable position for replay and attachment.
     const binding = createChatStreamBinding({ scheduleFrame: flush => { flush(); return () => {} } })
     const base = { v: '1', run_id: event.id, time: new Date().toISOString() }
     const feed = (seq: number, verb: string, fields: Record<string, unknown> = {}) => binding.consume({ ...base, seq, verb, ...fields } as never)
@@ -35,6 +35,7 @@ function project(event: Event): Item | null {
     const item = binding.getSnapshot().items[0] as Item | undefined
     return item ? { ...item, id: `event-${event.cursor}` } : null
   }
+  if (event.kind === 'notice') return { kind: 'marker', id: `event-${event.cursor}`, label: event.text || 'Notice' }
   return null
 }
 
@@ -46,16 +47,14 @@ function cardItem(card: Card, id: string): Item | null {
   return null
 }
 
-function App() {
-  const query = new URLSearchParams(location.search)
-  const initialRole: Role = query.get('role') === 'viewer' ? 'viewer' : 'controller'
+function ConversationView({ label, initialRole, initialCursor = '', autoAttach = false }: { label: string; initialRole: Role; initialCursor?: string; autoAttach?: boolean }) {
   const [role, setRole] = useState<Role>(initialRole)
   const [attachment, setAttachment] = useState<Attachment | null>(null)
   const [rows, setRows] = useState<Item[]>([])
-  const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const cursor = useRef(query.get('after') || '')
+  const [cursorLabel, setCursorLabel] = useState(initialCursor)
+  const cursor = useRef(initialCursor)
   const seen = useRef(new Set<string>())
 
   const ingest = useCallback((events: Event[]) => {
@@ -64,67 +63,106 @@ function App() {
       if (seen.current.has(event.cursor)) continue
       seen.current.add(event.cursor)
       cursor.current = event.cursor
+      setCursorLabel(event.cursor)
       const item = project(event)
       if (item) items.push(item)
     }
     if (items.length) setRows(previous => [...previous, ...items])
   }, [])
 
-  const attach = useCallback(async (nextRole: Role) => {
+  const attach = useCallback(async (nextRole: Role): Promise<Attachment | undefined> => {
     try {
       const result = await api('attach', { role: nextRole, after: cursor.current })
       setAttachment(result.attachment)
       setRole(nextRole)
       ingest(result.events || [])
       setError('')
+      return result.attachment as Attachment
+    } catch (cause) { setError(String(cause)); return undefined }
+  }, [ingest])
+
+  const poll = useCallback(async (current: Attachment) => {
+    try {
+      const result = await api(`events?id=${encodeURIComponent(current.id)}&after=${encodeURIComponent(cursor.current)}`)
+      ingest(result.events || [])
     } catch (cause) { setError(String(cause)) }
   }, [ingest])
 
-  const poll = useCallback(async () => {
+  useEffect(() => { if (autoAttach) void attach(initialRole) }, [])
+  useEffect(() => {
     if (!attachment) return
-    try {
-      const result = await api(`events?id=${encodeURIComponent(attachment.id)}&after=${encodeURIComponent(cursor.current)}`)
-      ingest(result.events || [])
-    } catch (cause) { setError(String(cause)) }
-  }, [attachment, ingest])
-
-  useEffect(() => { void attach(initialRole) }, [])
-  useEffect(() => { if (!attachment) return; const timer = setInterval(() => void poll(), 300); return () => clearInterval(timer) }, [attachment, poll])
+    const source = new EventSource(`/api/events/stream?id=${encodeURIComponent(attachment.id)}&after=${encodeURIComponent(cursor.current)}`)
+    let fallback: ReturnType<typeof setInterval> | undefined
+    source.addEventListener('chat', message => {
+      try { ingest([JSON.parse((message as MessageEvent).data) as Event]) }
+      catch { setError('Invalid event stream payload') }
+    })
+    source.onerror = () => {
+      source.close()
+      if (!fallback) fallback = setInterval(() => void poll(attachment), 300)
+    }
+    return () => { source.close(); if (fallback) clearInterval(fallback) }
+  }, [attachment, ingest, poll])
 
   const detach = async () => {
     if (!attachment) return
-    try { await api('detach', { id: attachment.id }); setAttachment(null); setError('') } catch (cause) { setError(String(cause)) }
+    try { await api('detach', { id: attachment.id }); setAttachment(null); setError('') }
+    catch (cause) { setError(String(cause)) }
   }
   const takeover = async () => {
     if (!attachment) return
-    try { await api('takeover', { id: attachment.id }); setError('') } catch (cause) { setError(String(cause)) }
+    try {
+      let target = attachment
+      if (role === 'viewer') {
+        await api('detach', { id: attachment.id })
+        setAttachment(null)
+        const promoted = await attach('controller')
+        if (!promoted) return
+        target = promoted
+      }
+      await api('takeover', { id: target.id })
+      setRole('controller')
+      setError('')
+    } catch (cause) { setError(String(cause)) }
   }
-  const send = async (text: string) => {
-    if (!attachment || role !== 'controller' || !text.trim()) return
+  const send = async (text: string): Promise<boolean> => {
+    if (!attachment || role !== 'controller') return false
     setBusy(true)
     try {
       const result = await api('send', { id: attachment.id, text })
-      setDraft('')
-      await poll()
+      await poll(attachment)
       const card = result.card && cardItem(result.card, `card-${result.card.tool_call_id || result.card.ticket_id}`)
       if (card) setRows(previous => [...previous, card])
       setError('')
-    } catch (cause) { setError(String(cause)) }
+      return true
+    } catch (cause) { setError(String(cause)); return false }
     finally { setBusy(false) }
   }
 
-  return <div className="pilot">
-    <header>
-      <h1>Chat SDK pilot</h1>
-      <span className="meta" data-testid="role">{role}{attachment ? ' attached' : ' detached'}</span>
-      <span className="meta" data-testid="cursor">cursor {cursor.current || 'start'}</span>
-      <button type="button" onClick={() => void attach(role)} disabled={!!attachment}>Attach</button>
-      <button type="button" onClick={() => void detach()} disabled={!attachment}>Detach</button>
-      <button type="button" onClick={() => void takeover()} disabled={!attachment || role !== 'controller'}>Take over</button>
+  return <section className="view" data-testid={`${label.toLowerCase()}-pane`} aria-label={`${label} view`}>
+    <header className="view-header">
+      <div><h2>{label}</h2><span className="meta" data-testid="role">{role}{attachment ? ' attached' : ' detached'}</span></div>
+      <span className="meta" data-testid="cursor">cursor {cursorLabel || 'start'}</span>
+      <div className="view-actions">
+        <button type="button" onClick={() => void attach(role)} disabled={!!attachment}>Attach</button>
+        <button type="button" onClick={() => void detach()} disabled={!attachment}>Detach</button>
+        <button type="button" onClick={() => void takeover()} disabled={!attachment}>Take over</button>
+      </div>
     </header>
     {error && <p role="alert">{error}</p>}
-    <main><ChatStream items={rows as never} aria-label="Pilot transcript" /></main>
-    <footer><ChatInput value={draft} onValueChange={setDraft} onSubmit={send} disabled={!attachment || role !== 'controller'} busy={busy} placeholder={role === 'viewer' ? 'Viewer cannot type' : 'Message or /tool nonzero, /tool lost, /gate'} /></footer>
+    <main><ChatStream items={rows as never} aria-label={`${label} transcript`} /></main>
+    <footer><ChatComposer onSubmit={send} disabled={!attachment || role !== 'controller'} busy={busy} placeholder={role === 'viewer' ? 'Viewer cannot type' : 'Message or /tool nonzero, /tool lost, /gate'} aria-label={`${label} composer`} footer={role === 'viewer' ? <span className="meta">Viewer access is read only. Take over to write.</span> : undefined} /></footer>
+  </section>
+}
+
+function App() {
+  const query = new URLSearchParams(location.search)
+  return <div className="pilot">
+    <header className="pilot-header"><h1>Chat SDK pilot</h1><p>Two views of one durable conversation. The controller writes; the viewer follows and can take over.</p></header>
+    <div className="views">
+      <ConversationView label="Controller" initialRole="controller" autoAttach />
+      <ConversationView label="Viewer" initialRole="viewer" initialCursor={query.get('after') || '1'} />
+    </div>
   </div>
 }
 

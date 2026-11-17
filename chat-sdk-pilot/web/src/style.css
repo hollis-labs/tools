@@ -4,12 +4,22 @@
 @import "@hollis-labs/kit-cards/source.css";
 @import "@hollis-labs/kit-chat/source.css";
 
+* { box-sizing: border-box; }
 body { margin: 0; background: #f5f5f4; color: #262626; font-family: system-ui, sans-serif; }
 #root { min-height: 100vh; }
-.pilot { max-width: 820px; margin: auto; padding: 1rem; display: flex; flex-direction: column; height: 100vh; gap: 1rem; }
-.pilot header { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
-.pilot header h1 { margin-right: auto; font-size: 1.2rem; font-weight: 700; }
-.pilot button { cursor: pointer; }
-.pilot main { flex: 1; min-height: 0; background: white; border: 1px solid #ddd; border-radius: .5rem; overflow: hidden; }
-.pilot footer { background: white; border: 1px solid #ddd; border-radius: .5rem; }
-.pilot .meta { font-size: .8rem; color: #555; }
+.pilot { min-height: 100vh; padding: 1rem; display: flex; flex-direction: column; gap: 1rem; }
+.pilot-header { display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+.pilot-header h1 { margin: 0; font-size: 1.2rem; font-weight: 700; }
+.pilot-header p { margin: 0; color: #57534e; font-size: .9rem; }
+.views { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; flex: 1; min-height: 0; }
+.view { display: flex; flex-direction: column; min-width: 0; min-height: 70vh; max-height: calc(100vh - 5rem); border: 1px solid #d6d3d1; border-radius: .75rem; background: white; overflow: hidden; }
+.view-header { padding: .75rem; border-bottom: 1px solid #e7e5e4; display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
+.view-header h2 { margin: 0; font-size: 1rem; font-weight: 650; }
+.view-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+.view-actions button { min-height: 2rem; padding: .2rem .6rem; border: 1px solid #a8a29e; border-radius: .35rem; background: #fafaf9; cursor: pointer; }
+.view-actions button:disabled { opacity: .45; cursor: default; }
+.view .meta { font-size: .8rem; color: #57534e; }
+.view main { flex: 1; min-height: 0; overflow: hidden; }
+.view footer { border-top: 1px solid #e7e5e4; }
+.view [role="alert"] { margin: .4rem .75rem; color: #b91c1c; font-size: .85rem; }
+@media (max-width: 850px) { .views { grid-template-columns: 1fr; } .view { max-height: none; min-height: 60vh; } }
