@@ -135,6 +135,7 @@ func (p *pilot) handler() http.Handler {
 	mux.HandleFunc("/api/detach", p.detach)
 	mux.HandleFunc("/api/takeover", p.takeover)
 	mux.HandleFunc("/api/events", p.events)
+	mux.HandleFunc("/api/events/stream", p.eventStream)
 	mux.HandleFunc("/api/send", p.send)
 	mux.HandleFunc("/api/state", p.state)
 	if p.web != "" {
@@ -247,6 +248,64 @@ func (p *pilot) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonReply(w, 200, map[string]any{"events": events})
+}
+
+// eventStream replays committed events from a cursor, then follows new ones.
+// The attachment is checked on every read, so detach and stale bindings end
+// the stream. SSE is a view transport; chathost remains the event authority.
+func (p *pilot) eventStream(w http.ResponseWriter, r *http.Request) {
+	if !method(w, r, http.MethodGet) {
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		jsonReply(w, http.StatusInternalServerError, map[string]string{"error": "streaming unavailable"})
+		return
+	}
+	a, ok := p.attachment(r.URL.Query().Get("id"))
+	if !ok {
+		jsonReply(w, http.StatusNotFound, map[string]string{"error": "attachment not found"})
+		return
+	}
+	after := runtimecontract.CommittedCursor(r.URL.Query().Get("after"))
+	if _, err := p.host.ReadEvents(principal(r.Context()), a, after); err != nil {
+		jsonReply(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		// Check the local attachment map as well as chathost, because detach
+		// removes the map entry before another reader should be admitted.
+		if current, exists := p.attachment(a.ID); !exists || current != a {
+			return
+		}
+		events, err := p.host.ReadEvents(principal(r.Context()), a, after)
+		if err != nil {
+			return
+		}
+		for _, event := range events {
+			data, err := json.Marshal(event)
+			if err != nil {
+				return
+			}
+			if _, err := fmt.Fprintf(w, "event: chat\ndata: %s\n\n", data); err != nil {
+				return
+			}
+			after = event.Cursor
+		}
+		if len(events) > 0 {
+			flusher.Flush()
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 func (p *pilot) state(w http.ResponseWriter, r *http.Request) {

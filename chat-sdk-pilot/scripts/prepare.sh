@@ -3,7 +3,7 @@ set -euo pipefail
 
 pilot_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cache_root=${PILOT_CACHE_DIR:-/tmp/chat-sdk-pilot-${UID}}
-cache="$cache_root/pinned-20261117-v2"
+cache="$cache_root/pinned-20261117-v3"
 mkdir -p "$cache"
 
 # Exact source commits. All are branch heads observed for this pilot; moving a
@@ -11,10 +11,10 @@ mkdir -p "$cache"
 # only in the cache. No dependency repository is modified or pushed.
 libs_base=7333675be9ad2d4e7737e819712bd5603ac7b142
 libs_chathost=190764babe23ece7b912fa0342a65f22ded4f309
-libs_gate=fec354f8395b057126d5cfd4a891ca6888632baa
+libs_gate=6bd314e26db110922db544b17f24c948af10a20d
 tools_base=7bfc1d9ebf957492b97d3d73667f4ffa1d058f15
 frontend_base=7c5d8d35867d7a93b36077452e45c9f904df9dee
-frontend_gate=ff30d253d275dff53bbbcf5a69335fceb209e6ec
+frontend_gate=219f23c5012f8082706d26ad461f201558c29e78
 
 git_identity=(-c user.name='Chat SDK pilot aggregate' -c user.email='pilot@example.invalid')
 

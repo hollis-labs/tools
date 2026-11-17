@@ -1,12 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/hollis-labs/libs/agent/sdk/transcript"
 )
@@ -30,6 +35,81 @@ func request(t *testing.T, h http.Handler, method, path string, body any, out an
 		}
 	}
 	return w.Code
+}
+
+func TestEventStreamReplaysAfterCursorAndEndsOnDetach(t *testing.T) {
+	p, err := openPilot(t.TempDir(), filepath.Join("agents", "pilot"), "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.close()
+	h := p.handler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+	var attached struct {
+		Attachment struct {
+			ID string `json:"id"`
+		} `json:"attachment"`
+	}
+	if code := request(t, h, "POST", "/api/attach", map[string]any{"role": "viewer"}, &attached); code != 200 {
+		t.Fatalf("attach: %d", code)
+	}
+	var controller struct {
+		Attachment struct {
+			ID string `json:"id"`
+		} `json:"attachment"`
+	}
+	if code := request(t, h, "POST", "/api/attach", map[string]any{"role": "controller"}, &controller); code != 200 {
+		t.Fatalf("controller: %d", code)
+	}
+	if code := request(t, h, "POST", "/api/send", map[string]any{"id": controller.Attachment.ID, "text": "hello"}, nil); code != 200 {
+		t.Fatalf("send: %d", code)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	url := fmt.Sprintf("%s/api/events/stream?id=%s&after=1", server.URL, attached.Attachment.ID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 200 || response.Header.Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("stream response: %d %q", response.StatusCode, response.Header.Get("Content-Type"))
+	}
+	reader := bufio.NewReader(response.Body)
+	first, err := reader.ReadString('\n')
+	if err != nil || first != "event: chat\n" {
+		t.Fatalf("event line: %q %v", first, err)
+	}
+	data, err := reader.ReadString('\n')
+	if err != nil || !strings.HasPrefix(data, "data: ") {
+		t.Fatalf("data line: %q %v", data, err)
+	}
+	var event struct {
+		Cursor string `json:"cursor"`
+		Kind   string `json:"kind"`
+		Text   string `json:"text"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(data, "data: "))), &event); err != nil {
+		t.Fatal(err)
+	}
+	if event.Cursor != "2" || event.Kind != "output" || event.Text != "Echo: hello" {
+		t.Fatalf("replayed event: %+v", event)
+	}
+	if code := request(t, h, "POST", "/api/detach", map[string]any{"id": attached.Attachment.ID}, nil); code != 200 {
+		t.Fatalf("detach: %d", code)
+	}
+	// The stream must stop after detach, rather than retain a stale viewer.
+	if _, err := reader.ReadString('\n'); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reader.ReadString('\n'); err == nil {
+		t.Fatal("stream stayed open after detach")
+	}
 }
 
 func TestDurableAttachAndToolOutcomes(t *testing.T) {
