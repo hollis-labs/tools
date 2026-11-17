@@ -350,9 +350,10 @@ func TestLostFinalResultIsUnknown(t *testing.T) {
 func TestCancelRequestedWithoutConfirmed(t *testing.T) {
 	m := manager(t)
 	// The child announces readiness only after installing its TERM handler.
-	// Give the shell time to run that handler after the process group is signaled.
+	// Use only shell builtins after readiness: a foreground sleep could start
+	// after TERM and prevent the shell from running its handler before escalation.
 	m.grace = time.Second
-	id := start(t, m, request{Argv: []string{"sh", "-c", "trap 'printf handled; exit 0' TERM; printf ready; sleep 10"}})
+	id := start(t, m, request{Argv: []string{"sh", "-c", "trap 'printf handled; exit 0' TERM; printf ready; while :; do :; done"}})
 	deadline := time.Now().Add(time.Second)
 	ready := false
 	for time.Now().Before(deadline) {
