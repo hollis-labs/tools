@@ -3,7 +3,7 @@ set -euo pipefail
 
 pilot_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cache_root=${PILOT_CACHE_DIR:-/tmp/chat-sdk-pilot-${UID}}
-cache="$cache_root/pinned-20261117-v6"
+cache="$cache_root/pinned-20261117-v8"
 mkdir -p "$cache"
 
 # Exact source commits: merged mains plus the temporary kit-chat attach
@@ -11,8 +11,8 @@ mkdir -p "$cache"
 # dependency repository is modified or pushed.
 libs_base=0d6f272e48bf9ef607e4f4609593643be7d3c464
 tools_base=4155006d7c83334e2dd3741ca9758f465f540ce1
-frontend_base=33abff1afd45488c7e283110f28bd4dc0d3bb004
-frontend_attach=7dbd96129332598210295b170c60e9625c4df35b
+frontend_base=f101f7c0c35fc238c1062dcd4fffd0e0cc230881
+frontend_attach=b200a676b30abb051547548d689d9a0e53c57e8f
 
 if [[ ! -f "$cache/libs.ready" ]]; then
   git clone --filter=blob:none --no-checkout https://github.com/hollis-labs/libs.git "$cache/libs" >&2
