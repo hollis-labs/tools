@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -37,6 +38,26 @@ func request(t *testing.T, h http.Handler, method, path string, body any, out an
 		}
 	}
 	return w.Code
+}
+
+type leaseToken struct {
+	ID     string `json:"ID"`
+	Writer string `json:"Writer"`
+}
+
+func acquireToken(t *testing.T, h http.Handler, attachmentID string) leaseToken {
+	t.Helper()
+	var out struct {
+		Lease leaseToken `json:"lease"`
+	}
+	if code := request(t, h, "POST", "/api/acquire", map[string]any{"id": attachmentID}, &out); code != 200 {
+		t.Fatalf("acquire %s: %d", attachmentID, code)
+	}
+	return out.Lease
+}
+
+func sendBody(attachmentID, inputID, text string, lease leaseToken) map[string]any {
+	return map[string]any{"id": attachmentID, "input_id": inputID, "lease_id": lease.ID, "lease_writer": lease.Writer, "text": text}
 }
 
 func TestDirectoryHostRunsSDKAndReloadsDefinition(t *testing.T) {
@@ -94,7 +115,8 @@ func TestRestartRetainsConversationTranscriptAndCard(t *testing.T) {
 	if code := request(t, first.handler(), "POST", "/api/attach", map[string]any{"role": "controller"}, &attached); code != 200 {
 		t.Fatalf("attach: %d", code)
 	}
-	if code := request(t, first.handler(), "POST", "/api/send", map[string]any{"id": attached.Attachment.ID, "text": "/tool nonzero"}, nil); code != 200 {
+	lease := acquireToken(t, first.handler(), attached.Attachment.ID)
+	if code := request(t, first.handler(), "POST", "/api/send", sendBody(attached.Attachment.ID, "restart-tool", "/tool nonzero", lease), nil); code != 200 {
 		t.Fatalf("send: %d", code)
 	}
 	if err := first.close(); err != nil {
@@ -182,6 +204,96 @@ func TestAcquireDoesNotPreemptCurrentController(t *testing.T) {
 	}
 }
 
+func TestSendRejectsRetiredLeaseAndDuplicateInput(t *testing.T) {
+	p, err := openPilot(t.TempDir(), filepath.Join("agents", "pilot"), "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.close()
+	h := p.handler()
+	attach := func() string {
+		var out struct {
+			Attachment struct {
+				ID string `json:"id"`
+			} `json:"attachment"`
+		}
+		if code := request(t, h, "POST", "/api/attach", map[string]any{"role": "controller"}, &out); code != 200 {
+			t.Fatalf("attach: %d", code)
+		}
+		return out.Attachment.ID
+	}
+	takeover := func(id string) leaseToken {
+		var out struct {
+			Lease leaseToken `json:"lease"`
+		}
+		if code := request(t, h, "POST", "/api/takeover", map[string]any{"id": id}, &out); code != 200 {
+			t.Fatalf("takeover: %d", code)
+		}
+		return out.Lease
+	}
+	a, b := attach(), attach()
+	old := acquireToken(t, h, a)
+	_ = takeover(b)
+	current := takeover(a)
+	if old.ID == current.ID {
+		t.Fatal("takeover reused lease ID")
+	}
+	stale := sendBody(a, "delayed-a", "late input", old)
+	if code := request(t, h, "POST", "/api/send", stale, nil); code != 409 {
+		t.Fatalf("retired lease accepted: %d", code)
+	}
+	fresh := sendBody(a, "fresh-a", "accepted input", current)
+	if code := request(t, h, "POST", "/api/send", fresh, nil); code != 200 {
+		t.Fatalf("fresh send: %d", code)
+	}
+	if code := request(t, h, "POST", "/api/send", fresh, nil); code != 409 {
+		t.Fatalf("duplicate input reran: %d", code)
+	}
+	events, err := p.host.ReadEvents(principal(context.Background()), p.attachments[a], "")
+	if err != nil || len(events) != 2 || events[0].ID != "fresh-a" {
+		t.Fatalf("events: %+v, %v", events, err)
+	}
+}
+
+func TestCardSyncFailureCannotCommitReference(t *testing.T) {
+	p, err := openPilot(t.TempDir(), filepath.Join("agents", "pilot"), "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.close()
+	var attached struct {
+		Attachment struct {
+			ID string `json:"id"`
+		} `json:"attachment"`
+	}
+	if code := request(t, p.handler(), "POST", "/api/attach", map[string]any{"role": "viewer"}, &attached); code != 200 {
+		t.Fatalf("attach: %d", code)
+	}
+	checkedBytes := false
+	p.cardDirSync = func(path string) error {
+		if path != filepath.Join(p.root, "cards") {
+			return syncDirectory(path)
+		}
+		paths, err := filepath.Glob(filepath.Join(path, "*.json"))
+		if err != nil || len(paths) != 1 {
+			t.Fatalf("published card files: %v %v", paths, err)
+		}
+		data, err := os.ReadFile(paths[0])
+		if err != nil || !bytes.Equal(data, []byte(`{"kind":"tool"}`)) {
+			t.Fatalf("card bytes: %q %v", data, err)
+		}
+		checkedBytes = true
+		return errors.New("injected directory sync failure")
+	}
+	if err := p.publishCard(context.Background(), "uncommitted-card", map[string]any{"kind": "tool"}, false); err == nil || !checkedBytes {
+		t.Fatalf("sync failure not observed: %v checked=%t", err, checkedBytes)
+	}
+	events, err := p.host.ReadEvents(principal(context.Background()), p.attachments[attached.Attachment.ID], "")
+	if err != nil || len(events) != 0 {
+		t.Fatalf("reference committed despite sync error: %+v %v", events, err)
+	}
+}
+
 func TestEventStreamReplaysAfterCursorAndEndsOnDetach(t *testing.T) {
 	p, err := openPilot(t.TempDir(), filepath.Join("agents", "pilot"), "", false)
 	if err != nil {
@@ -207,7 +319,8 @@ func TestEventStreamReplaysAfterCursorAndEndsOnDetach(t *testing.T) {
 	if code := request(t, h, "POST", "/api/attach", map[string]any{"role": "controller"}, &controller); code != 200 {
 		t.Fatalf("controller: %d", code)
 	}
-	if code := request(t, h, "POST", "/api/send", map[string]any{"id": controller.Attachment.ID, "text": "hello"}, nil); code != 200 {
+	lease := acquireToken(t, h, controller.Attachment.ID)
+	if code := request(t, h, "POST", "/api/send", sendBody(controller.Attachment.ID, "stream-hello", "hello", lease), nil); code != 200 {
 		t.Fatalf("send: %d", code)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -283,7 +396,7 @@ func TestDurableAttachAndToolOutcomes(t *testing.T) {
 	if code := request(t, h, "POST", "/api/attach", map[string]any{"role": "viewer"}, &viewer); code != 200 {
 		t.Fatalf("viewer %d", code)
 	}
-	if code := request(t, h, "POST", "/api/send", map[string]any{"id": viewer.Attachment.ID, "text": "blocked"}, nil); code != 403 {
+	if code := request(t, h, "POST", "/api/send", sendBody(viewer.Attachment.ID, "viewer-blocked", "blocked", leaseToken{ID: "invalid", Writer: viewer.Attachment.ID}), nil); code != 403 {
 		t.Fatalf("viewer sent: %d", code)
 	}
 	var sent struct {
@@ -294,13 +407,14 @@ func TestDurableAttachAndToolOutcomes(t *testing.T) {
 			} `json:"envelope"`
 		} `json:"card"`
 	}
-	if code := request(t, h, "POST", "/api/send", map[string]any{"id": first.Attachment.ID, "text": "/tool nonzero"}, &sent); code != 200 {
+	lease := acquireToken(t, h, first.Attachment.ID)
+	if code := request(t, h, "POST", "/api/send", sendBody(first.Attachment.ID, "tool-nonzero", "/tool nonzero", lease), &sent); code != 200 {
 		t.Fatalf("nonzero %d", code)
 	}
 	if sent.Card.Envelope.Outcome != "nonzero_exit" || sent.Card.ToolCallID == "" {
 		t.Fatalf("nonzero card %+v", sent.Card)
 	}
-	if code := request(t, h, "POST", "/api/send", map[string]any{"id": first.Attachment.ID, "text": "/tool lost"}, &sent); code != 200 {
+	if code := request(t, h, "POST", "/api/send", sendBody(first.Attachment.ID, "tool-lost", "/tool lost", lease), &sent); code != 200 {
 		t.Fatalf("lost %d", code)
 	}
 	if sent.Card.Envelope.Outcome != "unknown" {
@@ -370,7 +484,8 @@ func TestGateOffAndFakeDecision(t *testing.T) {
 		var sent struct {
 			Card map[string]any `json:"card"`
 		}
-		if code := request(t, h, "POST", "/api/send", map[string]any{"id": attached.Attachment.ID, "text": "/gate"}, &sent); code != 200 {
+		lease := acquireToken(t, h, attached.Attachment.ID)
+		if code := request(t, h, "POST", "/api/send", sendBody(attached.Attachment.ID, "gate-turn", "/gate", lease), &sent); code != 200 {
 			t.Fatalf("gate %d", code)
 		}
 		if enabled {

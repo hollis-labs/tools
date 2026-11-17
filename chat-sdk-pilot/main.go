@@ -57,6 +57,7 @@ type pilot struct {
 	web         string
 	gate        bool
 	gateCalls   int
+	cardDirSync func(string) error
 }
 
 func openPilot(root, agentDirectory, web string, gate bool) (*pilot, error) {
@@ -369,15 +370,18 @@ func (p *pilot) send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		ID   string `json:"id"`
-		Text string `json:"text"`
+		ID          string           `json:"id"`
+		InputID     string           `json:"input_id"`
+		LeaseID     session.LeaseID  `json:"lease_id"`
+		LeaseWriter session.WriterID `json:"lease_writer"`
+		Text        string           `json:"text"`
 	}
 	if err := decode(r, &in); err != nil {
 		jsonReply(w, 400, map[string]string{"error": err.Error()})
 		return
 	}
-	if strings.TrimSpace(in.Text) == "" {
-		jsonReply(w, 400, map[string]string{"error": "empty input"})
+	if strings.TrimSpace(in.Text) == "" || strings.TrimSpace(in.InputID) == "" || in.LeaseID == "" || in.LeaseWriter == "" {
+		jsonReply(w, 400, map[string]string{"error": "text, input_id and exact lease are required"})
 		return
 	}
 	a, ok := p.attachment(in.ID)
@@ -387,13 +391,16 @@ func (p *pilot) send(w http.ResponseWriter, r *http.Request) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	lease, hasLease := p.leases[a.ID]
-	var err error
-	if hasLease {
-		err = p.host.ValidateLease(principal(r.Context()), lease)
-	} else {
-		lease, err = p.host.Acquire(principal(r.Context()), p.binding, session.WriterID(a.ID))
+	if current, exists := p.attachments[a.ID]; !exists || current != a {
+		jsonReply(w, 404, map[string]string{"error": "attachment not found"})
+		return
 	}
+	lease, hasLease := p.leases[a.ID]
+	if !hasLease || lease.ID != in.LeaseID || lease.Writer != in.LeaseWriter || lease.Writer != session.WriterID(a.ID) || lease.Binding != p.binding {
+		jsonReply(w, 409, map[string]string{"error": "stale or mismatched controller lease"})
+		return
+	}
+	err := p.host.ValidateLease(principal(r.Context()), lease)
 	if errors.Is(err, session.ErrLease) {
 		jsonReply(w, 409, map[string]string{"error": "controller lease held; take over first"})
 		return
@@ -402,8 +409,18 @@ func (p *pilot) send(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w, 409, map[string]string{"error": err.Error()})
 		return
 	}
-	p.leases[a.ID] = lease
-	id := fmt.Sprintf("turn-%d", time.Now().UnixNano())
+	previous, err := p.host.ReadEvents(principal(r.Context()), a, "")
+	if err != nil {
+		jsonReply(w, 409, map[string]string{"error": err.Error()})
+		return
+	}
+	for _, event := range previous {
+		if event.Kind == chathost.Input && event.ID == in.InputID {
+			jsonReply(w, 409, map[string]string{"error": "duplicate input_id"})
+			return
+		}
+	}
+	id := in.InputID
 	cursor, err := p.host.Submit(principal(r.Context()), session.Input{ID: id, Lease: lease, Text: in.Text})
 	if err != nil {
 		jsonReply(w, 409, map[string]string{"error": err.Error()})
