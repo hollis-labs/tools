@@ -1,0 +1,10 @@
+{
+  "name": "chat-sdk-pilot-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test"
+  }
+}
