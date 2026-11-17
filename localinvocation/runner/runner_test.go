@@ -349,24 +349,35 @@ func TestLostFinalResultIsUnknown(t *testing.T) {
 
 func TestCancelRequestedWithoutConfirmed(t *testing.T) {
 	m := manager(t)
-	id := start(t, m, request{Argv: []string{"sh", "-c", "trap 'exit 0' TERM; printf ready; sleep 10"}})
+	// The child announces readiness only after installing its TERM handler.
+	// Give the shell time to run that handler after the process group is signaled.
+	m.grace = time.Second
+	id := start(t, m, request{Argv: []string{"sh", "-c", "trap 'printf handled; exit 0' TERM; printf ready; sleep 10"}})
 	deadline := time.Now().Add(time.Second)
+	ready := false
 	for time.Now().Before(deadline) {
 		p, err := m.Observe(id, "stdout", 0, 32)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if string(p.Data) == "ready" {
+			ready = true
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	if !ready {
+		t.Fatal("child did not confirm TERM handler installation")
 	}
 	if err := m.Cancel(id); err != nil {
 		t.Fatal(err)
 	}
 	r := finished(t, m, id)
-	if !r.Outcome.CancelRequested || r.Outcome.CancelConfirmed {
+	if !r.Outcome.CancelRequested || r.Outcome.CancelConfirmed || r.Outcome.Kind != OutcomeExit || r.Outcome.ExitCode == nil || *r.Outcome.ExitCode != 0 {
 		t.Fatalf("cancel confirmation %+v", r.Outcome)
+	}
+	if got := string(output(t, m, id, "stdout")); got != "readyhandled" {
+		t.Fatalf("TERM handler output %q", got)
 	}
 }
 
