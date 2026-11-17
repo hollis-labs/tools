@@ -37,6 +37,8 @@ test('views, tool outcomes and opt-in fake gate share durable evidence', async (
   await viewer.locator('textarea').fill('/tool lost')
   await viewer.locator('textarea').press('Enter')
   await expect(viewer.locator('[data-outcome="unknown"]')).toBeVisible()
+  await expect(controller.locator('[data-outcome="nonzero_exit"]')).toBeVisible()
+  await expect(controller.locator('[data-outcome="unknown"]')).toBeVisible()
 
   await controller.locator('textarea').fill('stale writer')
   await controller.locator('textarea').press('Enter')
@@ -57,6 +59,13 @@ test('views, tool outcomes and opt-in fake gate share durable evidence', async (
   await expect(viewer.getByText('Gatecrasher is off; no request was made.')).toBeVisible()
   const offState = await (await page.request.get(`${off}/api/state`)).json()
   expect(offState.gate_calls).toBe(0)
+
+  await viewer.getByRole('button', { name: 'Detach' }).click()
+  await page.reload()
+  const replayed = page.getByTestId('controller-pane')
+  await expect(replayed.getByTestId('role')).toHaveText('controller attached')
+  await expect(replayed.locator('[data-outcome="nonzero_exit"]')).toBeVisible()
+  await expect(replayed.locator('[data-outcome="unknown"]')).toBeVisible()
 
   const invocations = lines(join(state, 'off', 'invocations.jsonl'))
   const records = transcript(join(state, 'off'))
