@@ -84,9 +84,10 @@ export function createPilotAdapter(onAttachment: (attachment: ChatSessionAttachm
       const result = await api('takeover', { id: attachment.id })
       return leaseView(result.lease as HostLease)
     },
-    async submit(_lease, _id, text) {
-      if (!current) throw new Error('Detached')
-      const result = await api('send', { id: current.id, text })
+    async submit(lease, inputId, text) {
+      const attachment = current
+      if (!attachment) throw new Error('Detached')
+      const result = await api('send', { id: attachment.id, input_id: inputId, lease_id: lease.id, lease_writer: lease.writerId, text })
       return String(result.cursor)
     },
   }
