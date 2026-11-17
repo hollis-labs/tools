@@ -3,16 +3,14 @@ set -euo pipefail
 
 pilot_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cache_root=${PILOT_CACHE_DIR:-/tmp/chat-sdk-pilot-${UID}}
-cache="$cache_root/pinned-20261117-v8"
+cache="$cache_root/pinned-20261117-v9"
 mkdir -p "$cache"
 
-# Exact source commits: merged mains plus the temporary kit-chat attach
-# candidate. Moving a branch does not silently change the fixture. No
+# Exact merged main commits. Moving a branch does not silently change the fixture. No
 # dependency repository is modified or pushed.
 libs_base=0d6f272e48bf9ef607e4f4609593643be7d3c464
 tools_base=4155006d7c83334e2dd3741ca9758f465f540ce1
-frontend_base=f101f7c0c35fc238c1062dcd4fffd0e0cc230881
-frontend_attach=b200a676b30abb051547548d689d9a0e53c57e8f
+frontend_base=127a26cef0f974a30eae9e1c95cf90b6ae64ba3b
 
 if [[ ! -f "$cache/libs.ready" ]]; then
   git clone --filter=blob:none --no-checkout https://github.com/hollis-labs/libs.git "$cache/libs" >&2
@@ -30,10 +28,9 @@ fi
 
 if [[ ! -f "$cache/frontend.ready" ]]; then
   git clone --filter=blob:none --no-checkout https://github.com/hollis-labs/frontend-support.git "$cache/frontend" >&2
-  git -C "$cache/frontend" fetch origin "$frontend_base" "$frontend_attach" >&2
+  git -C "$cache/frontend" fetch origin "$frontend_base" >&2
   git -C "$cache/frontend" checkout --detach "$frontend_base" >&2
-  git -C "$cache/frontend" -c user.name='Chat SDK pilot aggregate' -c user.email='pilot@example.invalid' merge --no-edit "$frontend_attach" >&2
-  printf '%s\n' "$frontend_base" "$frontend_attach" > "$cache/frontend.ready"
+  printf '%s\n' "$frontend_base" > "$cache/frontend.ready"
 fi
 
 if [[ ! -f "$cache/go.work" ]]; then

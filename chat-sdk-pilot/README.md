@@ -45,8 +45,8 @@ per turn and that the SSE event stream replays after a cursor and ends on detach
 ## Dependency and storage boundary
 
 `scripts/prepare.sh` pins exact merged commits for libs, tools and
-frontend-support, plus a temporary kit-chat attach-contract candidate. It
-makes disposable aggregate checkouts outside this repo. `go.work` is generated
+frontend-support. It makes disposable aggregate checkouts outside this repo.
+`go.work` is generated
 in the external cache; no `replace` or nested module is committed here. The
 script does not push or edit dependency repositories.
 
