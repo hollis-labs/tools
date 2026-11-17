@@ -17,9 +17,9 @@ From this directory:
 ./scripts/run.sh
 ```
 
-Open `http://127.0.0.1:7088/` for a controller and
-`http://127.0.0.1:7088/?role=viewer` for a viewer. The wrapper accepts pilot
-flags, for example `./scripts/run.sh -addr 127.0.0.1:7092 -gate`.
+Open `http://127.0.0.1:7088/` for side-by-side controller and viewer panes.
+The wrapper accepts pilot flags, for example
+`./scripts/run.sh -addr 127.0.0.1:7092 -gate`.
 `PILOT_STATE_DIR` selects the persistent state directory. The default is in
 the external pilot cache. `PILOT_CACHE_DIR` selects that cache; the default is
 `/tmp/chat-sdk-pilot-$UID`. The compiled binary runs from the cache.
@@ -44,20 +44,19 @@ per turn and that the SSE event stream replays after a cursor and ends on detach
 
 ## Dependency and storage boundary
 
-`scripts/prepare.sh` pins exact commits for merged libs, tools and
-frontend-support mains, plus the unmerged chathost candidate. It makes
-disposable aggregate checkouts outside this repo. `go.work` is generated in
-the external cache; no `replace` or
-nested module is committed here. The script does not push or edit dependency
-repositories.
+`scripts/prepare.sh` pins exact merged commits for libs, tools and
+frontend-support, plus a temporary kit-chat attach-contract candidate. It
+makes disposable aggregate checkouts outside this repo. `go.work` is generated
+in the external cache; no `replace` or nested module is committed here. The
+script does not push or edit dependency repositories.
 
 `chathost` owns attachment and writer admission. Tool and approval cards are
 stored as immutable JSON files; chathost commits their content-addressed
 references, so either view can recover them from its cursor using `/api/card`.
-`agentdir.Host` reloads the
-authored definition each turn, and its fake model runs through the SDK loop.
-The transcript owns native Claude-shaped rows. The invocation journal records preparation, while runner
-receipts record observed execution outcome. A lost observer shows `unknown`;
+`agentdir.Host` reloads the authored definition each turn, and its fake model
+runs through the SDK loop. The transcript owns native Claude-shaped rows. The
+invocation journal records preparation, while runner receipts record observed
+execution outcome. A lost observer shows `unknown`;
 it does not silently retry. The fake GatePort only demonstrates the connector
 and presentation path; its decision is not execution authority. The local
 HTTP server binds to loopback by default and has no external authentication.

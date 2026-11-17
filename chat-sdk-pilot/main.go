@@ -139,6 +139,7 @@ func (p *pilot) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/attach", p.attach)
 	mux.HandleFunc("/api/detach", p.detach)
+	mux.HandleFunc("/api/acquire", p.acquire)
 	mux.HandleFunc("/api/takeover", p.takeover)
 	mux.HandleFunc("/api/events", p.events)
 	mux.HandleFunc("/api/events/stream", p.eventStream)
@@ -232,6 +233,44 @@ func (p *pilot) takeover(w http.ResponseWriter, r *http.Request) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	lease, err := p.host.Takeover(principal(r.Context()), p.binding, session.WriterID(a.ID))
+	if err != nil {
+		jsonReply(w, 409, map[string]string{"error": err.Error()})
+		return
+	}
+	p.leases[a.ID] = lease
+	jsonReply(w, 200, map[string]any{"lease": lease})
+}
+
+func (p *pilot) acquire(w http.ResponseWriter, r *http.Request) {
+	if !method(w, r, http.MethodPost) {
+		return
+	}
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := decode(r, &in); err != nil {
+		jsonReply(w, 400, map[string]string{"error": err.Error()})
+		return
+	}
+	a, ok := p.attachment(in.ID)
+	if !ok || a.Role != chathost.Controller {
+		jsonReply(w, 403, map[string]string{"error": "controller attachment required"})
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if current, exists := p.attachments[a.ID]; !exists || current != a {
+		jsonReply(w, 404, map[string]string{"error": "attachment not found"})
+		return
+	}
+	if existing, ok := p.leases[a.ID]; ok {
+		if err := p.host.ValidateLease(principal(r.Context()), existing); err == nil {
+			jsonReply(w, 200, map[string]any{"lease": existing})
+			return
+		}
+		delete(p.leases, a.ID)
+	}
+	lease, err := p.host.Acquire(principal(r.Context()), p.binding, session.WriterID(a.ID))
 	if err != nil {
 		jsonReply(w, 409, map[string]string{"error": err.Error()})
 		return

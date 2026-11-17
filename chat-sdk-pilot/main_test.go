@@ -79,6 +79,109 @@ func TestDirectoryHostRunsSDKAndReloadsDefinition(t *testing.T) {
 	}
 }
 
+func TestRestartRetainsConversationTranscriptAndCard(t *testing.T) {
+	root := t.TempDir()
+	agent := filepath.Join("agents", "pilot")
+	first, err := openPilot(root, agent, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var attached struct {
+		Attachment struct {
+			ID string `json:"id"`
+		} `json:"attachment"`
+	}
+	if code := request(t, first.handler(), "POST", "/api/attach", map[string]any{"role": "controller"}, &attached); code != 200 {
+		t.Fatalf("attach: %d", code)
+	}
+	if code := request(t, first.handler(), "POST", "/api/send", map[string]any{"id": attached.Attachment.ID, "text": "/tool nonzero"}, nil); code != 200 {
+		t.Fatalf("send: %d", code)
+	}
+	if err := first.close(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := openPilot(root, agent, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.close()
+	var resumed struct {
+		Events []struct {
+			Kind      string `json:"kind"`
+			Reference *struct {
+				Digest struct {
+					Value string `json:"value"`
+				} `json:"digest"`
+			} `json:"reference"`
+		} `json:"events"`
+		Attachment struct {
+			ID string `json:"id"`
+		} `json:"attachment"`
+	}
+	if code := request(t, second.handler(), "POST", "/api/attach", map[string]any{"role": "viewer", "after": "1"}, &resumed); code != 200 || len(resumed.Events) != 2 {
+		t.Fatalf("restart replay: %d events=%d", code, len(resumed.Events))
+	}
+	card := resumed.Events[1]
+	if card.Kind != "notice" || card.Reference == nil {
+		t.Fatalf("restart card event: %+v", card)
+	}
+	var recovered struct {
+		Envelope struct {
+			Outcome string `json:"outcome"`
+		} `json:"envelope"`
+	}
+	path := "/api/card?id=" + resumed.Attachment.ID + "&hash=" + card.Reference.Digest.Value
+	if code := request(t, second.handler(), "GET", path, nil, &recovered); code != 200 || recovered.Envelope.Outcome != "nonzero_exit" {
+		t.Fatalf("restart card: %d %+v", code, recovered)
+	}
+	entries, err := transcript.Replay(filepath.Join(root, "transcripts"), string(conversationID), transcript.Cursor{})
+	if err != nil || len(entries) < 4 {
+		t.Fatalf("restart transcript: %d %v", len(entries), err)
+	}
+}
+
+func TestAcquireDoesNotPreemptCurrentController(t *testing.T) {
+	p, err := openPilot(t.TempDir(), filepath.Join("agents", "pilot"), "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.close()
+	h := p.handler()
+	attach := func(role string) string {
+		t.Helper()
+		var out struct {
+			Attachment struct {
+				ID string `json:"id"`
+			} `json:"attachment"`
+		}
+		if code := request(t, h, "POST", "/api/attach", map[string]any{"role": role}, &out); code != 200 {
+			t.Fatalf("attach %s: %d", role, code)
+		}
+		return out.Attachment.ID
+	}
+	first := attach("controller")
+	second := attach("controller")
+	viewer := attach("viewer")
+	if code := request(t, h, "POST", "/api/acquire", map[string]any{"id": viewer}, nil); code != 403 {
+		t.Fatalf("viewer acquire: %d", code)
+	}
+	if code := request(t, h, "POST", "/api/acquire", map[string]any{"id": first}, nil); code != 200 {
+		t.Fatalf("first acquire: %d", code)
+	}
+	if code := request(t, h, "POST", "/api/acquire", map[string]any{"id": first}, nil); code != 200 {
+		t.Fatalf("idempotent acquire: %d", code)
+	}
+	if code := request(t, h, "POST", "/api/acquire", map[string]any{"id": second}, nil); code != 409 {
+		t.Fatalf("second acquired without takeover: %d", code)
+	}
+	if code := request(t, h, "POST", "/api/takeover", map[string]any{"id": second}, nil); code != 200 {
+		t.Fatalf("takeover: %d", code)
+	}
+	if code := request(t, h, "POST", "/api/acquire", map[string]any{"id": first}, nil); code != 409 {
+		t.Fatalf("stale controller reacquired: %d", code)
+	}
+}
+
 func TestEventStreamReplaysAfterCursorAndEndsOnDetach(t *testing.T) {
 	p, err := openPilot(t.TempDir(), filepath.Join("agents", "pilot"), "", false)
 	if err != nil {

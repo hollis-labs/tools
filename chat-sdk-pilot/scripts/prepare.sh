@@ -3,25 +3,22 @@ set -euo pipefail
 
 pilot_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cache_root=${PILOT_CACHE_DIR:-/tmp/chat-sdk-pilot-${UID}}
-cache="$cache_root/pinned-20261117-v4"
+cache="$cache_root/pinned-20261117-v6"
 mkdir -p "$cache"
 
-# Exact source commits. All are branch heads observed for this pilot; moving a
-# branch does not silently change the fixture. Go and frontend overlays live
-# only in the cache. No dependency repository is modified or pushed.
-libs_base=5f59c3ddac121366e207b3c522ea04a0f7346944
-libs_chathost=bc1013d0655ebef8a4b2c6602467876986f464b7
+# Exact source commits: merged mains plus the temporary kit-chat attach
+# candidate. Moving a branch does not silently change the fixture. No
+# dependency repository is modified or pushed.
+libs_base=0d6f272e48bf9ef607e4f4609593643be7d3c464
 tools_base=4155006d7c83334e2dd3741ca9758f465f540ce1
 frontend_base=33abff1afd45488c7e283110f28bd4dc0d3bb004
-
-git_identity=(-c user.name='Chat SDK pilot aggregate' -c user.email='pilot@example.invalid')
+frontend_attach=7dbd96129332598210295b170c60e9625c4df35b
 
 if [[ ! -f "$cache/libs.ready" ]]; then
   git clone --filter=blob:none --no-checkout https://github.com/hollis-labs/libs.git "$cache/libs" >&2
-  git -C "$cache/libs" fetch origin "$libs_base" "$libs_chathost" >&2
+  git -C "$cache/libs" fetch origin "$libs_base" >&2
   git -C "$cache/libs" checkout --detach "$libs_base" >&2
-  git -C "$cache/libs" "${git_identity[@]}" merge --no-edit "$libs_chathost" >&2
-  printf '%s\n' "$libs_base" "$libs_chathost" > "$cache/libs.ready"
+  printf '%s\n' "$libs_base" > "$cache/libs.ready"
 fi
 
 if [[ ! -f "$cache/tools.ready" ]]; then
@@ -33,9 +30,10 @@ fi
 
 if [[ ! -f "$cache/frontend.ready" ]]; then
   git clone --filter=blob:none --no-checkout https://github.com/hollis-labs/frontend-support.git "$cache/frontend" >&2
-  git -C "$cache/frontend" fetch origin "$frontend_base" >&2
+  git -C "$cache/frontend" fetch origin "$frontend_base" "$frontend_attach" >&2
   git -C "$cache/frontend" checkout --detach "$frontend_base" >&2
-  printf '%s\n' "$frontend_base" > "$cache/frontend.ready"
+  git -C "$cache/frontend" -c user.name='Chat SDK pilot aggregate' -c user.email='pilot@example.invalid' merge --no-edit "$frontend_attach" >&2
+  printf '%s\n' "$frontend_base" "$frontend_attach" > "$cache/frontend.ready"
 fi
 
 if [[ ! -f "$cache/go.work" ]]; then
