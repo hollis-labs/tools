@@ -81,6 +81,37 @@ test('views, tool outcomes and opt-in fake gate share durable evidence', async (
   expect(outcomes).toContain('nonzero_exit')
   expect(outcomes).toContain('unknown')
 
+  // A retained HTTP payload must not borrow A's newer lease after B takes over.
+  await replayed.getByRole('button', { name: 'Detach' }).click()
+  await expect(replayed.getByTestId('role')).toHaveText('controller detached')
+  const attachController = async () => {
+    const response = await page.request.post(`${off}/api/attach`, { data: { role: 'controller', after: '' } })
+    expect(response.ok()).toBe(true)
+    return (await response.json()).attachment.id as string
+  }
+  const controllerA = await attachController()
+  const controllerB = await attachController()
+  const acquire = await page.request.post(`${off}/api/acquire`, { data: { id: controllerA } })
+  expect(acquire.ok()).toBe(true)
+  const leaseA1 = (await acquire.json()).lease as { ID: string; Writer: string }
+  const send = (id: string, lease: { ID: string; Writer: string }, inputId: string, text: string) =>
+    page.request.post(`${off}/api/send`, { data: { id, input_id: inputId, lease_id: lease.ID, lease_writer: lease.Writer, text } })
+
+  const first = await send(controllerA, leaseA1, 'pilot-duplicate-input', 'once')
+  expect(first.ok()).toBe(true)
+  const events = async () => (await (await page.request.get(`${off}/api/events?id=${controllerA}&after=`)).json()).events as unknown[]
+  const afterFirst = (await events()).length
+  expect((await send(controllerA, leaseA1, 'pilot-duplicate-input', 'once')).status()).toBe(409)
+  expect((await events()).length).toBe(afterFirst)
+
+  const takeoverB = await page.request.post(`${off}/api/takeover`, { data: { id: controllerB } })
+  expect(takeoverB.ok()).toBe(true)
+  const takeoverA = await page.request.post(`${off}/api/takeover`, { data: { id: controllerA } })
+  expect(takeoverA.ok()).toBe(true)
+  expect((await takeoverA.json()).lease.ID).not.toBe(leaseA1.ID)
+  expect((await send(controllerA, leaseA1, 'pilot-delayed-old-lease', 'stale')).status()).toBe(409)
+  expect((await events()).length).toBe(afterFirst)
+
   const gate = await browser.newPage()
   await gate.goto(on)
   const gateController = gate.getByTestId('controller-pane')
