@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/hollis-labs/libs/agent/sdk"
 	"github.com/hollis-labs/libs/agent/sdk/transcript"
 )
 
@@ -35,6 +37,46 @@ func request(t *testing.T, h http.Handler, method, path string, body any, out an
 		}
 	}
 	return w.Code
+}
+
+func TestDirectoryHostRunsSDKAndReloadsDefinition(t *testing.T) {
+	root := t.TempDir()
+	agent := filepath.Join(root, "agents", "pilot")
+	if err := os.MkdirAll(agent, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"agent.md", "host.yaml"} {
+		contents, err := os.ReadFile(filepath.Join("agents", "pilot", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(agent, name), contents, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, err := openPilot(filepath.Join(root, "state"), agent, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.close()
+	result, err := p.directory.Turn(context.Background(), "pilot", "hello")
+	if err != nil || result.Status != sdk.Succeeded || result.Text != "Echo: hello" || result.RunID == "" || result.Binding != p.binding {
+		t.Fatalf("SDK host result: status=%s text=%q run=%t binding=%t err=%v", result.Status, result.Text, result.RunID != "", result.Binding == p.binding, err)
+	}
+	var deltas strings.Builder
+	streamed, err := p.directory.TurnStream(context.Background(), "pilot", "stream", func(delta string) error {
+		_, writeErr := deltas.WriteString(delta)
+		return writeErr
+	})
+	if err != nil || streamed.Status != sdk.Succeeded || streamed.Text != "Echo: stream" || deltas.String() != streamed.Text {
+		t.Fatalf("SDK stream: status=%s text=%q deltas=%q err=%v", streamed.Status, streamed.Text, deltas.String(), err)
+	}
+	if err := os.WriteFile(filepath.Join(agent, "agent.md"), []byte("invalid definition"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.directory.Turn(context.Background(), "pilot", "again"); err == nil {
+		t.Fatal("host did not reload authored definition")
+	}
 }
 
 func TestEventStreamReplaysAfterCursorAndEndsOnDetach(t *testing.T) {
@@ -163,12 +205,30 @@ func TestDurableAttachAndToolOutcomes(t *testing.T) {
 	}
 	var replay struct {
 		Events []struct {
-			Kind   string `json:"kind"`
-			Cursor string `json:"cursor"`
+			Kind      string `json:"kind"`
+			Cursor    string `json:"cursor"`
+			Reference *struct {
+				Digest struct {
+					Value string `json:"value"`
+				} `json:"digest"`
+			} `json:"reference"`
 		} `json:"events"`
 	}
-	if code := request(t, h, "GET", "/api/events?id="+viewer.Attachment.ID, nil, &replay); code != 200 || len(replay.Events) != 4 {
+	if code := request(t, h, "GET", "/api/events?id="+viewer.Attachment.ID, nil, &replay); code != 200 || len(replay.Events) != 6 {
 		t.Fatalf("replay %d %+v", code, replay)
+	}
+	last := replay.Events[len(replay.Events)-1]
+	if last.Kind != "notice" || last.Reference == nil || last.Reference.Digest.Value == "" {
+		t.Fatalf("card event: %+v", last)
+	}
+	var recovered struct {
+		Envelope struct {
+			Outcome string `json:"outcome"`
+		} `json:"envelope"`
+	}
+	path := "/api/card?id=" + viewer.Attachment.ID + "&hash=" + last.Reference.Digest.Value
+	if code := request(t, h, "GET", path, nil, &recovered); code != 200 || recovered.Envelope.Outcome != "unknown" {
+		t.Fatalf("recovered card: %d %+v", code, recovered)
 	}
 	if code := request(t, h, "POST", "/api/detach", map[string]any{"id": first.Attachment.ID}, nil); code != 200 {
 		t.Fatalf("detach %d", code)
@@ -179,7 +239,7 @@ func TestDurableAttachAndToolOutcomes(t *testing.T) {
 	var resumed struct {
 		Events []any `json:"events"`
 	}
-	if code := request(t, h, "POST", "/api/attach", map[string]any{"role": "viewer", "after": replay.Events[1].Cursor}, &resumed); code != 200 || len(resumed.Events) != 2 {
+	if code := request(t, h, "POST", "/api/attach", map[string]any{"role": "viewer", "after": replay.Events[1].Cursor}, &resumed); code != 200 || len(resumed.Events) != 4 {
 		t.Fatalf("resume %d %+v", code, resumed)
 	}
 	entries, err := transcript.Replay(filepath.Join(root, "transcripts"), string(conversationID), transcript.Cursor{})

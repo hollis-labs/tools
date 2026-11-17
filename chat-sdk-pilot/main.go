@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hollis-labs/libs/agent/sdk"
 	"github.com/hollis-labs/libs/agent/sdk/agentdir"
 	"github.com/hollis-labs/libs/agent/sdk/chathost"
 	"github.com/hollis-labs/libs/agent/sdk/session"
@@ -46,6 +47,7 @@ func authorize(ctx context.Context, owner runtimecontract.OwnerID, _ chathost.Pe
 type pilot struct {
 	mu          sync.Mutex
 	host        *chathost.Host
+	directory   agentdir.Host
 	transcript  *transcript.Writer
 	runner      *runner.Manager
 	binding     runtimecontract.Binding
@@ -94,6 +96,10 @@ func openPilot(root, agentDirectory, web string, gate bool) (*pilot, error) {
 	if record.Phase != session.Active {
 		return nil, errors.New("pilot: conversation is not active")
 	}
+	directory, err := newDirectoryHost(agentDirectory, record.Binding)
+	if err != nil {
+		return nil, err
+	}
 	writer, err := transcript.Open(filepath.Join(root, "transcripts"), string(conversationID), transcript.Options{})
 	if err != nil {
 		return nil, err
@@ -103,7 +109,7 @@ func openPilot(root, agentDirectory, web string, gate bool) (*pilot, error) {
 		writer.Close()
 		return nil, err
 	}
-	return &pilot{host: host, transcript: writer, runner: runs, binding: record.Binding, attachments: map[string]chathost.Attachment{}, leases: map[string]session.Lease{}, root: root, web: web, gate: gate}, nil
+	return &pilot{host: host, directory: directory, transcript: writer, runner: runs, binding: record.Binding, attachments: map[string]chathost.Attachment{}, leases: map[string]session.Lease{}, root: root, web: web, gate: gate}, nil
 }
 
 func (p *pilot) close() error { return p.transcript.Close() }
@@ -138,6 +144,7 @@ func (p *pilot) handler() http.Handler {
 	mux.HandleFunc("/api/events/stream", p.eventStream)
 	mux.HandleFunc("/api/send", p.send)
 	mux.HandleFunc("/api/state", p.state)
+	mux.HandleFunc("/api/card", p.card)
 	if p.web != "" {
 		mux.Handle("/", http.FileServer(http.Dir(p.web)))
 	}
@@ -367,7 +374,20 @@ func (p *pilot) send(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
-	answer := "Echo: " + in.Text
+	var streamed strings.Builder
+	result, err := p.directory.TurnStream(r.Context(), "pilot", in.Text, func(delta string) error {
+		_, writeErr := streamed.WriteString(delta)
+		return writeErr
+	})
+	if err != nil || result.Status != sdk.Succeeded {
+		jsonReply(w, 500, map[string]string{"error": fmt.Sprintf("SDK turn failed: %v (%s)", err, result.Status)})
+		return
+	}
+	if streamed.String() != result.Text {
+		jsonReply(w, 500, map[string]string{"error": "SDK stream and final answer differ"})
+		return
+	}
+	answer := result.Text
 	var card any
 	if strings.HasPrefix(in.Text, "/tool ") {
 		answer, card, err = p.tool(r.Context(), strings.TrimPrefix(in.Text, "/tool "))
@@ -389,6 +409,12 @@ func (p *pilot) send(w http.ResponseWriter, r *http.Request) {
 	if err := p.message("assistant", id+"-reply", map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "text", "text": answer}}}); err != nil {
 		jsonReply(w, 500, map[string]string{"error": err.Error()})
 		return
+	}
+	if card != nil {
+		if err := p.publishCard(r.Context(), id+"-card", card, in.Text == "/gate"); err != nil {
+			jsonReply(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
 	}
 	jsonReply(w, 200, map[string]any{"cursor": cursor, "answer": answer, "card": card})
 }
