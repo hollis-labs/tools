@@ -36,6 +36,7 @@ inputs:
   - name: title
     type: string
     default: ""
+    pattern: "^[^\\x00-\\x1f\\x7f]*$"
     description: How a person reads the app's name (default from repo_name)
   - name: surface_version
     type: string

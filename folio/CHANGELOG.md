@@ -19,7 +19,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a Go server on `github.com/hollis-labs/surface/app` with a starter module (`modules/start`, one window, one
   agent tool) and its page on `@hollis-labs/surface-page`. `make setup` installs packages and components;
   `make check` is CI. The installed components and `ui.lock.json` are surface-ui's: `folio sync` never
-  writes them. See `docs/surface-apps.md`.
+  writes them. The `title` is free text (one line) and is escaped for each place it lands: a quoted Go
+  string in `main.go`, HTML text in `index.html`. See `docs/surface-apps.md`.
 
 - **app-ade** preset: a Substrate app where a person and an agent work over the same surface, on the
   ADE packages (`@hollis-labs/ade-core`, `ade-agent`, `ade-react`) and `github.com/hollis-labs/libs/agent/host`, all exact

@@ -27,7 +27,7 @@ func main() {
 	assets, _ := webui.Assets()
 	app.Main(app.Config{
 		Name:                "{{ .inputs.repo_name }}",
-		Title:               "{{ .computed.app_title }}",
+		Title:               {{ quote .computed.app_title }},
 		Modules:             modules,
 		SubstrateModules:    []string{"config", "logging", "health", "database", "cli", "httphost"},
 		SubstrateConfigJSON: `{"database":{"sqlite":{"path":"surface.db"}},"httphost":{"addr":"127.0.0.1:{{ .inputs.port }}"},"logging":{"format":"text","level":"info"}}`,
