@@ -1,0 +1,11 @@
+# Agents
+
+This app's agents, one directory each, named for the agent: `assistant/` holds `agent.md` (who the agent is
+and how it uses the app's tools) and `host.yaml` (embedded in {{ .inputs.repo_name }}, for the life of the app).
+The layout is Nanite's convention for embedding hosts (docs/embedding.md in github.com/hollis-labs/nanite).
+
+**Nothing in the app opens these files yet.** They are the standard starting point; the agent becomes live
+when the app is wired to open it with Nanite. Until then, editing them changes nothing at run time.
+
+Check them with Nanite: `nanite validate agents/assistant`, or `nanite -C agents/assistant` to talk to the
+agent from a terminal. Run-time state belongs under the app's own data directory, not here.
