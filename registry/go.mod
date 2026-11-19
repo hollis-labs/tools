@@ -6,6 +6,7 @@ require (
 	github.com/cyberphone/json-canonicalization v0.0.0-20261011152517-32a48195b9b2
 	github.com/hollis-labs/libs/core/store v0.1.0
 	github.com/hollis-labs/libs/mcp/plugin-mcp v0.6.0
+	github.com/hollis-labs/libs/mesh/core v0.11.0
 	github.com/hollis-labs/libs/security/auth v0.3.1
 	github.com/hollis-labs/substrate v0.1.1-0.20261119200612-112799f6da86
 	github.com/modelcontextprotocol/go-sdk v1.8.0

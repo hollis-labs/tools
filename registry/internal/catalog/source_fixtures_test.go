@@ -28,7 +28,7 @@ func TestSourceFixturesPreserveTeamsProfilesWorkersAndSkillFiles(t *testing.T) {
 	records := []*Input{
 		{Schema: kinds.ConfigSchema, Key: "catalog-policy", Payload: json.RawMessage(`{"schema":"config/1","id":"catalog-policy","name":"Catalog policy fixture","target":{"authority":"external","kind":"service","id":"fixture-tether"},"scope":"service","settings_schema":{"type":"object"},"settings":{"teams":{"policy":{"history":"filtered","authority":{"mode":"enforce"}},"config":{"workers":{"max":2,"temporary":true}}},"identity":{"points":{"teams":"enforce"}},"worker_definitions":[{"id":"fixture-worker","roles":["worker"],"launch_profile":"fixture-profile","skills":["fixture-skill"]}]}}`)},
 		{Schema: kinds.LaunchProfileSchema, Key: "fixture-profile", Payload: json.RawMessage(`{"schema":"launch_profile/1","id":"fixture-profile","name":"Fixture profile","source":{"reference":{"authority":"tether","kind":"launch_profile","id":"fixture-profile"},"revision":"source-profile-v1"}}`)},
-		{Schema: kinds.AgentSchema, Key: "fixture-worker", Metadata: map[string]any{"agent_files": []SourceFile{{Path: "agent.md", Content: "---\nschema_version: \"2\"\ndefinition_id: def:fixture-worker\nrevision: \"1\"\nname: fixture-worker\n---\nFixture worker charter.\n"}, {Path: "host.yaml", Content: "kind: embedded\nlifetime: application\napplication_id: fixture-app\nruntime:\n  provider: anthropic\n"}}}, Payload: json.RawMessage(`{"schema":"agent/1","id":"fixture-worker","name":"Fixture worker","charter":"Preserve the authored worker fixture","roles":["worker"],"skills":[{"authority":"registry","kind":"skill","id":"skill:fixture-skill"}],"launch_profile":{"reference":{"authority":"registry","kind":"launch_profile","id":"launch_profile:fixture-profile"},"revision":"source-profile-v1"}}`)},
+		{Schema: kinds.AgentSchema, Key: "fixture-worker", Metadata: map[string]any{"agent_files": []SourceFile{{Path: "agent.md", Content: "---\nschema_version: \"2\"\ndefinition_id: def:fixture-worker\nrevision: \"1\"\nname: fixture-worker\ndescription: Preserve the authored worker fixture.\nbehavior:\n  purpose: Preserve the fixture.\nrequirements: {}\nharness_profile:\n  permissions:\n    profile: default\ncontinuity:\n  mode: durable\n---\nFixture worker charter.\n"}, {Path: "host.yaml", Content: "kind: embedded\nlifetime: application\napplication_id: fixture-app\nruntime:\n  provider: anthropic\n"}}}, Payload: json.RawMessage(`{"schema":"agent/1","id":"fixture-worker","name":"Fixture worker","charter":"Preserve the authored worker fixture","roles":["worker"],"skills":[{"authority":"registry","kind":"skill","id":"skill:fixture-skill"}],"launch_profile":{"reference":{"authority":"registry","kind":"launch_profile","id":"launch_profile:fixture-profile"},"revision":"source-profile-v1"}}`)},
 		{Schema: kinds.SkillSchema, Key: "fixture-skill", Payload: json.RawMessage(`{"schema":"skill/1","id":"fixture-skill","name":"Fixture skill","summary":"Preserve auxiliary files","instructions":"Read the bundled fixture resource."}`), Metadata: map[string]any{"skill_files": []SourceFile{{Path: "references/guide.md", Content: "# Fixture guide\n"}, {Path: "scripts/example.sh", Content: "printf 'fixture only\\n'\n"}}}},
 	}
 	request := ImportRequest{Connector: "temporary-catalog-fixture", Checkpoint: "catalog-snapshot-1"}
@@ -54,6 +54,16 @@ func TestSourceFixturesPreserveTeamsProfilesWorkersAndSkillFiles(t *testing.T) {
 			t.Fatal("authored fixture changed", r.ID)
 		}
 		if err = s.DB.WriteTx(context.Background(), func(ctx context.Context, tx store.Tx) error {
+			r.TargetPins = map[string]string{}
+			for _, edge := range r.Edges {
+				if edge.Relation.To.Authority == "registry" {
+					target, err := readRecord(ctx, tx, edge.Relation.To.ID, -1)
+					if err != nil {
+						return err
+					}
+					r.TargetPins[edge.ID] = target.RevisionID
+				}
+			}
 			r.Publication = "published"
 			r.PublishedBy = "fixture-historical-approval"
 			return writePublished(ctx, tx, r)

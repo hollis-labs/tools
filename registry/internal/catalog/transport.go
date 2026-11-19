@@ -20,6 +20,7 @@ func (e *Error) ToolErrorContent() any { return e }
 type Route struct{ Operation, Method, Path string }
 
 var Routes = []Route{
+	{"export_authorize", "POST", "/v1/export/authorize"}, {"export_attempt_get", "GET", "/v1/export/attempt"},
 	{"export_plan", "POST", "/v1/export/plan"}, {"export_diff", "POST", "/v1/export/diff"}, {"export_apply", "POST", "/v1/export/apply"},
 	{"changes_list", "GET", "/v1/changes"}, {"import_prepare", "POST", "/v1/import/prepare"}, {"import_commit", "POST", "/v1/import/commit"}, {"import_checkpoint", "GET", "/v1/import/checkpoint"},
 	{"publication_approval_prepare", "POST", "/v1/publication/prepare"}, {"publication_approval_get", "GET", "/v1/publication/approval"}, {"publication_approval_decide", "POST", "/v1/publication/decide"}, {"publication_publish", "POST", "/v1/publication/publish"}, {"publication_policy_get", "GET", "/v1/publication/policy"}, {"publication_policy_set", "PUT", "/v1/publication/policy"},
@@ -270,7 +271,17 @@ func argumentSchema(op string) any {
 	switch op {
 	case "export_plan":
 		add("export", "object", "Target binding, optional exact ids and expected_generation; published records only", true)
-	case "export_diff", "export_apply":
+	case "export_authorize":
+		add("export", "object", "Exact planned scope and expected generation", true)
+		add("hash", "string", "Read-only plan bundle digest", true)
+		add("expires_at", "string", "Optional apply-start deadline, default five minutes and maximum 24 hours", false)
+	case "export_attempt_get":
+		add("receipt_id", "string", "Caller-owned authorization and attempt", true)
+	case "export_diff":
+		add("export", "object", "Read-only current scope; alternative to receipt_id and hash", false)
+		add("receipt_id", "string", "Caller-owned pinned authorization; alternative to export", false)
+		add("hash", "string", "Exact authorized bundle digest", false)
+	case "export_apply":
 		add("receipt_id", "string", "Caller-owned export authorization receipt", true)
 		add("hash", "string", "Exact deterministic bundle digest", true)
 	case "changes_list":

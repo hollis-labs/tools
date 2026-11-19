@@ -32,6 +32,8 @@ github.com/hollis-labs/libs/harness/core v0.17.1-0.20261115212742-8f2ed31176b0 h
 github.com/hollis-labs/libs/harness/core v0.17.1-0.20261115212742-8f2ed31176b0/go.mod h1:JOL5aJxxZ1ne2qCHnN4ctrjOgAqVf6htGl5D+SUvlCM=
 github.com/hollis-labs/libs/mcp/plugin-mcp v0.6.0 h1:wS9KsD0Jk4QD+SEepirMGZJwUtXpL5hMjPL/wYdEk20=
 github.com/hollis-labs/libs/mcp/plugin-mcp v0.6.0/go.mod h1:jf0jxxm5UOa5YBETO4u8WTD6JY87VAhxkBZgCnFd+UA=
+github.com/hollis-labs/libs/mesh/core v0.11.0 h1:hBl6Kxt2zoNBWJmeOypp+kD02VhKkIQ5hBwjg8wY0ds=
+github.com/hollis-labs/libs/mesh/core v0.11.0/go.mod h1:yZA6PdWpjZN5Pxoxw00NfYKc4e3WAZFd6JucRkofs8Q=
 github.com/hollis-labs/libs/security/auth v0.3.1 h1:Oi9xrIucjr0mBcGCWGOiS8KC/+cI/HH8ZJ+ZIobFXKU=
 github.com/hollis-labs/libs/security/auth v0.3.1/go.mod h1:GGJqJuSZwR57ygyml3kPt6Aw2rwPqAzTV2M9CXjTjo8=
 github.com/hollis-labs/libs/security/redact v0.2.0 h1:yaKmfWRMwlaAH1uur2yyS+DJjdhoM1XEdOdsafOhzjI=

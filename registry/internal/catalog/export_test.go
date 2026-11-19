@@ -18,6 +18,11 @@ func exportPlan(t *testing.T, s *Service, r ExportRequest) ExportReceipt {
 	if e != nil {
 		t.Fatal(e)
 	}
+	plan := v.(ExportPlan)
+	v, e = s.Call(writer, "export_authorize", Args{Export: &r, Hash: plan.Bundle.Digest})
+	if e != nil {
+		t.Fatal(e)
+	}
 	return v.(ExportReceipt)
 }
 func exportArgs(r ExportReceipt) Args { return Args{ReceiptID: r.ID, Hash: r.Bundle.Digest} }
@@ -67,8 +72,11 @@ func TestExportDeterminismPublishedOnlyReceiptAndDrift(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	var sources []ExportSource
-	if e = json.Unmarshal(sourceBytes, &sources); e != nil || !reflect.DeepEqual(sources, first.Bundle.Sources) {
+	var sourceManifest struct {
+		Sources []ExportSource `json:"sources"`
+		Pins    []ExportPin    `json:"pins"`
+	}
+	if e = json.Unmarshal(sourceBytes, &sourceManifest); e != nil || !reflect.DeepEqual(sourceManifest.Sources, first.Bundle.Sources) {
 		t.Fatal(string(sourceBytes), e)
 	}
 	publish(t, s, approvePublication(t, s, preparePublication(t, s, Candidate{ID: a.ID, Revision: a2.RevisionID, ExpectedPublishedRevision: a.RevisionID})), "pub2")
@@ -134,7 +142,9 @@ func TestExportDisabledBindingsAndPublicationSetCAS(t *testing.T) {
 	a := create(t, s, input("new"))
 	publish(t, s, approvePublication(t, s, preparePublication(t, s, Candidate{ID: a.ID, Revision: a.RevisionID})), "new-pub")
 	_, e = s.Call(writer, "export_apply", exportArgs(p))
-	code(t, e, "version_conflict")
+	if e != nil {
+		t.Fatal("later publication revoked snapshot", e)
+	}
 	// Stored receipts are still verified at the materializer boundary.
 	var raw []byte
 	if e = s.DB.QueryRowContext(context.Background(), `SELECT body FROM export_receipts WHERE id=?`, p.ID).Scan(&raw); e != nil {
@@ -166,13 +176,8 @@ func TestExportApplyRerunUsesSameGeneration(t *testing.T) {
 		t.Fatal(e)
 	}
 	generation := v.(materialize.Handle).Manifest.Generation
-	v, e = s.Call(writer, "export_apply", exportArgs(first))
-	if e != nil {
-		t.Fatal(e)
-	}
-	if v.(materialize.Handle).Manifest.Generation != generation {
-		t.Fatal("generation changed on replay")
-	}
+	_, e = s.Call(writer, "export_apply", exportArgs(first))
+	code(t, e, "version_conflict")
 	next := exportPlan(t, s, ExportRequest{Target: "fixture", ExpectedGeneration: generation})
 	v, e = s.Call(writer, "export_apply", exportArgs(next))
 	if e != nil {
@@ -186,4 +191,181 @@ func TestExportApplyRerunUsesSameGeneration(t *testing.T) {
 			t.Fatal("rerun changed files", c)
 		}
 	}
+}
+
+func TestExportReadOnlyPlanAndSnapshotAuthorization(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	root := filepath.Join(t.TempDir(), "out")
+	if err := s.ConfigureExportTargets(map[string]string{"fixture": root}); err != nil {
+		t.Fatal(err)
+	}
+	a := create(t, s, input("a"))
+	b := create(t, s, input("b"))
+	publish(t, s, approvePublication(t, s, preparePublication(t, s, Candidate{ID: b.ID, Revision: b.RevisionID})), "b")
+	a = callRecord(t, s, writer, "relation_create", Args{ID: a.ID, Version: a.VersionToken, Relation: &kinds.Relation{Schema: kinds.RelationSchema, Type: kinds.Consumes, From: kinds.Reference{Authority: "registry", Kind: "project", ID: a.ID}, To: kinds.Reference{Authority: "registry", Kind: "project", ID: b.ID}, Source: "authored", Status: "proposed"}})
+	publish(t, s, approvePublication(t, s, preparePublication(t, s, Candidate{ID: a.ID, Revision: a.RevisionID})), "a")
+	request := ExportRequest{Target: "fixture", IDs: []string{a.ID}}
+	v, err := s.Call(writer, "export_plan", Args{Export: &request})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := v.(ExportPlan)
+	var count int
+	if err = s.DB.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM export_receipts`).Scan(&count); err != nil || count != 0 {
+		t.Fatal("plan wrote receipt", count, err)
+	}
+	b2 := callRecord(t, s, writer, "record_update", Args{ID: b.ID, Version: b.VersionToken, Record: input("b")})
+	publish(t, s, approvePublication(t, s, preparePublication(t, s, Candidate{ID: b.ID, Revision: b2.RevisionID, ExpectedPublishedRevision: b.RevisionID})), "b2")
+	v, err = s.Call(writer, "export_plan", Args{Export: &request})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := v.(ExportPlan)
+	if first.Bundle.Digest != second.Bundle.Digest {
+		t.Fatal("new target publication silently repinned export")
+	}
+	pinned := false
+	for _, p := range second.Bundle.Pins {
+		if p.ID == b.ID && p.Revision == b.RevisionID {
+			pinned = true
+		}
+	}
+	if !pinned {
+		t.Fatal("dependency not pinned")
+	}
+	v, err = s.Call(writer, "export_authorize", Args{Export: &request, Hash: second.Bundle.Digest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := v.(ExportReceipt)
+	callRecord(t, s, writer, "record_archive", Args{ID: b2.ID, Version: b2.VersionToken})
+	_, err = s.Call(writer, "export_authorize", Args{Export: &request, Hash: second.Bundle.Digest})
+	code(t, err, "reference_unavailable")
+	if _, err = s.Call(writer, "export_apply", exportArgs(receipt)); err != nil {
+		t.Fatal("archive after authorization revoked issued snapshot", err)
+	}
+	v, err = s.Call(writer, "export_attempt_get", Args{ReceiptID: receipt.ID})
+	if err != nil || v.(ExportAttempt).State != "completed" {
+		t.Fatal(v, err)
+	}
+}
+
+func TestExportClaimSurvivesRestartAndRejectsDestinationChange(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "db")
+	s := openTest(t, db)
+	root := filepath.Join(t.TempDir(), "out")
+	if err := s.ConfigureExportTargets(map[string]string{"fixture": root}); err != nil {
+		t.Fatal(err)
+	}
+	p := exportPlan(t, s, ExportRequest{Target: "fixture"})
+	other := filepath.Join(t.TempDir(), "other")
+	if err := s.ConfigureExportTargets(map[string]string{"fixture": other}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.Call(writer, "export_apply", exportArgs(p))
+	code(t, err, "forbidden")
+	if _, err = os.Stat(other); !os.IsNotExist(err) {
+		t.Fatal("rebound root was written")
+	}
+	if err = s.ConfigureExportTargets(map[string]string{"fixture": root}); err != nil {
+		t.Fatal(err)
+	}
+	// Persist the state a crash would leave after its single-start claim.
+	raw, _ := json.Marshal(ExportAttempt{ReceiptID: p.ID, State: "started", StartedAt: "fixture"})
+	if _, err = s.DB.ExecContext(context.Background(), `UPDATE export_attempts SET body=? WHERE receipt_id=?`, raw, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.DB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s = openTest(t, db)
+	if err = s.ConfigureExportTargets(map[string]string{"fixture": root}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Call(writer, "export_apply", exportArgs(p))
+	code(t, err, "version_conflict")
+	v, err := s.Call(writer, "export_attempt_get", Args{ReceiptID: p.ID})
+	if err != nil || v.(ExportAttempt).State != "started" {
+		t.Fatal(v, err)
+	}
+	if _, err = os.Stat(root); !os.IsNotExist(err) {
+		t.Fatal("uncertain attempt restarted")
+	}
+}
+
+func TestExportExpiredConcurrentAndFailedAttempts(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	root := filepath.Join(t.TempDir(), "out")
+	if err := s.ConfigureExportTargets(map[string]string{"fixture": root}); err != nil {
+		t.Fatal(err)
+	}
+	p := exportPlan(t, s, ExportRequest{Target: "fixture"})
+	expired := p
+	expired.StartDeadline = "2000-01-01T00:00:00Z"
+	raw, _ := json.Marshal(expired)
+	if _, err := s.DB.ExecContext(context.Background(), `UPDATE export_receipts SET body=? WHERE id=?`, raw, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.Call(writer, "export_apply", exportArgs(p))
+	code(t, err, "version_conflict")
+	p = exportPlan(t, s, ExportRequest{Target: "fixture"})
+	results := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() { _, err := s.Call(writer, "export_apply", exportArgs(p)); results <- err }()
+	}
+	successes := 0
+	for i := 0; i < 2; i++ {
+		if err := <-results; err == nil {
+			successes++
+		} else {
+			code(t, err, "version_conflict")
+		}
+	}
+	if successes != 1 {
+		t.Fatal("receipt started more than once", successes)
+	}
+	p = exportPlan(t, s, ExportRequest{Target: "fixture"})
+	manifest := filepath.Join(root, "registry-sources.json")
+	if err = os.WriteFile(manifest, []byte("external edit"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Call(writer, "export_apply", exportArgs(p))
+	code(t, err, "version_conflict")
+	v, err := s.Call(writer, "export_attempt_get", Args{ReceiptID: p.ID})
+	if err != nil || v.(ExportAttempt).State != "failed" || v.(ExportAttempt).Handle == nil {
+		t.Fatal("failed outcome not retained", v, err)
+	}
+	_, err = s.Call(writer, "export_apply", exportArgs(p))
+	code(t, err, "version_conflict")
+}
+
+func TestExportRefusesControlSymlinkAndMissingNativeBundle(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	root := filepath.Join(t.TempDir(), "out")
+	if err := s.ConfigureExportTargets(map[string]string{"fixture": root}); err != nil {
+		t.Fatal(err)
+	}
+	p := exportPlan(t, s, ExportRequest{Target: "fixture"})
+	if _, err := s.Call(writer, "export_apply", exportArgs(p)); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Rename(filepath.Join(root, ".materialize"), filepath.Join(root, "saved-control")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, ".materialize")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.Call(writer, "export_plan", Args{Export: &ExportRequest{Target: "fixture"}})
+	code(t, err, "version_conflict")
+	files, err := os.ReadDir(outside)
+	if err != nil || len(files) != 0 {
+		t.Fatal("control symlink wrote outside", err)
+	}
+	r, err := prepare(&Input{Schema: kinds.AgentSchema, Key: "agent", Payload: json.RawMessage(`{"schema":"agent/1","id":"agent","name":"Agent","charter":"Read","roles":["reader"]}`)}, "registry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = renderExportFiles(r)
+	code(t, err, "non_materializable")
 }
