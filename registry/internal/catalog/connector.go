@@ -37,13 +37,20 @@ func decodeResult(v any, dst any) error {
 // commits with Registry-side CAS. It cannot lock a remote source: connectors must
 // provide an immutable snapshot/checkpoint or hold a source lease through commit.
 func RunConnector(ctx context.Context, call CallFunc, c Connector) (ImportResult, error) {
+	return RunConnectorWithPreparationKey(ctx, call, c, "")
+}
+
+// RunConnectorWithPreparationKey permits an explicit new preparation after
+// expiry. Empty key retains deterministic source-snapshot retry identity.
+func RunConnectorWithPreparationKey(ctx context.Context, call CallFunc, c Connector, key string) (ImportResult, error) {
 	var result ImportResult
 	v, err := call(ctx, "import_checkpoint", Args{ID: c.ID()})
 	if err != nil {
 		return result, err
 	}
 	var cp struct {
-		Checkpoint string `json:"checkpoint"`
+		Checkpoint string             `json:"checkpoint"`
+		Sources    []SourceCheckpoint `json:"sources"`
 	}
 	if err = decodeResult(v, &cp); err != nil {
 		return result, err
@@ -52,7 +59,17 @@ func RunConnector(ctx context.Context, call CallFunc, c Connector) (ImportResult
 	if err != nil {
 		return result, err
 	}
-	v, err = call(ctx, "import_prepare", Args{Import: &request})
+	prepareKey, keyErr := canonicalDigest(struct {
+		Snapshot ImportRequest      `json:"snapshot"`
+		Sources  []SourceCheckpoint `json:"source_positions"`
+	}{request, cp.Sources})
+	if keyErr != nil {
+		return result, keyErr
+	}
+	if key == "" {
+		key = "connector:" + prepareKey
+	}
+	v, err = call(ctx, "import_prepare", Args{Import: &request, IdempotencyKey: key})
 	if err != nil {
 		return result, err
 	}

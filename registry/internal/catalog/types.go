@@ -21,6 +21,7 @@ var Migrations embed.FS
 const MaxRequestBytes = 2 << 20
 
 type Error struct {
+	Details   any    `json:"details,omitempty"`
 	Code      string `json:"code"`
 	Message   string `json:"message"`
 	Field     string `json:"field,omitempty"`
@@ -82,6 +83,8 @@ type Review struct {
 	ReviewedAt     string                `json:"reviewed_at,omitempty"`
 }
 type Record struct {
+	DependencyPins    map[string]string `json:"dependency_pins,omitempty"`
+	MappingVersion    string            `json:"mapping_version,omitempty"`
 	Publication       string            `json:"publication"`
 	PublishedBy       string            `json:"published_by,omitempty"`
 	PublishedAt       string            `json:"published_at,omitempty"`
@@ -137,6 +140,7 @@ type Page struct {
 // Args is the common operation envelope. Unknown keys are errors, including
 // spoofed authority, verification and review identity fields.
 type Args struct {
+	Bundle           *ExportBundle         `json:"bundle,omitempty"`
 	Export           *ExportRequest        `json:"export,omitempty"`
 	ReceiptID        string                `json:"receipt_id,omitempty"`
 	Import           *ImportRequest        `json:"import,omitempty"`
@@ -232,7 +236,7 @@ func digest(v any) string {
 }
 func scope(op string) string {
 	switch op {
-	case "export_apply", "import_prepare", "import_commit", "publication_approval_prepare", "publication_publish", "record_create", "record_update", "record_archive", "record_delete", "record_verify", "relation_create", "relation_remove", "tool_propose":
+	case "export_authorize", "export_apply", "import_prepare", "import_commit", "publication_approval_prepare", "publication_publish", "record_create", "record_update", "record_archive", "record_delete", "record_verify", "relation_create", "relation_remove", "tool_propose":
 		return "registry.write"
 	case "review_decide", "publication_approval_decide", "publication_policy_set":
 		return "registry.review"

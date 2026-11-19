@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -136,6 +137,19 @@ func catalogService(app *module.App) (*catalog.Service, error) {
 			return nil, fmt.Errorf("registry.export_targets requires directory strings")
 		}
 		targets[name] = root
+	}
+	if configuredLimits, ok := cfg["import_limits"]; ok {
+		raw, err := json.Marshal(configuredLimits)
+		if err != nil {
+			return nil, err
+		}
+		limits := catalog.DefaultImportLimits()
+		if err = catalog.Decode(raw, &limits); err != nil {
+			return nil, err
+		}
+		if err = svc.ConfigureImportLimits(limits); err != nil {
+			return nil, err
+		}
 	}
 	if err := svc.ConfigureExportTargets(targets); err != nil {
 		return nil, err

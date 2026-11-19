@@ -1,148 +1,195 @@
 # Materialization and temporary import connectors
 
-Registry exports published definitions; generic writes and imports create drafts.
-This facility does not activate agents, install runtime permissions, resolve
-secret references, cut consumers over, or enable a scheduler.
+Registry exports published definitions. Generic writes and imports create drafts.
+It does not activate agents, install permissions, resolve secrets, cut consumers
+over, or enable a scheduler.
 
-The HTTP API, HTTP-client CLI and MCP share these operations:
+HTTP, HTTP-client CLI and MCP share these operations. MCP prefixes names with
+`registry_`; CLI replaces underscores with hyphens and accepts `--file` JSON.
 
-| Operation | HTTP | CLI |
+| Operation | HTTP | Required scope |
 | --- | --- | --- |
-| `export_plan` | POST `/v1/export/plan` | `export-plan --file request.json` |
-| `export_diff` | POST `/v1/export/diff` | `export-diff --file receipt.json` |
-| `export_apply` | POST `/v1/export/apply` | `export-apply --file receipt.json` |
-| `changes_list` | GET `/v1/changes` | `changes-list --cursor CURSOR` |
-| `import_prepare` | POST `/v1/import/prepare` | `import-prepare --file batch.json` |
-| `import_commit` | POST `/v1/import/commit` | `import-commit --file commit.json` |
-| `import_checkpoint` | GET `/v1/import/checkpoint` | `import-checkpoint --id CONNECTOR` |
+| `export_plan` | POST `/v1/export/plan` | registry.read |
+| `export_diff` | POST `/v1/export/diff` | registry.read |
+| `export_authorize` | POST `/v1/export/authorize` | registry.write |
+| `export_apply` | POST `/v1/export/apply` | registry.write |
+| `export_attempt_get` | GET `/v1/export/attempt` | registry.read |
+| `changes_list` | GET `/v1/changes` | registry.read |
+| `import_prepare` | POST `/v1/import/prepare` | registry.write |
+| `import_commit` | POST `/v1/import/commit` | registry.write |
+| `import_checkpoint` | GET `/v1/import/checkpoint` | registry.read |
 
-MCP prefixes each operation with `registry_`. All CLI commands accept `--url`,
-`--token-file` and `--json`; arguments use the same JSON envelope as HTTP/MCP.
-Plan, diff and changes need `registry.read`; export apply and import prepare and
-commit need `registry.write`. Import operations additionally require a configured
-owning authority. Existing publication approvals remain the only path to published
-records, including the reserved agent/config decisions.
+Writes/import checkpoints also require the configured owning authority. Only the
+existing explicit publication approval path can publish imported drafts. Reserved
+elevated publication remains closed without its verified human integration.
 
-## Export
+## Published export plan and authorization
 
-Materialization is disabled unless the operator configures
-`registry.export_targets` as a map from logical target names to absolute output
-directories. Request JSON never supplies a filesystem path. Configure only isolated
-outputs for evaluation. A single Registry process must own each output root.
+`registry.export_targets` maps operator-selected logical names to absolute
+isolated output directories. An empty map disables materialization. Remote input
+never supplies filesystem paths. One Registry process must own each output root.
 
 ```json
 {"export":{"target":"fixture","ids":["project:example"],"expected_generation":""}}
 ```
 
-An omitted ID list selects all active, exportable published records. Explicit IDs
-must be published and active. The export mappings are versioned by
-`registry-export/1`: agents become `agents/<identity>/definition.yaml`, launch-profile source references
-become YAML in `launch_profiles/`, skills become
-`skills/<identity>/SKILL.md`, documents and knowledge become bodies in `docs/`,
-config settings become JSON in `config/`, and project descriptors become YAML in
-`projects/<identity>/project.yaml`. Every filename identity is the lowercase hex
-encoding of the complete canonical ID, preserving opaque identity without path
-interpretation or key-rename collisions. These are catalog exports, not claims of
-provider-native launch compatibility. Config secret locators are never resolved.
+Plan is read-only: it creates no authorization, receipt, cursor or canonical row.
+It returns a deterministic `bundle` and the shared materializer's on-disk change
+plan. Omitted IDs select every active supported publication; explicit IDs select
+an exact scope. Drafts are excluded. `export_diff` takes that `bundle` plus its
+`hash` and recomputes a read-only change report.
 
-`agents.dir` is the [Substrate config key](https://github.com/hollis-labs/substrate/blob/main/docs/agents.md),
-not a literal directory name. The output uses its default `agents/` with one
-subdirectory per identity. Source adapters can preserve native `agent.md` and
-`host.yaml` in `metadata.agent_files`, matching the
-[Folio agent-directory preset](https://github.com/hollis-labs/tools/tree/main/folio/presets/agent-dir).
-These bytes are copied as inert authored files; no runtime permission or host
-configuration is inferred from a catalog role. Native bundles require both files.
-Without that source bundle the agent directory contains only `definition.yaml`.
+A separate authorization request accepts `bundle`, `hash`, a scoped
+`idempotency_key` and optional `expires_at`. It verifies exact selected published
+record/edge revisions, recursively pinned dependencies and their current
+eligibility in one Registry transaction. It binds the manifest bytes, destination,
+caller, owning authority, active policy revision, authorization time and start
+deadline. Default deadline is 15 minutes; an explicit deadline must be within
+24 hours. Same-key/same-request replay returns the same authorization, including
+after expiry; a changed request conflicts. It never silently renews permission.
 
-Skills can retain auxiliary text files in `metadata.skill_files`. Both metadata
-envelopes are arrays of `{ "path": "references/guide.md", "content": "text" }`.
-Paths must be confined relative paths, unique even under case folding, with the
-generated primary filename reserved (`SKILL.md` or `definition.yaml`). Files use
-mode 0600 and are never executed. Every attachment gets its own source-manifest
-entry. Binary source attachments require an explicit future encoding contract;
-the current connector must report them as rejected instead of dropping them.
-Existing kind schemas and admission remain authoritative.
+There is no global graph hash: unrelated publication does not invalidate an
+explicitly selected scope. A newer dependency publication does not repin an
+existing authored reference. Archived/deleted dependencies block new
+authorizations. Every exported source records its exact record and edge-set
+revision, path and content digest; `registry-sources.json` is an owned output.
+The bundle also includes exact publication subjects for its pinned closure.
 
-`registry-sources.json` records source IDs, exact published revisions, destination
-paths and SHA-256 content digests. The deterministic bundle also carries shared
-materializer artifacts with ownership and provenance. Generation depends on the
-published snapshot and content, independent of the expected previous generation.
-
-Plan issues an opaque, server-stored authorization receipt. To diff or apply:
+To start one authorized attempt:
 
 ```json
 {"receipt_id":"<receipt_id>","hash":"<bundle.digest>"}
 ```
 
-At the materializer boundary Registry verifies the caller, authority, action,
-bundle digest and current published event boundary/revisions, then invokes the
-shared [harness/core materializer](https://github.com/hollis-labs/libs/tree/main/harness/core/workspace/materialize).
-Draft edits do not affect an authorized published snapshot. Any publication since
-plan requires a fresh plan, including additions or lifecycle removals. A receipt
-cannot be copied to another principal or changed to point to another target.
+At the materializer boundary, Registry verifies receipt identity, bundle bytes,
+configured destination binding and deadline, then atomically records **started**
+and releases its DB transaction. Only then does it invoke the BOM-selected
+[harness/core Engine](https://github.com/hollis-labs/libs/tree/main/harness/core/workspace/materialize).
+The engine performs its own output generation/CAS and ownership/drift checks;
+Registry records completed/failed outcome and any partial materializer report
+against the consumed receipt. `export_attempt_get` reads that outcome. No
+Registry DB transaction is held during filesystem work.
 
-The adapter uses the BOM-selected shared artifact types and Engine Plan/Apply;
-it does not implement a second filesystem writer. Initial apply requires an absent
-output. Refresh requires the current materializer generation in
-`expected_generation`. Identical apply retries reconcile the same generation.
-Diff reports owned output drift; apply refuses conflicts. Hand-authored unowned
-files are preserved. The shared reconcile engine reports partial failures; a
-filesystem refresh is not a SQLite transaction. Reconcile again after inspecting
-its report. No source or consumer directories are implicitly targeted.
+Authorization is a snapshot boundary, not a cross-system revocation fence.
+Archive before authorization blocks it. Archive after authorization blocks new
+authorizations but does not retract the already-issued receipt or undo external
+writes. The deadline bounds when an attempt may **start**, not when all writes
+finish. The receipt grants no launch/deploy authority. A consumed receipt cannot
+start another attempt: even identical retries return a conflict and direct the
+caller to its outcome. After success, failure or a crash with an uncertain
+started outcome, inspect/reconcile the output and obtain fresh authorization for
+any new attempt. A fresh authorization is required even for a deterministic rerun.
+
+Initial apply requires an absent destination. Refresh supplies the current
+materializer generation in `expected_generation`. A fresh authorization for
+identical content reconciles the same generation and unchanged files. External
+owned-file edits are reported by diff and refused by apply; unowned files remain.
+Filesystem refresh follows the shared materializer's partial-failure/recovery
+contract, not SQLite atomicity. Large scopes must fit the HTTP request cap when
+resubmitted for authorization; partition explicit scopes when necessary.
+
+## Output mappings and source bundles
+
+`registry-export/1` writes agents to `agents/<hex-identity>/definition.yaml`,
+skills to `skills/<hex-identity>/SKILL.md`, documents/knowledge bodies to `docs/`,
+config settings to `config/`, project descriptors to
+`projects/<hex-identity>/project.yaml`, and launch-profile source references to
+`launch_profiles/`. Opaque complete canonical IDs use lowercase hex encoding;
+keys and path segments are never reinterpreted as identity. Config secret
+locators are not resolved and source launch semantics are not inferred.
+
+[Substrate agents.dir](https://github.com/hollis-labs/substrate/blob/main/docs/agents.md)
+is the config key, defaulting to `agents/`. Source adapters can preserve native
+`agent.md` and `host.yaml` in `metadata.agent_files`, following the
+[Folio directory preset](https://github.com/hollis-labs/tools/tree/main/folio/presets/agent-dir).
+Native bundles require both files; without a bundle only `definition.yaml` is
+exported. No runtime permission/host field is inferred from a catalog role.
+
+`metadata.skill_files` retains auxiliary text. Both attachment envelopes are
+arrays of `{ "path": "references/guide.md", "content": "text" }`. Paths are
+confined relative paths, unique under case folding, with the primary generated
+filename reserved. Attachments use mode 0600, are never executed, and each gets
+its own source manifest entry. Binary attachments require a future explicit
+encoding/admission contract and must be reported as unsupported, never dropped.
 
 ## Publication changes
 
-Changes are immutable publication events in ascending sequence, including archive
-and deletion events. Draft changes never appear. Only `query.cursor` and
-`query.limit` (1–200) are accepted. The response always includes a caller-bound
-cursor, even when empty, to resume future polls. Changing the page size is allowed.
-An idle cursor is reused, and a cursor may be replayed to retrieve the same prefix
-plus later committed events. Consumers must handle the returned lifecycle.
+`changes_list` returns immutable publication events in ascending sequence,
+including lifecycle removals. Draft edits never appear. It accepts only
+`query.cursor` and `query.limit` (1–200) and always returns a caller-bound cursor,
+even when empty. Idle polls reuse the cursor. It can be replayed and can resume
+future publications; consumers handle the returned lifecycle explicitly.
 
-## Import transaction
-
-```json
-{"import":{"connector":"temporary-example","expected_checkpoint":"","checkpoint":"source-snapshot-1","entries":[{"source_key":"stable-source-key","source_revision":"immutable-source-revision","record":{"schema":"project/1","key":"example","payload":{}}}]}}
-```
-
-The payload above is abbreviated; each record must pass its full shared kind
-schema and secret checks. Batches contain 1–200 entries. Prepare sorts source keys,
-validates admission, binds each stable source key to one immutable Registry
-identity, captures Registry revision baselines and checks the source checkpoint.
-It returns an immutable caller/authority-bound plan, source snapshot digest,
-per-entry action/reason and created/updated/unchanged/rejected counts. Prepare
-writes only its plan, never records, source bindings or checkpoints.
+## Durable import preparation
 
 ```json
-{"plan_id":"<plan_id>","hash":"<digest>","source_digest":"<confirmed source_digest>","idempotency_key":"stable-commit-key"}
+{"idempotency_key":"prepare-snapshot-1","import":{"connector":"temporary-example","source_authority":"example","mapping_version":"example/1","expected_checkpoint":"","checkpoint":"snapshot-1","entries":[{"source_key":"stable-native-id","source_revision":"immutable-v1","record":{"schema":"project/1","key":"example","payload":{}}}]}}
 ```
 
-Commit requires an exact source snapshot confirmation and a caller-scoped retry
-key. A committed identical retry returns its original counts/checkpoint with
-`replayed:true`; a changed request using that key conflicts. All Registry baselines
-and the checkpoint are rechecked inside one write transaction. Any rejection or
-late failure rolls back the entire batch, including revisions, aliases, source
-bindings, checkpoint and receipt. Forward references within a batch are admitted
-only when the resulting graph resolves. Imports never publish or attest review.
+Payload above is abbreviated; full kind/schema/secret admission is mandatory.
+Preparation is a distinct durable staging store, not a canonical reservation.
+It allocates immutable proposed record/edge-set revisions and freezes its sorted
+manifest, exact bases, source positions and candidate edges. Forward/cyclic
+references resolve only inside the staging set plus pinned existing records.
+Normal record/graph APIs cannot see staging. Multiple preparations can target
+one identity; only the first still-valid commit wins its canonical CAS.
 
-Tracked sources distinguish source-only updates, unchanged content, Registry-only
-edits and edits on both sides. Registry-side drift is never silently overwritten;
-`registry_changed` or `both_sides_changed` rejects it. Source revision reuse with
-changed bytes, key reassignment, an already claimed Registry identity, tombstones
-and archived records are rejected. There is no deletion inferred from absence.
+The scoped preparation key and canonical full request digest are retained.
+Same-key/same-request retries return the original preparation/IDs even when
+expired; changed requests conflict. Expiry never refreshes or reallocates a key.
+No cleanup job deletes evidence or idempotency keys. Invalid rejected payloads
+are omitted from persisted staging; only sanitized diagnostics remain.
 
-`Connector` and `RunConnector` provide a reusable temporary adapter contract using
-these same service operations. The runner reads a snapshot, prepares it, reads it
-again, compares the confirmed digest and commits. Connectors must supply immutable
-snapshot/revision identities or hold a source lease through commit: Registry cannot
-atomically lock an external service. Cross-source atomicity is not implied. No
-scheduler is registered or enabled; an external scheduler can explicitly invoke a
-connector later. Failed runs leave the last committed checkpoint available for
-rerun. Source counts describe only the submitted observed snapshot.
+Default explicit limits are 2 MiB per preparation request, 200 items, 20 active
+uncommitted preparations per authenticated caller and 24-hour commit eligibility.
+`registry.import_limits` can lower `max_bytes`, `max_items`,
+`max_active_preparations`, and `eligibility_seconds`; values cannot exceed these
+defaults. Quota failure allocates nothing and returns `quota_exceeded`. Existing
+key replay precedes current quota checks. Reprepare after expiry needs a new
+key, new IDs and any required approval.
 
-The concrete `registry import-run --connector NAME --file snapshot.json` adapter
-reads an operator-selected JSON import envelope twice and invokes this runner over
-HTTP. It requires a seekable file instead of stdin so the source can be confirmed
-again before commit. File inputs are temporary snapshots, not live services;
-use immutable snapshot files during a run. The same connector name and stable
-entry keys are retained across reruns. No Registry database is opened by this CLI.
+Preparation `planned_counts` are prospective, never committed/publication counts.
+Commit takes `plan_id`, the immutable plan `hash`, a confirmed `source_digest`
+and a separate scoped commit `idempotency_key`. Its one transaction rechecks
+expiry, authority, all record/edge/source/checkpoint bases, current schema and
+target eligibility/cycle policy, then inserts the **allocated** candidate
+revisions, source tuples, checkpoint and result receipt atomically. It does not
+regenerate different revision or edge IDs. Publication is a separate operation.
+
+Any canonical failure rolls back all records, edges, aliases, checkpoints and
+success receipt, while retaining staging and separate sanitized failure evidence.
+The structured error reports zero committed created/updated/unchanged, with
+`rejected + not_committed = input_count`. A successful result has
+`created + updated + unchanged = input_count`. A committed exact-key replay
+returns its original receipt/counts with `replayed:true`, including after expiry;
+it does not rewrite rows/checkpoints. A committed plan cannot be applied under a
+new key. Failed attempts may retry before expiry if every baseline still matches.
+
+Each source checkpoint records authority/native ID, accepted source revision and
+body digest, mapping version, **resulting** Registry and edge-set revisions and
+import receipt identity. Unchanged source plus those same resulting revisions
+reports unchanged. Local edits conflict even when upstream is unchanged;
+concurrent source edits produce a two-sided conflict. Mapping changes require a
+new candidate. Changed source revision labels require
+`expected_source_revision` equality evidence against the accepted source base;
+unordered opaque revisions are not guessed newer. Missing records never imply
+deletions. Generic imports cannot stamp review/publication.
+
+## Temporary connectors
+
+`Connector` and `RunConnector` use the same service operations: read the committed
+checkpoint, read source snapshot, prepare under a key binding the snapshot and observed source/resulting/current
+Registry positions,
+reread and confirm the source digest, then commit. A remote source cannot be
+locked by SQLite: adapters must use immutable snapshots or hold their own lease
+through commit. There is no reverse push or implied cross-source atomicity.
+
+`registry import-run --connector NAME --file snapshot.json` is a concrete temporary
+JSON snapshot adapter. It rereads an explicit file instead of accepting stdin,
+uses HTTP only, and opens no Registry DB. Retain stable connector/native keys and
+supply exact source authority/mapping/revisions. Failed runs leave the last
+committed checkpoint available. An expired snapshot preparation is never
+automatically renewed: pass an explicit new `--preparation-key` (or invoke
+`RunConnectorWithPreparationKey`) after reviewing its current bases. Current revision observations make later local edits produce a new conflict
+check rather than replaying an old successful preparation. No scheduler is installed or enabled; an external
+scheduler may explicitly invoke the same command later during migration.

@@ -10,7 +10,7 @@ import (
 
 func importPlan(t *testing.T, s *Service, request ImportRequest) ImportPlan {
 	t.Helper()
-	v, e := s.Call(writer, "import_prepare", Args{Import: &request})
+	v, e := s.Call(writer, "import_prepare", Args{Import: &request, IdempotencyKey: newID()})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -20,9 +20,9 @@ func commitArgs(p ImportPlan, key string) Args {
 	return Args{PlanID: p.ID, Hash: p.Digest, SourceDigest: p.SourceDigest, IdempotencyKey: key}
 }
 func batch(cp, expected string, ids ...string) ImportRequest {
-	r := ImportRequest{Connector: "fixture", Checkpoint: cp, ExpectedCheckpoint: expected}
+	r := ImportRequest{Connector: "fixture", SourceAuthority: "fixture", MappingVersion: "fixture/1", Checkpoint: cp, ExpectedCheckpoint: expected}
 	for _, id := range ids {
-		r.Entries = append(r.Entries, ImportEntry{SourceKey: id, SourceRevision: cp, Record: input(id)})
+		r.Entries = append(r.Entries, ImportEntry{SourceKey: id, SourceRevision: cp, ExpectedSourceRevision: expected, Record: input(id)})
 	}
 	return r
 }
@@ -222,7 +222,7 @@ func TestImportForwardReferencesAndConcurrentReplay(t *testing.T) {
 	request.Entries[0].Record.Payload = json.RawMessage(`{"schema":"project/1","id":"c","name":"c","class":2,"lifecycle":"active","visibility":"public","owner":"user:test","interfaces":[{"type":"cli","auth":"none"}],"edges":[{"type":"consumes","to":"project:missing"}]}`)
 	p = importPlan(t, s, request)
 	_, e := s.Call(writer, "import_commit", commitArgs(p, "missing"))
-	code(t, e, "reference_unresolved")
+	code(t, e, "validation_error")
 	_, e = s.Call(writer, "record_get", Args{ID: "project:c", Publication: "draft"})
 	code(t, e, "not_found")
 	checkpoint, e := sourceCheckpoint(context.Background(), s.DB, "registry", "fixture")

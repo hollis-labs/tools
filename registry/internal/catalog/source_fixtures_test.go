@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/libs/core/store"
-	"github.com/hollis-labs/libs/harness/core/workspace/materialize"
 	"github.com/hollis-labs/substrate/agents"
 	"github.com/hollis-labs/substrate/kinds"
 	"gopkg.in/yaml.v3"
@@ -28,10 +27,10 @@ func TestSourceFixturesPreserveTeamsProfilesWorkersAndSkillFiles(t *testing.T) {
 	records := []*Input{
 		{Schema: kinds.ConfigSchema, Key: "catalog-policy", Payload: json.RawMessage(`{"schema":"config/1","id":"catalog-policy","name":"Catalog policy fixture","target":{"authority":"external","kind":"service","id":"fixture-tether"},"scope":"service","settings_schema":{"type":"object"},"settings":{"teams":{"policy":{"history":"filtered","authority":{"mode":"enforce"}},"config":{"workers":{"max":2,"temporary":true}}},"identity":{"points":{"teams":"enforce"}},"worker_definitions":[{"id":"fixture-worker","roles":["worker"],"launch_profile":"fixture-profile","skills":["fixture-skill"]}]}}`)},
 		{Schema: kinds.LaunchProfileSchema, Key: "fixture-profile", Payload: json.RawMessage(`{"schema":"launch_profile/1","id":"fixture-profile","name":"Fixture profile","source":{"reference":{"authority":"tether","kind":"launch_profile","id":"fixture-profile"},"revision":"source-profile-v1"}}`)},
-		{Schema: kinds.AgentSchema, Key: "fixture-worker", Metadata: map[string]any{"agent_files": []SourceFile{{Path: "agent.md", Content: "---\nschema_version: \"2\"\ndefinition_id: def:fixture-worker\nrevision: \"1\"\nname: fixture-worker\n---\nFixture worker charter.\n"}, {Path: "host.yaml", Content: "kind: embedded\nlifetime: application\napplication_id: fixture-app\nruntime:\n  provider: anthropic\n"}}}, Payload: json.RawMessage(`{"schema":"agent/1","id":"fixture-worker","name":"Fixture worker","charter":"Preserve the authored worker fixture","roles":["worker"],"skills":[{"authority":"registry","kind":"skill","id":"skill:fixture-skill"}],"launch_profile":{"reference":{"authority":"registry","kind":"launch_profile","id":"launch_profile:fixture-profile"},"revision":"source-profile-v1"}}`)},
-		{Schema: kinds.SkillSchema, Key: "fixture-skill", Payload: json.RawMessage(`{"schema":"skill/1","id":"fixture-skill","name":"Fixture skill","summary":"Preserve auxiliary files","instructions":"Read the bundled fixture resource."}`), Metadata: map[string]any{"skill_files": []SourceFile{{Path: "references/guide.md", Content: "# Fixture guide\n"}, {Path: "scripts/example.sh", Content: "printf 'fixture only\\n'\n"}}}},
+		{Schema: kinds.AgentSchema, Key: "fixture-worker", Metadata: map[string]any{"agent_files": []SourceFile{{Path: "agent.md", Content: "---\nschema_version: \"2\"\ndefinition_id: def:fixture-worker\nrevision: \"1\"\nname: fixture-worker\n---\nFixture worker charter.\n"}, {Path: "host.yaml", Content: "kind: embedded\nlifetime: application\napplication_id: fixture-app\nruntime:\n  provider: anthropic\n"}}}, Payload: json.RawMessage(`{"schema":"agent/1","id":"fixture-worker","name":"Fixture worker","charter":"Preserve the authored worker fixture","roles":["worker"],"skills":[{"authority":"registry","kind":"skill","id":"skill:fixture-skill"}],"launch_profile":{"reference":{"authority":"tether","kind":"launch_profile","id":"launch_profile:fixture-profile"},"revision":"source-profile-v1"}}`)},
+		{Schema: kinds.SkillSchema, Key: "fixture-skill", Payload: json.RawMessage(`{"schema":"skill/1","id":"fixture-skill","name":"Fixture skill","summary":"Preserve auxiliary files","instructions":"Read the bundled fixture resource."}`), Metadata: map[string]any{"skill_files": []SourceFile{{Path: "references/empty.txt", Content: ""}, {Path: "references/guide.md", Content: "# Fixture guide\n"}, {Path: "scripts/example.sh", Content: "printf 'fixture only\\n'\n"}}}},
 	}
-	request := ImportRequest{Connector: "temporary-catalog-fixture", Checkpoint: "catalog-snapshot-1"}
+	request := ImportRequest{Connector: "temporary-catalog-fixture", SourceAuthority: "fixture", MappingVersion: "fixture/1", Checkpoint: "catalog-snapshot-1"}
 	for _, in := range records {
 		request.Entries = append(request.Entries, ImportEntry{SourceKey: in.Key, SourceRevision: "source-v1", Record: in})
 	}
@@ -55,6 +54,17 @@ func TestSourceFixturesPreserveTeamsProfilesWorkersAndSkillFiles(t *testing.T) {
 		}
 		if err = s.DB.WriteTx(context.Background(), func(ctx context.Context, tx store.Tx) error {
 			r.Publication = "published"
+			r.TargetPins = map[string]string{}
+			for _, edge := range r.Edges {
+				pin := edge.TargetRevision
+				if pin == "" {
+					pin = r.DependencyPins[edge.ID]
+				}
+				if pin == "" {
+					pin = "fixture-target-v1"
+				}
+				r.TargetPins[edge.ID] = pin
+			}
 			r.PublishedBy = "fixture-historical-approval"
 			return writePublished(ctx, tx, r)
 		}); err != nil {
@@ -62,7 +72,7 @@ func TestSourceFixturesPreserveTeamsProfilesWorkersAndSkillFiles(t *testing.T) {
 		}
 	}
 	receipt := exportPlan(t, s, ExportRequest{Target: "fixture"})
-	if len(receipt.Bundle.Sources) != 8 {
+	if len(receipt.Bundle.Sources) != 9 {
 		t.Fatal("missing source files", receipt.Bundle.Sources)
 	}
 	v, err := s.Call(writer, "export_apply", exportArgs(receipt))
@@ -127,6 +137,9 @@ func TestSourceFixturesPreserveTeamsProfilesWorkersAndSkillFiles(t *testing.T) {
 				t.Fatal("worker definition lost", agent)
 			}
 		case "skill:fixture-skill":
+			if strings.HasSuffix(source.Path, "references/empty.txt") && len(content) != 0 {
+				t.Fatal("empty source file changed")
+			}
 			if strings.HasSuffix(source.Path, "references/guide.md") && string(content) != "# Fixture guide\n" {
 				t.Fatal("skill resource changed")
 			}
@@ -162,7 +175,7 @@ func TestSourceFixturesPreserveTeamsProfilesWorkersAndSkillFiles(t *testing.T) {
 	if _, err = s.Call(writer, "import_commit", commitArgs(rerun, "fixture-rerun")); err != nil {
 		t.Fatal(err)
 	}
-	refresh := exportPlan(t, s, ExportRequest{Target: "fixture", ExpectedGeneration: v.(materialize.Handle).Manifest.Generation})
+	refresh := exportPlan(t, s, ExportRequest{Target: "fixture", ExpectedGeneration: v.(ExportOutcome).Handle.Manifest.Generation})
 	if refresh.Bundle.Generation != receipt.Bundle.Generation {
 		t.Fatal("fixture rerun changed output generation")
 	}

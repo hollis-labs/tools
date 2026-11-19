@@ -36,7 +36,7 @@ func (c snapshotFileConnector) Snapshot(_ context.Context, _ string) (catalog.Im
 	return *a.Import, nil
 }
 func connectorCommand() *cobra.Command {
-	var endpoint, tokenFile, file, id string
+	var endpoint, tokenFile, file, id, preparationKey string
 	var jsonOutput bool
 	cmd := &cobra.Command{Use: "import-run", Short: "Run a temporary JSON snapshot connector once (scheduler disabled)", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) (runErr error) {
 		defer func() {
@@ -48,7 +48,7 @@ func connectorCommand() *cobra.Command {
 		if file == "" || file == "-" || id == "" {
 			return fmt.Errorf("explicit --file and --connector are required; snapshot is reread before commit")
 		}
-		result, err := catalog.RunConnector(cmd.Context(), registryClient(endpoint, tokenFile).Call, snapshotFileConnector{id: id, path: file})
+		result, err := catalog.RunConnectorWithPreparationKey(cmd.Context(), registryClient(endpoint, tokenFile).Call, snapshotFileConnector{id: id, path: file}, preparationKey)
 		if err != nil {
 			return err
 		}
@@ -57,6 +57,7 @@ func connectorCommand() *cobra.Command {
 	cmd.Flags().StringVar(&endpoint, "url", defaultURL(), "Registry service URL")
 	cmd.Flags().StringVar(&tokenFile, "token-file", "", "Credential file")
 	cmd.Flags().StringVar(&file, "file", "", "JSON import snapshot file (read twice)")
+	cmd.Flags().StringVar(&preparationKey, "preparation-key", "", "Explicit new preparation key after expiry; default retains snapshot retry identity")
 	cmd.Flags().StringVar(&id, "connector", "", "Stable temporary connector identity")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Include structured errors; success output is always JSON")
 	return cmd

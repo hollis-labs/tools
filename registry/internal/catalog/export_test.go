@@ -18,9 +18,15 @@ func exportPlan(t *testing.T, s *Service, r ExportRequest) ExportReceipt {
 	if e != nil {
 		t.Fatal(e)
 	}
+	b := v.(ExportPlan).Bundle
+	v, e = s.Call(writer, "export_authorize", Args{Bundle: &b, Hash: b.Digest, IdempotencyKey: newID()})
+	if e != nil {
+		t.Fatal(e)
+	}
 	return v.(ExportReceipt)
 }
-func exportArgs(r ExportReceipt) Args { return Args{ReceiptID: r.ID, Hash: r.Bundle.Digest} }
+func exportDiffArgs(r ExportReceipt) Args { return Args{Bundle: &r.Bundle, Hash: r.Bundle.Digest} }
+func exportArgs(r ExportReceipt) Args     { return Args{ReceiptID: r.ID, Hash: r.Bundle.Digest} }
 func TestExportDeterminismPublishedOnlyReceiptAndDrift(t *testing.T) {
 	s := openTest(t, filepath.Join(t.TempDir(), "db"))
 	root := filepath.Join(t.TempDir(), "output")
@@ -43,11 +49,11 @@ func TestExportDeterminismPublishedOnlyReceiptAndDrift(t *testing.T) {
 	next := input("a")
 	next.Summary = "draft only"
 	a2 := callRecord(t, s, writer, "record_update", Args{ID: a.ID, Version: a.VersionToken, Record: next})
-	v, e := s.Call(writer, "export_diff", exportArgs(first))
+	v, e := s.Call(writer, "export_diff", exportDiffArgs(first))
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(v.(materialize.Plan).Report.Changes) != 2 {
+	if len(v.(ExportPlan).Materialization.Report.Changes) != 2 {
 		t.Fatal(v)
 	}
 	_, e = s.Call(reviewer, "export_apply", exportArgs(first))
@@ -62,7 +68,7 @@ func TestExportDeterminismPublishedOnlyReceiptAndDrift(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	manifest := v.(materialize.Handle).Manifest
+	manifest := v.(ExportOutcome).Handle.Manifest
 	sourceBytes, e := os.ReadFile(filepath.Join(root, "registry-sources.json")) // #nosec G304 -- isolated test fixture root
 	if e != nil {
 		t.Fatal(e)
@@ -72,19 +78,19 @@ func TestExportDeterminismPublishedOnlyReceiptAndDrift(t *testing.T) {
 		t.Fatal(string(sourceBytes), e)
 	}
 	publish(t, s, approvePublication(t, s, preparePublication(t, s, Candidate{ID: a.ID, Revision: a2.RevisionID, ExpectedPublishedRevision: a.RevisionID})), "pub2")
-	_, e = s.Call(writer, "export_diff", exportArgs(first))
+	_, e = s.Call(writer, "export_diff", exportDiffArgs(first))
 	code(t, e, "version_conflict")
 	refresh := exportPlan(t, s, ExportRequest{Target: "fixture", ExpectedGeneration: manifest.Generation})
 	path := filepath.Join(root, refresh.Bundle.Sources[0].Path)
 	if e = os.WriteFile(path, []byte("external drift"), 0o600); e != nil {
 		t.Fatal(e)
 	}
-	v, e = s.Call(writer, "export_diff", exportArgs(refresh))
+	v, e = s.Call(writer, "export_diff", exportDiffArgs(refresh))
 	if e != nil {
 		t.Fatal(e)
 	}
 	conflict := false
-	for _, c := range v.(materialize.Plan).Report.Changes {
+	for _, c := range v.(ExportPlan).Materialization.Report.Changes {
 		if c.Kind == materialize.ChangeConflict {
 			conflict = true
 		}
@@ -133,8 +139,11 @@ func TestExportDisabledBindingsAndPublicationSetCAS(t *testing.T) {
 	p := exportPlan(t, s, ExportRequest{Target: "fixture"})
 	a := create(t, s, input("new"))
 	publish(t, s, approvePublication(t, s, preparePublication(t, s, Candidate{ID: a.ID, Revision: a.RevisionID})), "new-pub")
-	_, e = s.Call(writer, "export_apply", exportArgs(p))
+	_, e = s.Call(writer, "export_authorize", Args{Bundle: &p.Bundle, Hash: p.Bundle.Digest, IdempotencyKey: newID()})
 	code(t, e, "version_conflict")
+	if _, e = s.Call(writer, "export_apply", exportArgs(p)); e != nil {
+		t.Fatal("issued authorization must survive later publication", e)
+	}
 	// Stored receipts are still verified at the materializer boundary.
 	var raw []byte
 	if e = s.DB.QueryRowContext(context.Background(), `SELECT body FROM export_receipts WHERE id=?`, p.ID).Scan(&raw); e != nil {
@@ -165,12 +174,15 @@ func TestExportApplyRerunUsesSameGeneration(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	generation := v.(materialize.Handle).Manifest.Generation
-	v, e = s.Call(writer, "export_apply", exportArgs(first))
+	generation := v.(ExportOutcome).Handle.Manifest.Generation
+	_, e = s.Call(writer, "export_apply", exportArgs(first))
+	code(t, e, "version_conflict")
+	fresh := exportPlan(t, s, ExportRequest{Target: "fixture"})
+	v, e = s.Call(writer, "export_apply", exportArgs(fresh))
 	if e != nil {
 		t.Fatal(e)
 	}
-	if v.(materialize.Handle).Manifest.Generation != generation {
+	if v.(ExportOutcome).Handle.Manifest.Generation != generation {
 		t.Fatal("generation changed on replay")
 	}
 	next := exportPlan(t, s, ExportRequest{Target: "fixture", ExpectedGeneration: generation})
@@ -178,10 +190,10 @@ func TestExportApplyRerunUsesSameGeneration(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if v.(materialize.Handle).Manifest.Generation != generation {
+	if v.(ExportOutcome).Handle.Manifest.Generation != generation {
 		t.Fatal("generation changed for same content")
 	}
-	for _, c := range v.(materialize.Handle).Report.Changes {
+	for _, c := range v.(ExportOutcome).Handle.Report.Changes {
 		if c.Kind != materialize.ChangeUnchanged {
 			t.Fatal("rerun changed files", c)
 		}

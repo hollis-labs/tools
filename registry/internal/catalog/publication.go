@@ -217,6 +217,27 @@ func normalizedCandidates(in []Candidate) ([]Candidate, error) {
 	}
 	return out, nil
 }
+func schemaAdmission(mapping string) (Admission, error) {
+	bundle := map[string]json.RawMessage{}
+	for _, name := range kinds.Schemas() {
+		b, e := kinds.Schema(name)
+		if e != nil {
+			return Admission{}, e
+		}
+		bundle[name] = b
+	}
+	schemaDigest, err := canonicalDigest(struct {
+		Schemas map[string]json.RawMessage `json:"schemas"`
+		Edges   []kinds.EdgeSpec           `json:"edge_specs"`
+	}{bundle, kinds.EdgeSpecs()})
+	if err != nil {
+		return Admission{}, err
+	}
+	if mapping == "" {
+		mapping = "native/1"
+	}
+	return Admission{SchemaDigest: schemaDigest, MappingVersion: mapping, EnvelopeVersion: "registry.authored-envelope/1"}, nil
+}
 func subjectFor(ctx context.Context, q store.Querier, r Record, batch map[string]string) (PublicationSubject, error) {
 	if err := validatePublicationRecord(r); err != nil {
 		return PublicationSubject{}, err
@@ -226,22 +247,11 @@ func subjectFor(ctx context.Context, q store.Querier, r Record, batch map[string
 	if err != nil {
 		return PublicationSubject{}, err
 	}
-	bundle := map[string]json.RawMessage{}
-	for _, name := range kinds.Schemas() {
-		b, e := kinds.Schema(name)
-		if e != nil {
-			return PublicationSubject{}, e
-		}
-		bundle[name] = b
-	}
-	schemaDigest, err := canonicalDigest(struct {
-		Schemas map[string]json.RawMessage `json:"schemas"`
-		Edges   []kinds.EdgeSpec           `json:"edge_specs"`
-	}{bundle, kinds.EdgeSpecs()})
+	admission, err := schemaAdmission(r.MappingVersion)
 	if err != nil {
 		return PublicationSubject{}, err
 	}
-	sub := PublicationSubject{Schema: "registry.publication-subject/1", Action: "publish", Record: SubjectRecord{ID: r.ID, Kind: r.Schema, Revision: r.RevisionID, Authority: r.Authority, ContentDigest: content}, EdgeSetRevision: r.RevisionID, Edges: []SubjectEdge{}, Admission: Admission{SchemaDigest: schemaDigest, MappingVersion: "native/1", EnvelopeVersion: "registry.authored-envelope/1"}}
+	sub := PublicationSubject{Schema: "registry.publication-subject/1", Action: "publish", Record: SubjectRecord{ID: r.ID, Kind: r.Schema, Revision: r.RevisionID, Authority: r.Authority, ContentDigest: content}, EdgeSetRevision: r.RevisionID, Edges: []SubjectEdge{}, Admission: admission}
 	seen := map[string]bool{}
 	for _, e := range r.Edges {
 		if seen[e.ID] {
@@ -250,6 +260,12 @@ func subjectFor(ctx context.Context, q store.Querier, r Record, batch map[string
 		seen[e.ID] = true
 		ref := e.Relation.To
 		pin := e.TargetRevision
+		if pin == "" {
+			pin = r.DependencyPins[e.ID]
+		}
+		if r.Publication == "published" && r.TargetPins[e.ID] != "" {
+			pin = r.TargetPins[e.ID]
+		}
 		if ref.Authority == "registry" {
 			if pin == "" {
 				pin = batch[ref.ID]

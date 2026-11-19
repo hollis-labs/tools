@@ -27,27 +27,33 @@ type ExportRequest struct {
 	ExpectedGeneration string   `json:"expected_generation,omitempty"`
 }
 type ExportSource struct {
-	ID       string `json:"id"`
-	Revision string `json:"revision"`
-	Path     string `json:"path"`
-	Digest   string `json:"digest"`
+	EdgeSetRevision string `json:"edge_set_revision"`
+	ID              string `json:"id"`
+	Revision        string `json:"revision"`
+	Path            string `json:"path"`
+	Digest          string `json:"digest"`
 }
 type ExportBundle struct {
-	Generation          string         `json:"generation"`
-	PublicationBoundary int64          `json:"publication_boundary"`
-	Schema              string         `json:"schema"`
-	Target              string         `json:"target"`
-	ExpectedGeneration  string         `json:"expected_generation"`
-	Sources             []ExportSource `json:"sources"`
-	Artifacts           artifact.Tree  `json:"artifacts"`
-	Digest              string         `json:"digest"`
+	IDs                []string             `json:"ids"`
+	Subjects           []PublicationSubject `json:"subjects"`
+	Generation         string               `json:"generation"`
+	Schema             string               `json:"schema"`
+	Target             string               `json:"target"`
+	ExpectedGeneration string               `json:"expected_generation"`
+	Sources            []ExportSource       `json:"sources"`
+	Artifacts          artifact.Tree        `json:"artifacts"`
+	Digest             string               `json:"digest"`
 }
 type ExportReceipt struct {
-	ID        string       `json:"receipt_id"`
-	Caller    string       `json:"caller"`
-	Authority string       `json:"authority"`
-	Action    string       `json:"action"`
-	Bundle    ExportBundle `json:"bundle"`
+	AuthorizedAt      string       `json:"authorized_at"`
+	PolicyRevision    string       `json:"policy_revision"`
+	Deadline          string       `json:"deadline"`
+	DestinationDigest string       `json:"destination_digest"`
+	ID                string       `json:"receipt_id"`
+	Caller            string       `json:"caller"`
+	Authority         string       `json:"authority"`
+	Action            string       `json:"action"`
+	Bundle            ExportBundle `json:"bundle"`
 }
 
 // ConfigureExportTargets binds logical names to operator-owned isolated output
@@ -204,108 +210,352 @@ func artifactDigest(raw []byte) artifact.Digest {
 }
 func bundleDigest(b ExportBundle) (string, error) { b.Digest = ""; return canonicalDigest(b) }
 
-func (s *Service) exportCall(ctx context.Context, p libauth.Principal, op string, a Args) (any, error) {
-	exportMu.Lock()
-	defer exportMu.Unlock()
-	var out any
-	err := s.DB.WriteTx(ctx, func(ctx context.Context, tx store.Tx) error {
-		if op == "export_plan" {
-			if a.Export == nil || s.exportTargets[a.Export.Target] == "" {
-				return failure("forbidden", "export.target", "configured output binding required")
-			}
-			request := *a.Export
-			bundle := ExportBundle{Schema: "registry-export/1", Target: request.Target, ExpectedGeneration: request.ExpectedGeneration, Sources: []ExportSource{}, Artifacts: artifact.Tree{Entries: []artifact.Entry{}}}
-			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM publication_events`).Scan(&bundle.PublicationBoundary); err != nil {
-				return err
-			}
-			ids := append([]string(nil), request.IDs...)
-			sort.Strings(ids)
-			if len(ids) == 0 {
-				rows, err := tx.QueryContext(ctx, `SELECT e.id FROM published p JOIN publication_events e ON p.seq=e.seq ORDER BY e.id`)
-				if err != nil {
-					return err
-				}
-				for rows.Next() {
-					var id string
-					if err = rows.Scan(&id); err != nil {
-						_ = rows.Close()
-						return err
-					}
-					ids = append(ids, id)
-				}
-				err = rows.Err()
+type ExportPlan struct {
+	Bundle          ExportBundle     `json:"bundle"`
+	Materialization materialize.Plan `json:"materialization"`
+}
+type ExportOutcome struct {
+	ReceiptID  string              `json:"receipt_id"`
+	State      string              `json:"state"`
+	StartedAt  string              `json:"started_at,omitempty"`
+	FinishedAt string              `json:"finished_at,omitempty"`
+	Handle     *materialize.Handle `json:"handle,omitempty"`
+	Failure    *Error              `json:"failure,omitempty"`
+}
+
+func (s *Service) planExport(ctx context.Context, q store.Querier, request ExportRequest) (ExportBundle, error) {
+	bundle := ExportBundle{Schema: "registry-export/1", Target: request.Target, ExpectedGeneration: request.ExpectedGeneration, IDs: append([]string{}, request.IDs...), Subjects: []PublicationSubject{}, Sources: []ExportSource{}, Artifacts: artifact.Tree{Entries: []artifact.Entry{}}}
+	if s.exportTargets[request.Target] == "" {
+		return bundle, failure("forbidden", "export.target", "configured isolated output binding required")
+	}
+	sort.Strings(bundle.IDs)
+	ids := append([]string(nil), bundle.IDs...)
+	if len(ids) == 0 {
+		rows, err := q.QueryContext(ctx, `SELECT e.id FROM published p JOIN publication_events e ON p.seq=e.seq ORDER BY e.id`)
+		if err != nil {
+			return bundle, err
+		}
+		for rows.Next() {
+			var id string
+			if err = rows.Scan(&id); err != nil {
 				_ = rows.Close()
-				if err != nil {
-					return err
-				}
+				return bundle, err
 			}
-			for i, id := range ids {
-				if i > 0 && id == ids[i-1] {
-					return failure("validation_error", "export.ids", "duplicate identity")
-				}
-				r, err := readPublished(ctx, tx, id, -1)
-				if err != nil {
-					return err
-				}
-				if r.Lifecycle == "deleted" || r.Lifecycle == "archived" {
-					if len(request.IDs) > 0 {
-						return failure("version_conflict", "export.ids", "selected publication unavailable")
-					}
-					continue
-				}
-				if !exportable(r.Kind) && len(request.IDs) == 0 {
-					continue
-				}
-				files, err := renderExportFiles(r)
-				if err != nil {
-					return err
-				}
-				for _, file := range files {
-					raw := file.Content
-					if raw == nil {
-						raw = []byte{}
-					}
-					hash := artifactDigest(raw)
-					bundle.Sources = append(bundle.Sources, ExportSource{ID: r.ID, Revision: r.RevisionID, Path: file.Path, Digest: "sha256:" + hash.Hex})
-					bundle.Artifacts.Entries = append(bundle.Artifacts.Entries, artifact.Entry{Path: file.Path, Kind: artifact.EntryFile, Mode: 0o600, Bytes: raw, Digest: hash, Ownership: artifact.Ownership{EntryID: r.ID + "#" + file.Path, GroupID: "registry-export", Generation: r.RevisionID}, Provenance: artifact.Provenance{Source: "registry", SourcePath: r.ID, Revision: r.RevisionID}})
-				}
-			}
-			// The manifest is itself an owned artifact, enabling empty published sets.
-			raw, err := json.MarshalIndent(bundle.Sources, "", "  ")
-			if err != nil {
-				return err
-			}
-			bundle.Artifacts.Entries = append(bundle.Artifacts.Entries, artifact.Entry{Path: "registry-sources.json", Kind: artifact.EntryFile, Mode: 0o600, Bytes: append(raw, '\n'), Ownership: artifact.Ownership{EntryID: "registry-export-manifest", GroupID: "registry-export"}, Provenance: artifact.Provenance{Source: "registry"}})
-			sort.Slice(bundle.Artifacts.Entries, func(i, j int) bool { return bundle.Artifacts.Entries[i].Path < bundle.Artifacts.Entries[j].Path })
-			generationInput := bundle
-			generationInput.ExpectedGeneration = ""
-			bundle.Generation, err = bundleDigest(generationInput)
-			if err != nil {
-				return err
-			}
-			bundle.Digest, err = bundleDigest(bundle)
-			if err != nil {
-				return err
-			}
-			receipt := ExportReceipt{ID: "export:" + newID(), Caller: p.ID, Authority: s.authorities[p.ID], Action: "export", Bundle: bundle}
-			raw, err = json.Marshal(receipt)
-			if err != nil {
-				return err
-			}
-			_, err = tx.ExecContext(ctx, `INSERT INTO export_receipts(id,caller,authority,body) VALUES(?,?,?,?)`, receipt.ID, p.ID, receipt.Authority, raw)
-			out = receipt
-			return err
+			ids = append(ids, id)
 		}
-		var raw []byte
-		err := tx.QueryRowContext(ctx, `SELECT body FROM export_receipts WHERE id=? AND caller=?`, a.ReceiptID, p.ID).Scan(&raw)
-		if errors.Is(err, sql.ErrNoRows) {
-			return failure("not_found", "receipt_id", "caller-owned export receipt required")
+		err = rows.Err()
+		_ = rows.Close()
+		if err != nil {
+			return bundle, err
 		}
+	}
+	pinned := map[string]bool{}
+	var addPins func(Record) error
+	addPins = func(r Record) error {
+		key := r.ID + "\x00" + r.RevisionID
+		if pinned[key] {
+			return nil
+		}
+		if len(pinned) >= 10000 {
+			return failure("validation_error", "edges", "export dependency closure exceeds bound")
+		}
+		pinned[key] = true
+		if r.Lifecycle == "archived" || r.Lifecycle == "deleted" {
+			return failure("reference_unavailable", "edges", "export dependency unavailable")
+		}
+
+		subject, err := subjectFor(ctx, q, r, map[string]string{})
 		if err != nil {
 			return err
 		}
-		var receipt ExportReceipt
-		if err = json.Unmarshal(raw, &receipt); err != nil {
+		bundle.Subjects = append(bundle.Subjects, subject)
+		for _, edge := range subject.Edges {
+			var relation Edge
+			for _, e := range r.Edges {
+				if e.ID == edge.ID {
+					relation = e
+					break
+				}
+			}
+			if relation.Relation.To.Authority != "registry" {
+				continue
+			}
+			current, err := readPublished(ctx, q, edge.Target.ID, -1)
+			if err != nil || current.Lifecycle == "archived" || current.Lifecycle == "deleted" {
+				return failure("reference_unavailable", "edges", "pinned dependency is no longer eligible for new authorization")
+			}
+			var raw []byte
+			err = q.QueryRowContext(ctx, `SELECT body FROM publication_events WHERE id=? AND revision=? ORDER BY seq DESC LIMIT 1`, edge.Target.ID, edge.Target.Revision).Scan(&raw)
+			if err != nil {
+				return failure("reference_unavailable", "edges", "immutable published target unavailable")
+			}
+			var target Record
+			if err = json.Unmarshal(raw, &target); err != nil {
+				return err
+			}
+			if err = addPins(target); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for i, id := range ids {
+		if i > 0 && id == ids[i-1] {
+			return bundle, failure("validation_error", "export.ids", "duplicate identity")
+		}
+		r, err := readPublished(ctx, q, id, -1)
+		if err != nil {
+			return bundle, err
+		}
+		if r.Lifecycle == "archived" || r.Lifecycle == "deleted" {
+			if len(bundle.IDs) > 0 {
+				return bundle, failure("version_conflict", "export.ids", "selected publication unavailable")
+			}
+			continue
+		}
+		if !exportable(r.Kind) && len(bundle.IDs) == 0 {
+			continue
+		}
+		if err = addPins(r); err != nil {
+			return bundle, err
+		}
+		files, err := renderExportFiles(r)
+		if err != nil {
+			return bundle, err
+		}
+		for _, file := range files {
+			raw := file.Content
+			if raw == nil {
+				raw = []byte{}
+			}
+			hash := artifactDigest(raw)
+			bundle.Sources = append(bundle.Sources, ExportSource{ID: r.ID, Revision: r.RevisionID, EdgeSetRevision: r.RevisionID, Path: file.Path, Digest: "sha256:" + hash.Hex})
+			bundle.Artifacts.Entries = append(bundle.Artifacts.Entries, artifact.Entry{Path: file.Path, Kind: artifact.EntryFile, Mode: 0o600, Bytes: raw, Digest: hash, Ownership: artifact.Ownership{EntryID: r.ID + "#" + file.Path, GroupID: "registry-export", Generation: r.RevisionID}, Provenance: artifact.Provenance{Source: "registry", SourcePath: r.ID, Revision: r.RevisionID}})
+		}
+	}
+	sort.Slice(bundle.Subjects, func(i, j int) bool {
+		a, b := bundle.Subjects[i].Record, bundle.Subjects[j].Record
+		if a.ID == b.ID {
+			return a.Revision < b.Revision
+		}
+		return a.ID < b.ID
+	})
+	raw, err := json.MarshalIndent(bundle.Sources, "", "  ")
+	if err != nil {
+		return bundle, err
+	}
+	bundle.Artifacts.Entries = append(bundle.Artifacts.Entries, artifact.Entry{Path: "registry-sources.json", Kind: artifact.EntryFile, Mode: 0o600, Bytes: append(raw, '\n'), Ownership: artifact.Ownership{EntryID: "registry-export-manifest", GroupID: "registry-export"}, Provenance: artifact.Provenance{Source: "registry"}})
+	sort.Slice(bundle.Artifacts.Entries, func(i, j int) bool { return bundle.Artifacts.Entries[i].Path < bundle.Artifacts.Entries[j].Path })
+	generationInput := bundle
+	generationInput.ExpectedGeneration = ""
+	bundle.Generation, err = bundleDigest(generationInput)
+	if err != nil {
+		return bundle, err
+	}
+	bundle.Digest, err = bundleDigest(bundle)
+	return bundle, err
+}
+func (s *Service) verifyCurrentExport(ctx context.Context, q store.Querier, b ExportBundle, hash string) error {
+	digest, err := bundleDigest(b)
+	if err != nil {
+		return err
+	}
+	if digest != b.Digest || hash != digest {
+		return failure("version_conflict", "hash", "manifest bytes disagree with digest")
+	}
+	current, err := s.planExport(ctx, q, ExportRequest{Target: b.Target, IDs: b.IDs, ExpectedGeneration: b.ExpectedGeneration})
+	if err != nil {
+		return err
+	}
+	if current.Digest != digest {
+		return failure("version_conflict", "bundle", "selected publications or pinned manifest changed; replan")
+	}
+	return nil
+}
+func exportEngine() *materialize.DefaultEngine {
+	return materialize.NewEngine(materialize.EngineOptions{Now: func() time.Time { return time.Unix(0, 0).UTC() }})
+}
+func materializeRequest(root string, b ExportBundle) (materialize.Request, error) {
+	// Shared artifact JSON omits zero-length byte slices. Restore only a file
+	// whose authorized SHA-256 proves the absent bytes represent empty content.
+	b.Artifacts.Entries = append([]artifact.Entry(nil), b.Artifacts.Entries...)
+	empty := artifactDigest([]byte{})
+	for i := range b.Artifacts.Entries {
+		entry := &b.Artifacts.Entries[i]
+		if entry.Kind == artifact.EntryFile && entry.Bytes == nil && entry.ContentRef == nil && entry.Digest == empty {
+			entry.Bytes = []byte{}
+		}
+	}
+	req := materialize.Request{Operation: materialize.OperationCreate, TargetRoot: root, Artifacts: b.Artifacts, Generation: b.Generation, ExistingTarget: materialize.ExistingTargetRefuse, Reconcile: materialize.ReconcilePolicy{Conflict: materialize.ConflictReport, RemoveOwned: true}}
+	current, err := materialize.LoadManifest(root)
+	if err == nil && current.Generation == b.Generation {
+		req.Operation = materialize.OperationReconcile
+		req.CurrentManifest = &current
+		req.ExpectedGeneration = b.Generation
+		return req, nil
+	}
+	if b.ExpectedGeneration != "" {
+		if err != nil || current.Generation != b.ExpectedGeneration {
+			return req, failure("version_conflict", "expected_generation", "current output generation unavailable or changed")
+		}
+		req.Operation = materialize.OperationReconcile
+		req.CurrentManifest = &current
+		req.ExpectedGeneration = b.ExpectedGeneration
+	}
+	return req, nil
+}
+func loadExportReceipt(ctx context.Context, q store.Querier, id, caller string) (ExportReceipt, error) {
+	var r ExportReceipt
+	var raw []byte
+	err := q.QueryRowContext(ctx, `SELECT body FROM export_receipts WHERE id=? AND caller=?`, id, caller).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return r, failure("not_found", "receipt_id", "caller-owned authorization required")
+	}
+	if err != nil {
+		return r, err
+	}
+	err = json.Unmarshal(raw, &r)
+	return r, err
+}
+func (s *Service) exportCall(ctx context.Context, p libauth.Principal, op string, a Args) (any, error) {
+	switch op {
+	case "export_plan", "export_diff":
+		var b ExportBundle
+		err := s.DB.ReadTx(ctx, func(ctx context.Context, q store.Querier) error {
+			if op == "export_plan" {
+				if a.Export == nil {
+					return failure("validation_error", "export", "export scope required")
+				}
+				var err error
+				b, err = s.planExport(ctx, q, *a.Export)
+				return err
+			}
+			if a.Bundle == nil {
+				return failure("validation_error", "bundle", "pinned bundle required")
+			}
+			b = *a.Bundle
+			return s.verifyCurrentExport(ctx, q, b, a.Hash)
+		})
+		if err != nil {
+			return nil, err
+		}
+		exportMu.Lock()
+		defer exportMu.Unlock()
+		req, err := materializeRequest(s.exportTargets[b.Target], b)
+		if err != nil {
+			return nil, err
+		}
+		plan, err := s.materializer.Plan(ctx, req)
+		if err != nil {
+			return nil, materializerError(err)
+		}
+		return ExportPlan{Bundle: b, Materialization: plan}, nil
+	case "export_authorize":
+		return s.authorizeExport(ctx, p, a)
+	case "export_attempt_get":
+		var outcome ExportOutcome
+		err := s.DB.ReadTx(ctx, func(ctx context.Context, q store.Querier) error {
+			if _, err := loadExportReceipt(ctx, q, a.ReceiptID, p.ID); err != nil {
+				return err
+			}
+			var raw []byte
+			err := q.QueryRowContext(ctx, `SELECT body FROM export_attempts WHERE receipt_id=?`, a.ReceiptID).Scan(&raw)
+			if errors.Is(err, sql.ErrNoRows) {
+				outcome = ExportOutcome{ReceiptID: a.ReceiptID, State: "authorized"}
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			return json.Unmarshal(raw, &outcome)
+		})
+		return outcome, err
+	default:
+		return s.applyExport(ctx, p, a)
+	}
+}
+func (s *Service) authorizeExport(ctx context.Context, p libauth.Principal, a Args) (ExportReceipt, error) {
+	var out ExportReceipt
+	authority := s.authorities[p.ID]
+	if authority == "" {
+		return out, failure("forbidden", "authority", "configured export authority required")
+	}
+	if a.Bundle == nil || a.IdempotencyKey == "" {
+		return out, failure("validation_error", "bundle", "pinned bundle and authorization retry key required")
+	}
+	requestDigest, digestErr := canonicalDigest(a)
+	if digestErr != nil {
+		return out, digestErr
+	}
+	err := s.DB.WriteTx(ctx, func(ctx context.Context, tx store.Tx) error {
+		var storedDigest, receiptID string
+		lookupErr := tx.QueryRowContext(ctx, `SELECT digest,receipt_id FROM export_authorization_keys WHERE caller=? AND authority=? AND key=?`, p.ID, authority, a.IdempotencyKey).Scan(&storedDigest, &receiptID)
+		if lookupErr == nil {
+			if storedDigest != requestDigest {
+				return failure("version_conflict", "idempotency_key", "authorization key changed request")
+			}
+			var err error
+			out, err = loadExportReceipt(ctx, tx, receiptID, p.ID)
+			return err
+		}
+		if !errors.Is(lookupErr, sql.ErrNoRows) {
+			return lookupErr
+		}
+		b := *a.Bundle
+		if err := s.verifyCurrentExport(ctx, tx, b, a.Hash); err != nil {
+			return err
+		}
+		policy, err := s.policy(ctx, tx)
+		if err != nil {
+			return err
+		}
+		now := s.now().UTC()
+		deadline := now.Add(15 * time.Minute)
+		if a.ExpiresAt != "" {
+			deadline, err = time.Parse(time.RFC3339Nano, a.ExpiresAt)
+			if err != nil || !deadline.After(now) || deadline.After(now.Add(24*time.Hour)) {
+				return failure("validation_error", "expires_at", "future start deadline within 24 hours required")
+			}
+		}
+		destination, err := canonicalDigest(struct {
+			Root string `json:"root"`
+		}{s.exportTargets[b.Target]})
+		if err != nil {
+			return err
+		}
+		out = ExportReceipt{ID: "export:" + newID(), Caller: p.ID, Authority: authority, Action: "export_apply", Bundle: b, AuthorizedAt: now.Format(time.RFC3339Nano), PolicyRevision: policy.Revision, Deadline: deadline.UTC().Format(time.RFC3339Nano), DestinationDigest: destination}
+		raw, err := json.Marshal(out)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO export_receipts(id,caller,authority,body) VALUES(?,?,?,?)`, out.ID, p.ID, authority, raw); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO export_authorization_keys(caller,authority,key,digest,receipt_id) VALUES(?,?,?,?,?)`, p.ID, authority, a.IdempotencyKey, requestDigest, out.ID)
+		return err
+	})
+	return out, err
+}
+func materializerError(err error) *Error {
+	var ce *Error
+	if errors.As(err, &ce) {
+		return ce
+	}
+	if errors.Is(err, materialize.ErrConflict) || errors.Is(err, materialize.ErrStaleGeneration) || errors.Is(err, materialize.ErrTargetExists) || errors.Is(err, materialize.ErrUnsafeTarget) {
+		return failure("version_conflict", "materializer", "owned-output drift/CAS or destination safety check failed")
+	}
+	return failure("unavailable", "materializer", "materializer attempt failed; inspect recorded outcome and reconcile with fresh authorization")
+}
+func (s *Service) applyExport(ctx context.Context, p libauth.Principal, a Args) (ExportOutcome, error) {
+	var outcome ExportOutcome
+	var receipt ExportReceipt
+	exportMu.Lock()
+	defer exportMu.Unlock()
+	// This transaction records START only. It ends before any filesystem access.
+	err := s.DB.WriteTx(ctx, func(ctx context.Context, tx store.Tx) error {
+		var err error
+		receipt, err = loadExportReceipt(ctx, tx, a.ReceiptID, p.ID)
+		if err != nil {
 			return err
 		}
 		b := receipt.Bundle
@@ -313,86 +563,70 @@ func (s *Service) exportCall(ctx context.Context, p libauth.Principal, op string
 		if err != nil {
 			return err
 		}
-		if receipt.Action != "export" || hash != b.Digest || a.Hash != hash || receipt.Authority != s.authorities[p.ID] {
-			return failure("forbidden", "receipt_id", "receipt binding or content mismatch")
-		}
-		root := s.exportTargets[b.Target]
-		if root == "" {
-			return failure("forbidden", "target", "output binding unavailable")
-		}
-		if op == "export_apply" && receipt.Authority == "" {
-			return failure("forbidden", "authority", "configured authority required to apply")
-		}
-		var boundary int64
-		if err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM publication_events`).Scan(&boundary); err != nil {
+		destination, err := canonicalDigest(struct {
+			Root string `json:"root"`
+		}{s.exportTargets[b.Target]})
+		if err != nil {
 			return err
 		}
-		if boundary != b.PublicationBoundary {
-			return failure("version_conflict", "receipt_id", "publication set changed after authorization")
+		if receipt.Action != "export_apply" || receipt.Caller != p.ID || receipt.Authority == "" || receipt.Authority != s.authorities[p.ID] || hash != b.Digest || hash != a.Hash || destination != receipt.DestinationDigest || s.exportTargets[b.Target] == "" {
+			return failure("forbidden", "receipt_id", "receipt identity/manifest/destination binding mismatch")
 		}
-		// Verify the server-issued authorization at the materializer boundary, under
-		// the publication transaction. Draft-only edits do not invalidate the export.
-		for _, source := range b.Sources {
-			var r Record
-			r, err = readPublished(ctx, tx, source.ID, -1)
-			if err != nil {
-				return err
-			}
-			if r.RevisionID != source.Revision || r.Lifecycle == "archived" || r.Lifecycle == "deleted" {
-				return failure("version_conflict", "receipt_id", "publication changed after authorization")
-			}
-			files, renderErr := renderExportFiles(r)
-			if renderErr != nil {
-				return renderErr
-			}
-			matched := false
-			for _, file := range files {
-				if file.Path == source.Path && "sha256:"+artifactDigest(file.Content).Hex == source.Digest {
-					matched = true
-					break
-				}
-			}
-			if !matched {
-				return failure("version_conflict", "receipt_id", "authorized rendered content changed")
-			}
+		start := s.now().UTC()
+		deadline, err := time.Parse(time.RFC3339Nano, receipt.Deadline)
+		if err != nil || !start.Before(deadline) {
+			return failure("version_conflict", "deadline", "apply-start authorization expired")
 		}
-		req := materialize.Request{Operation: materialize.OperationCreate, TargetRoot: root, Artifacts: b.Artifacts, Generation: b.Generation, ExistingTarget: materialize.ExistingTargetRefuse, Reconcile: materialize.ReconcilePolicy{Conflict: materialize.ConflictReport, RemoveOwned: true}}
-		current, currentErr := materialize.LoadManifest(root)
-		if currentErr == nil && current.Generation == b.Generation {
-			req.Operation = materialize.OperationReconcile
-			req.CurrentManifest = &current
-			req.ExpectedGeneration = b.Generation
-		} else if b.ExpectedGeneration != "" {
-			manifest := current
-			if currentErr != nil {
-				return failure("version_conflict", "expected_generation", "current materializer manifest unavailable")
-			}
-			if manifest.Generation != b.ExpectedGeneration {
-				return failure("version_conflict", "expected_generation", "output generation changed")
-			}
-			req.Operation = materialize.OperationReconcile
-			req.CurrentManifest = &manifest
-			req.ExpectedGeneration = b.ExpectedGeneration
+		var state string
+		err = tx.QueryRowContext(ctx, `SELECT state FROM export_attempts WHERE receipt_id=?`, receipt.ID).Scan(&state)
+		if err == nil {
+			return failure("version_conflict", "receipt_id", "authorization already consumed; inspect outcome and obtain fresh authorization for any new attempt")
 		}
-		// Stable clock makes plans and manifests deterministic. The source manifest
-		// carries immutable revisions; wall-clock creation is not an identity input.
-		engine := materialize.NewEngine(materialize.EngineOptions{Now: func() time.Time { return time.Unix(0, 0).UTC() }})
-		if op == "export_diff" {
-			plan, planErr := engine.Plan(ctx, req)
-			out = plan
-			return planErr
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
 		}
-		handle, err := engine.Apply(ctx, req)
-		out = handle
+		outcome = ExportOutcome{ReceiptID: receipt.ID, State: "started", StartedAt: start.Format(time.RFC3339Nano)}
+		raw, err := json.Marshal(outcome)
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO export_attempts(receipt_id,started_at,state,body) VALUES(?,?,?,?)`, receipt.ID, outcome.StartedAt, outcome.State, raw)
 		return err
 	})
 	if err != nil {
-		var ce *Error
-		if !errors.As(err, &ce) {
-			if strings.Contains(err.Error(), "materialize:") {
-				return nil, failure("version_conflict", "materializer", "output drift or unsafe output refused")
-			}
-		}
+		return outcome, err
 	}
-	return out, err
+	// Do not recheck current publications here. Snapshot authorization survives a
+	// subsequent archive. This is not a cross-system revocation fence or a lease.
+	req, applyErr := materializeRequest(s.exportTargets[receipt.Bundle.Target], receipt.Bundle)
+	var handle materialize.Handle
+	if applyErr == nil {
+		handle, applyErr = s.materializer.Apply(ctx, req)
+	}
+	outcome.Handle = &handle
+	outcome.FinishedAt = s.now().UTC().Format(time.RFC3339Nano)
+	outcome.State = "completed"
+	if applyErr != nil {
+		outcome.State = "failed"
+		outcome.Failure = materializerError(applyErr)
+	}
+	raw, marshalErr := json.Marshal(outcome)
+	if marshalErr != nil {
+		return outcome, marshalErr
+	}
+	// Record even if the caller's request was canceled after filesystem mutation.
+	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	_, recordErr := s.DB.ExecContext(recordCtx, `UPDATE export_attempts SET state=?,body=? WHERE receipt_id=?`, outcome.State, raw, receipt.ID)
+	if recordErr != nil {
+		e := failure("unavailable", "outcome", "attempt ended but outcome could not be persisted; receipt remains consumed, inspect output before fresh authorization")
+		e.Details = outcome
+		return outcome, e
+	}
+	if applyErr != nil {
+		e := *outcome.Failure
+		e.Details = outcome
+		return outcome, &e
+	}
+	return outcome, nil
 }

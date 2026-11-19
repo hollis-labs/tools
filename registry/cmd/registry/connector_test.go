@@ -18,7 +18,7 @@ func TestJSONSnapshotConnectorRerunThroughHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := filepath.Join(t.TempDir(), "snapshot.json")
-	raw := []byte(`{"import":{"checkpoint":"immutable-fixture-1","entries":[{"source_key":"guide","source_revision":"fixture-1","record":{"schema":"document/1","key":"connector-guide","payload":{"schema":"document/1","id":"connector-guide","name":"Guide","subtype":"sop","format":"markdown","body":"Guide"}}}]}}`)
+	raw := []byte(`{"import":{"source_authority":"fixture","mapping_version":"fixture/1","checkpoint":"immutable-fixture-1","entries":[{"source_key":"guide","source_revision":"fixture-1","record":{"schema":"document/1","key":"connector-guide","payload":{"schema":"document/1","id":"connector-guide","name":"Guide","subtype":"sop","format":"markdown","body":"Guide"}}}]}}`)
 	if err := os.WriteFile(snapshot, raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
