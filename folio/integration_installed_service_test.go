@@ -52,10 +52,10 @@ func main() {
 				file := filepath.Join(checkout, "project.yaml")
 				data := readText(t, file)
 				data = strings.ReplaceAll(data, "~/.local/share/fleet/releases/installed-svc", filepath.ToSlash(filepath.Join(home, "release root")))
-				if err := os.WriteFile(file, []byte(data), 0o600); err != nil {
+				if err = os.WriteFile(file, []byte(data), 0o600); err != nil {
 					t.Fatal(err)
 				}
-				if _, err := newGoLibService(t).RenderDeploy(service.DeployOptions{TargetDir: checkout, Write: true}); err != nil {
+				if _, err = newGoLibService(t).RenderDeploy(service.DeployOptions{TargetDir: checkout, Write: true}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -73,10 +73,10 @@ func main() {
 					}
 				}
 			}
-			if err := yaml.Unmarshal([]byte(readText(t, filepath.Join(checkout, "deploy.yaml"))), &fleet); err != nil {
+			if err = yaml.Unmarshal([]byte(readText(t, filepath.Join(checkout, "deploy.yaml"))), &fleet); err != nil {
 				t.Fatal(err)
 			}
-			if err := yaml.Unmarshal([]byte(readText(t, filepath.Join(checkout, "installed-svc.cerberus.yaml"))), &manifest); err != nil {
+			if err = yaml.Unmarshal([]byte(readText(t, filepath.Join(checkout, "installed-svc.cerberus.yaml"))), &manifest); err != nil {
 				t.Fatal(err)
 			}
 			if len(fleet.Targets) != 1 || len(fleet.Targets[0].Symlinks) != 1 || len(manifest.Resources) != 1 {
@@ -99,17 +99,17 @@ func main() {
 			// create config.Dir separately: installation must already provision it.
 			installed := filepath.Join(root, "v1.0.0", "installed-svc")
 			for _, dir := range []string{filepath.Dir(installed), filepath.Dir(link)} {
-				if err := os.MkdirAll(dir, 0o755); err != nil {
+				if err = os.MkdirAll(dir, 0o755); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if err := os.WriteFile(installed, binary, 0o755); err != nil {
+			if err = os.WriteFile(installed, binary, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.Symlink(installed, link); err != nil {
+			if err = os.Symlink(installed, link); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.RemoveAll(checkout); err != nil {
+			if err = os.RemoveAll(checkout); err != nil {
 				t.Fatal(err)
 			}
 			launch := func(dir string) ([]byte, error) {
@@ -117,7 +117,7 @@ func main() {
 				cmd.Dir = dir
 				return cmd.CombinedOutput()
 			}
-			if _, err := launch(checkout); err == nil {
+			if _, err = launch(checkout); err == nil {
 				t.Fatal("negative control: nonexistent checkout should fail at chdir")
 			}
 			out, err := launch(expand(config.Dir))
@@ -128,7 +128,7 @@ func main() {
 				Dir  string
 				Args []string
 			}
-			if err := json.Unmarshal(out, &got); err != nil {
+			if err = json.Unmarshal(out, &got); err != nil {
 				t.Fatal(err)
 			}
 			wantDir, err := filepath.EvalSymlinks(root)
