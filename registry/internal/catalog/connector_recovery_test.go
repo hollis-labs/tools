@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -62,5 +63,20 @@ func TestConnectorRequiresExplicitRunIdentity(t *testing.T) {
 	code(t, err, "validation_error")
 	if c.reads != 0 || rowCount(t, s, "import_plans") != 0 {
 		t.Fatal("missing identity sampled or staged source")
+	}
+}
+
+type failingSourceConnector struct{}
+
+func (failingSourceConnector) ID() string { return "fixture" }
+func (failingSourceConnector) Snapshot(context.Context, string) (ImportRequest, error) {
+	return ImportRequest{}, errors.New("private source content")
+}
+func TestConnectorSanitizesSourceErrors(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	_, err := RunConnector(writer, s.Call, failingSourceConnector{}, "failed-source")
+	code(t, err, "unavailable")
+	if strings.Contains(err.Error(), "private source content") || rowCount(t, s, "import_plans") != 0 {
+		t.Fatal("source failure leaked or staged")
 	}
 }

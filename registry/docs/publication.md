@@ -65,7 +65,7 @@ session binding, new grant, external issuer integration or live elevated record.
 Withdrawal and publication serialize on the same database transaction boundary.
 Withdrawal first blocks publication; publication first remains committed and
 withdrawal blocks future use. No remote revocation or filesystem atomicity is
-claimed. This phase performs no materialization, imports or deployment.
+claimed. Publication alone performs no materialization, imports or deployment.
 
 ## Publication subject version 1
 

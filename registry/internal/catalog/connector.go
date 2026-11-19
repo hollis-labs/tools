@@ -19,7 +19,10 @@ type Connector interface {
 func connectorSnapshot(ctx context.Context, c Connector, checkpoint string) (ImportRequest, error) {
 	r, err := c.Snapshot(ctx, checkpoint)
 	if err != nil {
-		return r, err
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return ImportRequest{}, err
+		}
+		return ImportRequest{}, failure("unavailable", "source", "source snapshot unavailable")
 	}
 	r.Connector = c.ID()
 	r.ExpectedCheckpoint = checkpoint
