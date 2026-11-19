@@ -106,3 +106,67 @@ func TestNativeUpdateResetsImportAdmissionMapping(t *testing.T) {
 		t.Fatal(old, err)
 	}
 }
+
+func projectWithEdge(t *testing.T, id, relation, target string) *Input {
+	t.Helper()
+	in := input(id)
+	var payload map[string]any
+	if err := json.Unmarshal(in.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload["edges"] = []map[string]string{{"type": relation, "to": "project:" + target}}
+	in.Payload, _ = json.Marshal(payload)
+	return in
+}
+func TestImportPinnedGraphIgnoresLaterCurrentCycle(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	b := create(t, s, input("b"))
+	request := batch("one", "", "a")
+	request.Entries[0].Record = projectWithEdge(t, "a", "part_of", "b")
+	plan := importPlan(t, s, request)
+	if plan.Counts.Rejected != 0 {
+		t.Fatal(plan)
+	}
+	callRecord(t, s, writer, "record_update", Args{ID: b.ID, Version: b.VersionToken, Record: projectWithEdge(t, "b", "consumes", "a"), AllowUnresolved: true})
+	if _, err := s.Call(writer, "import_commit", commitArgs(plan, "pinned")); err != nil {
+		t.Fatal("current graph replaced historical pin", err)
+	}
+	if rowCount(t, s, "import_sources") != 1 {
+		t.Fatal("pinned import did not commit")
+	}
+}
+func TestImportChecksForbiddenEdgeOnlyInPinnedHistoricalGraph(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	old := callRecord(t, s, writer, "record_create", Args{Record: projectWithEdge(t, "b", "part_of", "a"), AllowUnresolved: true})
+	callRecord(t, s, writer, "record_update", Args{ID: old.ID, Version: old.VersionToken, Record: input("b")})
+	request := batch("one", "", "a")
+	request.Entries[0].Record = projectWithEdge(t, "a", "consumes", "b")
+	plan := importPlan(t, s, request)
+	if plan.Counts.Rejected != 0 {
+		t.Fatal(plan)
+	}
+	candidate := plan.Candidates[0]
+	if len(candidate.Edges) != 1 {
+		t.Fatal(candidate.Edges)
+	}
+	for _, explicit := range []bool{false, true} {
+		t.Run(map[bool]string{false: "dependency_pin", true: "target_revision"}[explicit], func(t *testing.T) {
+			r := candidate
+			r.Edges = append([]Edge(nil), candidate.Edges...)
+			r.DependencyPins = map[string]string{r.Edges[0].ID: old.RevisionID}
+			if explicit {
+				r.Edges[0].TargetRevision = old.RevisionID
+				r.DependencyPins = nil
+			}
+			err := validateImportGraph(context.Background(), s.DB, []Record{r})
+			code(t, err, "validation_error")
+			diagnostic, ok := internalError(err).Details.(GraphDiagnostic)
+			if !ok || diagnostic.RecordID != old.ID || len(diagnostic.CyclePath) < 3 {
+				t.Fatal(diagnostic, err)
+			}
+		})
+	}
+	if rowCount(t, s, "records") != 1 || rowCount(t, s, "import_sources") != 0 {
+		t.Fatal("graph admission changed canonical state")
+	}
+}

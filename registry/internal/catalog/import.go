@@ -622,115 +622,119 @@ func (s *Service) commitImport(ctx context.Context, caller, authority string, a 
 // validateImportGraph sees staged nodes only inside this call. No normal read
 // can observe them. It validates final identities, target eligibility and cycles.
 func validateImportGraph(ctx context.Context, q store.Querier, records []Record) error {
+	type node struct{ ID, Revision string }
+	key := func(r Record) node { return node{r.ID, r.RevisionID} }
 	staged := map[string]Record{}
 	for _, r := range records {
 		staged[r.ID] = r
 	}
-	loaded := map[string]Record{}
-	load := func(id string) (Record, error) {
-		if r, ok := staged[id]; ok {
+	loaded := map[node]Record{}
+	load := func(id, revision string) (Record, error) {
+		if r, ok := staged[id]; ok && (revision == "" || revision == r.RevisionID) {
 			return r, nil
 		}
-		if r, ok := loaded[id]; ok {
+		request := node{id, revision}
+		if r, ok := loaded[request]; ok {
 			return r, nil
 		}
-		if len(loaded) > 10000 {
+		if len(loaded) >= 10000 {
 			return Record{}, failure("validation_error", "edges", "import graph exceeds validation bound")
 		}
-		r, err := readRecord(ctx, q, id, -1)
+		var r Record
+		var err error
+		if revision == "" {
+			r, err = readRecord(ctx, q, id, -1)
+		} else {
+			var raw []byte
+			err = q.QueryRowContext(ctx, `SELECT body FROM revisions WHERE id=? AND token=?`, id, revision).Scan(&raw)
+			if err == nil {
+				err = json.Unmarshal(raw, &r)
+			}
+		}
 		if err != nil {
 			return r, err
 		}
-		loaded[id] = r
+		loaded[request] = r
 		return r, nil
 	}
-	var reaches func(string, string, map[string]bool) ([]string, error)
-	reaches = func(from, to string, seen map[string]bool) ([]string, error) {
-		if from == to {
-			return []string{to}, nil
+	targetFor := func(r Record, e Edge) (Record, error) {
+		pin := e.TargetRevision
+		if pin == "" {
+			pin = r.DependencyPins[e.ID]
 		}
-		if seen[from] {
-			return nil, nil
-		}
-		seen[from] = true
-		r, err := load(from)
-		if err != nil {
-			return nil, err
-		}
-		for _, edge := range r.Edges {
-			if edge.Relation.To.Authority == "registry" {
-				path, e := reaches(edge.Relation.To.ID, to, seen)
-				if e != nil {
-					return nil, e
-				}
-				if path != nil {
-					return append([]string{from}, path...), nil
-				}
-			}
-		}
-		return nil, nil
+		return load(e.Relation.To.ID, pin)
 	}
 	graphError := func(code, id, message string, path []string) *Error {
 		e := failure(code, "edges", message)
 		e.Details = GraphDiagnostic{RecordID: id, CyclePath: path}
 		return e
 	}
-
-	// Include the reachable existing graph in cycle admission, rather than only
-	// checking the relation types on imported records. The staged overlay wins
-	// for every identity, including existing unresolved edges into the batch.
+	var reaches func(Record, node, map[node]bool) ([]string, error)
+	reaches = func(r Record, to node, seen map[node]bool) ([]string, error) {
+		from := key(r)
+		if from == to {
+			return []string{r.ID}, nil
+		}
+		if seen[from] {
+			return nil, nil
+		}
+		seen[from] = true
+		for _, e := range r.Edges {
+			if e.Relation.To.Authority != "registry" {
+				continue
+			}
+			target, err := targetFor(r, e)
+			if err != nil {
+				return nil, err
+			}
+			path, err := reaches(target, to, seen)
+			if err != nil {
+				return nil, err
+			}
+			if path != nil {
+				return append([]string{r.ID}, path...), nil
+			}
+		}
+		return nil, nil
+	}
+	// Traverse immutable revision nodes. A staged record replaces only its own
+	// revision, or an unpinned reference; it must never replace a historical pin.
 	reachable := append([]Record(nil), records...)
-	seenRecords := map[string]bool{}
+	seen := map[node]bool{}
 	for _, r := range records {
-		seenRecords[r.ID] = true
+		seen[key(r)] = true
 	}
 	for i := 0; i < len(reachable); i++ {
-		for _, edge := range reachable[i].Edges {
-			if edge.Relation.To.Authority != "registry" || seenRecords[edge.Relation.To.ID] {
-				continue
-			}
-			target, err := load(edge.Relation.To.ID)
-			if err != nil {
-				continue
-			} // The validation below reports unresolved targets.
-			seenRecords[target.ID] = true
-			reachable = append(reachable, target)
-		}
-	}
-	for _, r := range reachable {
-		for _, edge := range r.Edges {
-			if err := edge.Relation.Validate(); err != nil {
+		r := reachable[i]
+		for _, e := range r.Edges {
+			if err := e.Relation.Validate(); err != nil {
 				return invalid("edges", err)
 			}
-			ref := edge.Relation.To
+			ref := e.Relation.To
 			if ref.Authority != "registry" {
 				continue
 			}
-			target, err := load(ref.ID)
+			target, err := targetFor(r, e)
 			if err != nil {
-				return graphError("reference_unresolved", r.ID, "required import target unavailable", nil)
+				return graphError("reference_unresolved", r.ID, "required import target revision unavailable", nil)
 			}
-			if target.Kind != ref.Kind || target.Lifecycle == "archived" || target.Lifecycle == "deleted" {
+			// Historical traversal does not bypass current target eligibility.
+			current, err := load(ref.ID, "")
+			if err != nil || current.Lifecycle == "archived" || current.Lifecycle == "deleted" || target.Kind != ref.Kind || target.Lifecycle == "archived" || target.Lifecycle == "deleted" {
 				return graphError("reference_unavailable", r.ID, "import target kind or lifecycle ineligible", nil)
 			}
-			pin := edge.TargetRevision
-			if pin == "" {
-				pin = r.DependencyPins[edge.ID]
+			if !seen[key(target)] {
+				seen[key(target)] = true
+				reachable = append(reachable, target)
 			}
-			if pin != "" && pin != target.RevisionID {
-				var id string
-				if err = q.QueryRowContext(ctx, `SELECT id FROM revisions WHERE id=? AND token=?`, ref.ID, pin).Scan(&id); err != nil {
-					return graphError("reference_unavailable", r.ID, "pinned import target revision unavailable", nil)
-				}
-			}
-			allowed, err := kinds.AllowsCycle(edge.Relation.Type)
+			allowed, err := kinds.AllowsCycle(e.Relation.Type)
 			if err != nil {
 				return invalid("edges", err)
 			}
 			if !allowed {
-				path, err := reaches(ref.ID, r.ID, map[string]bool{})
+				path, err := reaches(target, key(r), map[node]bool{})
 				if err != nil {
-					return graphError("reference_unresolved", r.ID, "import graph target unavailable", nil)
+					return graphError("reference_unresolved", r.ID, "import graph target revision unavailable", nil)
 				}
 				if path != nil {
 					return graphError("validation_error", r.ID, "forbidden import relation cycle", append([]string{r.ID}, path...))
