@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -45,15 +47,16 @@ type ExportBundle struct {
 	Digest             string               `json:"digest"`
 }
 type ExportReceipt struct {
-	AuthorizedAt      string       `json:"authorized_at"`
-	PolicyRevision    string       `json:"policy_revision"`
-	Deadline          string       `json:"deadline"`
-	DestinationDigest string       `json:"destination_digest"`
-	ID                string       `json:"receipt_id"`
-	Caller            string       `json:"caller"`
-	Authority         string       `json:"authority"`
-	Action            string       `json:"action"`
-	Bundle            ExportBundle `json:"bundle"`
+	OutputManifestDigest string       `json:"output_manifest_digest"`
+	AuthorizedAt         string       `json:"authorized_at"`
+	PolicyRevision       string       `json:"policy_revision"`
+	Deadline             string       `json:"deadline"`
+	DestinationDigest    string       `json:"destination_digest"`
+	ID                   string       `json:"receipt_id"`
+	Caller               string       `json:"caller"`
+	Authority            string       `json:"authority"`
+	Action               string       `json:"action"`
+	Bundle               ExportBundle `json:"bundle"`
 }
 
 // ConfigureExportTargets binds logical names to operator-owned isolated output
@@ -375,7 +378,52 @@ func (s *Service) verifyCurrentExport(ctx context.Context, q store.Querier, b Ex
 func exportEngine() *materialize.DefaultEngine {
 	return materialize.NewEngine(materialize.EngineOptions{Now: func() time.Time { return time.Unix(0, 0).UTC() }})
 }
+
+// inspectExportOutput is a preflight, not a filesystem race fence. The configured
+// root requires one cooperative writer until Cairn provides conditional writes.
+func inspectExportOutput(root string) (string, error) {
+	for path := root; ; path = filepath.Dir(path) {
+		info, err := os.Lstat(path)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+		if err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return "", failure("version_conflict", "target", "symlink destination refused")
+		}
+		if path == filepath.Dir(path) {
+			break
+		}
+	}
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) && path == root {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if entry.Type()&os.ModeSymlink != 0 || (!entry.IsDir() && !entry.Type().IsRegular()) {
+			return failure("version_conflict", "target", "symlink or special output refused")
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	raw, err := os.ReadFile(materialize.ManifestPath(root))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "absent", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
+}
+
 func materializeRequest(root string, b ExportBundle) (materialize.Request, error) {
+	if _, err := inspectExportOutput(root); err != nil {
+		return materialize.Request{}, err
+	}
 	// Shared artifact JSON omits zero-length byte slices. Restore only a file
 	// whose authorized SHA-256 proves the absent bytes represent empty content.
 	b.Artifacts.Entries = append([]artifact.Entry(nil), b.Artifacts.Entries...)
@@ -523,7 +571,11 @@ func (s *Service) authorizeExport(ctx context.Context, p libauth.Principal, a Ar
 		if err != nil {
 			return err
 		}
-		out = ExportReceipt{ID: "export:" + newID(), Caller: p.ID, Authority: authority, Action: "export_apply", Bundle: b, AuthorizedAt: now.Format(time.RFC3339Nano), PolicyRevision: policy.Revision, Deadline: deadline.UTC().Format(time.RFC3339Nano), DestinationDigest: destination}
+		manifestDigest, err := inspectExportOutput(s.exportTargets[b.Target])
+		if err != nil {
+			return err
+		}
+		out = ExportReceipt{OutputManifestDigest: manifestDigest, ID: "export:" + newID(), Caller: p.ID, Authority: authority, Action: "export_apply", Bundle: b, AuthorizedAt: now.Format(time.RFC3339Nano), PolicyRevision: policy.Revision, Deadline: deadline.UTC().Format(time.RFC3339Nano), DestinationDigest: destination}
 		raw, err := json.Marshal(out)
 		if err != nil {
 			return err
@@ -600,6 +652,14 @@ func (s *Service) applyExport(ctx context.Context, p libauth.Principal, a Args) 
 	// subsequent archive. This is not a cross-system revocation fence or a lease.
 	req, applyErr := materializeRequest(s.exportTargets[receipt.Bundle.Target], receipt.Bundle)
 	var handle materialize.Handle
+	if applyErr == nil {
+		digest, err := inspectExportOutput(s.exportTargets[receipt.Bundle.Target])
+		if err != nil {
+			applyErr = err
+		} else if digest != receipt.OutputManifestDigest {
+			applyErr = failure("version_conflict", "output_manifest_digest", "output manifest changed after authorization")
+		}
+	}
 	if applyErr == nil {
 		handle, applyErr = s.materializer.Apply(ctx, req)
 	}
