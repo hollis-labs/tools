@@ -172,11 +172,15 @@ func TestConsistentBackupAndIsolatedRestore(t *testing.T) {
 	s.Maintenance.BackupDirectory = filepath.Join(root, "backups")
 	original := create(t, s, input("before"))
 	target := create(t, s, input("dependency"))
+	initialApproval := approvePublication(t, s, preparePublication(t, s, Candidate{ID: original.ID, Revision: original.RevisionID}, Candidate{ID: target.ID, Revision: target.RevisionID}))
+	publish(t, s, initialApproval, "backup-initial-publication")
 	relation := kinds.Relation{Schema: kinds.RelationSchema, Type: kinds.Consumes,
 		From: kinds.Reference{Authority: "registry", Kind: "project", ID: original.ID},
 		To:   kinds.Reference{Authority: "registry", Kind: "project", ID: target.ID}, Source: "authored", Status: "proposed"}
-	r := callRecord(t, s, writer, "relation_create", Args{ID: original.ID, Version: original.VersionToken, Relation: &relation})
-	ap := approvePublication(t, s, preparePublication(t, s, Candidate{ID: target.ID, Revision: target.RevisionID}, Candidate{ID: r.ID, Revision: r.RevisionID}))
+	proposed := callRecord(t, s, writer, "relation_create", Args{ID: original.ID, Version: original.VersionToken, Relation: &relation})
+	edge := proposed.Edges[0]
+	r := callRecord(t, s, ground, "relation_decide", Args{ID: proposed.ID, Version: proposed.VersionToken, EdgeID: edge.ID, Hash: edge.Hash, Decision: "reviewed", Reason: "Verified backup graph fixture"})
+	ap := approvePublication(t, s, preparePublication(t, s, Candidate{ID: r.ID, Revision: r.RevisionID, ExpectedPublishedRevision: original.RevisionID}))
 	publish(t, s, ap, "backup-replay")
 	unpublished := input("before")
 	unpublished.Summary = "Unpublished restore fixture edit"
@@ -219,6 +223,11 @@ func TestConsistentBackupAndIsolatedRestore(t *testing.T) {
 	if got.RevisionID != r.RevisionID || got.Publication != "published" || len(got.Edges) != 1 || got.Edges[0].TargetState != "resolved" || got.TargetPins[r.Edges[0].ID] != target.RevisionID {
 		t.Fatalf("restored published graph/pins: %+v", got)
 	}
+	gotEdge := got.Edges[0]
+	wantEdge := r.Edges[0]
+	if gotEdge.Relation.Status != "reviewed" || gotEdge.ReviewedBy != wantEdge.ReviewedBy || gotEdge.ReviewedAt != wantEdge.ReviewedAt || gotEdge.ReviewHash != edge.Hash || gotEdge.Reason != wantEdge.Reason {
+		t.Fatalf("restored graph review evidence differs: %+v want %+v", gotEdge, wantEdge)
+	}
 	restoredDraft := callRecord(t, restored, writer, "record_get", Args{ID: r.ID, Publication: "draft"})
 	if restoredDraft.RevisionID != draft.RevisionID || restoredDraft.Summary != unpublished.Summary || restoredDraft.Publication != "draft" {
 		t.Fatalf("draft/published distinction lost: %+v", restoredDraft)
@@ -232,14 +241,52 @@ func TestConsistentBackupAndIsolatedRestore(t *testing.T) {
 		t.Fatalf("original immutable history: %+v %v", historicRecord, err)
 	}
 	history, err := restored.Call(writer, "revision_list", Args{ID: r.ID})
-	if err != nil || len(history.(map[string]any)["revisions"].([]Record)) != 3 {
-		t.Fatalf("restored history: %v %v", history, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revisions := history.(map[string]any)["revisions"].([]Record)
+	wantIDs := []string{draft.RevisionID, r.RevisionID, proposed.RevisionID, original.RevisionID}
+	if len(revisions) != len(wantIDs) {
+		t.Fatalf("restored history: %v", history)
+	}
+	for i, want := range wantIDs {
+		if revisions[i].RevisionID != want {
+			t.Fatalf("restored revision %d: %s want %s", i, revisions[i].RevisionID, want)
+		}
+	}
+	approval, err := restored.Call(writer, "publication_approval_get", Args{ApprovalID: ap.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredApproval := approval.(Approval)
+	if restoredApproval.Revision != ap.Revision || restoredApproval.ManifestDigest != ap.ManifestDigest || restoredApproval.Principal != ap.Principal || restoredApproval.Decision != "approved" {
+		t.Fatalf("approval review evidence differs: %+v", restoredApproval)
+	}
+	// Both publication events must retain exact immutable revision identities.
+	rows, err := restored.DB.QueryContext(context.Background(), `SELECT revision FROM publication_events WHERE id=? ORDER BY seq`, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var publishedIDs []string
+	for rows.Next() {
+		var revision string
+		if err = rows.Scan(&revision); err != nil {
+			t.Fatal(err)
+		}
+		publishedIDs = append(publishedIDs, revision)
+	}
+	if err = rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	_ = rows.Close()
+	if len(publishedIDs) != 2 || publishedIDs[0] != original.RevisionID || publishedIDs[1] != r.RevisionID {
+		t.Fatalf("restored publication history: %v", publishedIDs)
 	}
 	_, err = restored.Call(writer, "record_get", Args{ID: "project:after", Publication: "draft"})
 	code(t, err, "not_found")
 	replay := publish(t, restored, ap, "backup-replay")
-	if !replay.Replayed {
-		t.Fatal("publication receipt not restored")
+	if !replay.Replayed || replay.ApprovalID != ap.ID || replay.ApprovalRevision != ap.Revision {
+		t.Fatal("exact publication receipt binding not restored")
 	}
 	found, err := restored.Call(writer, "record_search", Args{Query: Query{Search: "before"}})
 	if err != nil || len(found.(Page).Records) != 1 {
