@@ -36,13 +36,32 @@ outputs for evaluation. A single Registry process must own each output root.
 
 An omitted ID list selects all active, exportable published records. Explicit IDs
 must be published and active. The export mappings are versioned by
-`registry-export/1`: agents become YAML in `agents.dir/`, skills become
+`registry-export/1`: agents become `agents/<identity>/definition.yaml`, launch-profile source references
+become YAML in `launch_profiles/`, skills become
 `skills/<identity>/SKILL.md`, documents and knowledge become bodies in `docs/`,
 config settings become JSON in `config/`, and project descriptors become YAML in
 `projects/<identity>/project.yaml`. Every filename identity is the lowercase hex
 encoding of the complete canonical ID, preserving opaque identity without path
 interpretation or key-rename collisions. These are catalog exports, not claims of
 provider-native launch compatibility. Config secret locators are never resolved.
+
+`agents.dir` is the [Substrate config key](https://github.com/hollis-labs/substrate/blob/main/docs/agents.md),
+not a literal directory name. The output uses its default `agents/` with one
+subdirectory per identity. Source adapters can preserve native `agent.md` and
+`host.yaml` in `metadata.agent_files`, matching the
+[Folio agent-directory preset](https://github.com/hollis-labs/tools/tree/main/folio/presets/agent-dir).
+These bytes are copied as inert authored files; no runtime permission or host
+configuration is inferred from a catalog role. Native bundles require both files.
+Without that source bundle the agent directory contains only `definition.yaml`.
+
+Skills can retain auxiliary text files in `metadata.skill_files`. Both metadata
+envelopes are arrays of `{ "path": "references/guide.md", "content": "text" }`.
+Paths must be confined relative paths, unique even under case folding, with the
+generated primary filename reserved (`SKILL.md` or `definition.yaml`). Files use
+mode 0600 and are never executed. Every attachment gets its own source-manifest
+entry. Binary source attachments require an explicit future encoding contract;
+the current connector must report them as rejected instead of dropping them.
+Existing kind schemas and admission remain authoritative.
 
 `registry-sources.json` records source IDs, exact published revisions, destination
 paths and SHA-256 content digests. The deterministic bundle also carries shared

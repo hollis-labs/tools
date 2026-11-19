@@ -81,13 +81,20 @@ func renderExport(r Record) (string, []byte, error) {
 		}
 		raw, err := yaml.Marshal(value)
 		return "projects/" + name + "/project.yaml", raw, err
-	case "agent":
+	case "agent", "launch_profile":
 		var value any
 		if err := json.Unmarshal(r.Payload, &value); err != nil {
 			return "", nil, err
 		}
 		raw, err := yaml.Marshal(value)
-		return "agents.dir/" + name + ".yaml", raw, err
+		dir := "agents/"
+		if r.Kind == "launch_profile" {
+			dir = "launch_profiles/"
+		}
+		if r.Kind == "agent" {
+			return dir + name + "/definition.yaml", raw, err
+		}
+		return dir + name + ".yaml", raw, err
 	case "skill":
 		var v kinds.Skill
 		if err := json.Unmarshal(r.Payload, &v); err != nil {
@@ -122,9 +129,71 @@ func renderExport(r Record) (string, []byte, error) {
 		return "", nil, failure("validation_error", "export.ids", "selected kind has no approved export mapping")
 	}
 }
+
+// SourceFile preserves inert authored attachment bytes. The materializer never
+// opens a source path or grants an executable mode from these metadata entries.
+type SourceFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+type renderedExportFile struct {
+	Path    string
+	Content []byte
+}
+
+func renderExportFiles(r Record) ([]renderedExportFile, error) {
+	path, raw, err := renderExport(r)
+	if err != nil {
+		return nil, err
+	}
+	files := []renderedExportFile{{Path: path, Content: raw}}
+	field, reserved := "", ""
+	switch r.Kind {
+	case "skill":
+		field = "skill_files"
+		reserved = "SKILL.md"
+	case "agent":
+		field = "agent_files"
+		reserved = "definition.yaml"
+	default:
+		return files, nil
+	}
+	if r.Metadata[field] == nil {
+		return files, nil
+	}
+	encoded, err := json.Marshal(r.Metadata[field])
+	if err != nil {
+		return nil, invalid("metadata."+field, err)
+	}
+	var attachments []SourceFile
+	if err = Decode(encoded, &attachments); err != nil {
+		return nil, err
+	}
+	if len(attachments) > 200 {
+		return nil, failure("validation_error", "metadata."+field, "at most 200 source files allowed")
+	}
+	seen := map[string]bool{strings.ToLower(reserved): true}
+	prefix := strings.TrimSuffix(path, reserved)
+	for _, file := range attachments {
+		if err = artifact.ValidateRelPath(file.Path); err != nil {
+			return nil, failure("validation_error", "metadata."+field, "confined relative auxiliary paths required")
+		}
+		key := strings.ToLower(file.Path)
+		if seen[key] {
+			return nil, failure("validation_error", "metadata."+field, "duplicate or reserved auxiliary path")
+		}
+		seen[key] = true
+		files = append(files, renderedExportFile{Path: prefix + file.Path, Content: []byte(file.Content)})
+	}
+	if r.Kind == "agent" && (!seen["agent.md"] || !seen["host.yaml"]) {
+		return nil, failure("validation_error", "metadata.agent_files", "native agent bundles require agent.md and host.yaml")
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	return files, nil
+}
 func exportable(kind string) bool {
 	switch kind {
-	case "project", "agent", "skill", "document", "knowledge", "config":
+	case "project", "agent", "skill", "document", "knowledge", "config", "launch_profile":
 		return true
 	}
 	return false
@@ -187,17 +256,19 @@ func (s *Service) exportCall(ctx context.Context, p libauth.Principal, op string
 				if !exportable(r.Kind) && len(request.IDs) == 0 {
 					continue
 				}
-				path, raw, err := renderExport(r)
+				files, err := renderExportFiles(r)
 				if err != nil {
 					return err
 				}
-				// Empty authored text still represents an actual empty file.
-				if raw == nil {
-					raw = []byte{}
+				for _, file := range files {
+					raw := file.Content
+					if raw == nil {
+						raw = []byte{}
+					}
+					hash := artifactDigest(raw)
+					bundle.Sources = append(bundle.Sources, ExportSource{ID: r.ID, Revision: r.RevisionID, Path: file.Path, Digest: "sha256:" + hash.Hex})
+					bundle.Artifacts.Entries = append(bundle.Artifacts.Entries, artifact.Entry{Path: file.Path, Kind: artifact.EntryFile, Mode: 0o600, Bytes: raw, Digest: hash, Ownership: artifact.Ownership{EntryID: r.ID + "#" + file.Path, GroupID: "registry-export", Generation: r.RevisionID}, Provenance: artifact.Provenance{Source: "registry", SourcePath: r.ID, Revision: r.RevisionID}})
 				}
-				hash := artifactDigest(raw)
-				bundle.Sources = append(bundle.Sources, ExportSource{ID: r.ID, Revision: r.RevisionID, Path: path, Digest: "sha256:" + hash.Hex})
-				bundle.Artifacts.Entries = append(bundle.Artifacts.Entries, artifact.Entry{Path: path, Kind: artifact.EntryFile, Mode: 0o600, Bytes: raw, Digest: hash, Ownership: artifact.Ownership{EntryID: r.ID, GroupID: "registry-export", Generation: r.RevisionID}, Provenance: artifact.Provenance{Source: "registry", SourcePath: r.ID, Revision: r.RevisionID}})
 			}
 			// The manifest is itself an owned artifact, enabling empty published sets.
 			raw, err := json.MarshalIndent(bundle.Sources, "", "  ")
@@ -270,11 +341,18 @@ func (s *Service) exportCall(ctx context.Context, p libauth.Principal, op string
 			if r.RevisionID != source.Revision || r.Lifecycle == "archived" || r.Lifecycle == "deleted" {
 				return failure("version_conflict", "receipt_id", "publication changed after authorization")
 			}
-			path, content, renderErr := renderExport(r)
+			files, renderErr := renderExportFiles(r)
 			if renderErr != nil {
 				return renderErr
 			}
-			if path != source.Path || "sha256:"+artifactDigest(content).Hex != source.Digest {
+			matched := false
+			for _, file := range files {
+				if file.Path == source.Path && "sha256:"+artifactDigest(file.Content).Hex == source.Digest {
+					matched = true
+					break
+				}
+			}
+			if !matched {
 				return failure("version_conflict", "receipt_id", "authorized rendered content changed")
 			}
 		}
