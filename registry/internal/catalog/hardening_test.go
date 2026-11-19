@@ -149,6 +149,8 @@ func TestRetentionPreservesPublishedHistoryApprovalsReceiptsAndCursors(t *testin
 	}
 	_, err = s.Call(writer, "revision_get", Args{ID: d.ID, Revision: d.RevisionID})
 	code(t, err, "not_found")
+	_, err = s.Call(writer, "record_list", Args{Query: Query{Publication: "draft", Limit: 1, Cursor: page.(Page).Cursor}})
+	code(t, err, "validation_error")
 	for _, keep := range []Record{r, current, d2, a, receipt} {
 		if _, err = s.Call(writer, "revision_get", Args{ID: keep.ID, Revision: keep.RevisionID}); err != nil {
 			t.Fatalf("protected history %s lost: %v", keep.ID, err)
@@ -168,9 +170,17 @@ func TestConsistentBackupAndIsolatedRestore(t *testing.T) {
 	s := openTest(t, filepath.Join(root, "live.db"))
 	s.reviewers["owner"] = "owner"
 	s.Maintenance.BackupDirectory = filepath.Join(root, "backups")
-	r := create(t, s, input("before"))
-	ap := approvePublication(t, s, preparePublication(t, s, Candidate{ID: r.ID, Revision: r.RevisionID}))
+	original := create(t, s, input("before"))
+	target := create(t, s, input("dependency"))
+	relation := kinds.Relation{Schema: kinds.RelationSchema, Type: kinds.Consumes,
+		From: kinds.Reference{Authority: "registry", Kind: "project", ID: original.ID},
+		To:   kinds.Reference{Authority: "registry", Kind: "project", ID: target.ID}, Source: "authored", Status: "proposed"}
+	r := callRecord(t, s, writer, "relation_create", Args{ID: original.ID, Version: original.VersionToken, Relation: &relation})
+	ap := approvePublication(t, s, preparePublication(t, s, Candidate{ID: target.ID, Revision: target.RevisionID}, Candidate{ID: r.ID, Revision: r.RevisionID}))
 	publish(t, s, ap, "backup-replay")
+	unpublished := input("before")
+	unpublished.Summary = "Unpublished restore fixture edit"
+	draft := callRecord(t, s, writer, "record_update", Args{ID: r.ID, Version: r.VersionToken, Record: unpublished})
 	wal, err := os.Stat(filepath.Join(root, "live.db-wal"))
 	if err != nil || wal.Size() == 0 {
 		t.Fatalf("fixture must exercise committed WAL: %v %v", wal, err)
@@ -206,8 +216,24 @@ func TestConsistentBackupAndIsolatedRestore(t *testing.T) {
 	}
 	restored := openTest(t, restoredPath)
 	got := callRecord(t, restored, writer, "record_get", Args{ID: r.ID})
-	if got.RevisionID != r.RevisionID {
-		t.Fatal(got)
+	if got.RevisionID != r.RevisionID || got.Publication != "published" || len(got.Edges) != 1 || got.Edges[0].TargetState != "resolved" || got.TargetPins[r.Edges[0].ID] != target.RevisionID {
+		t.Fatalf("restored published graph/pins: %+v", got)
+	}
+	restoredDraft := callRecord(t, restored, writer, "record_get", Args{ID: r.ID, Publication: "draft"})
+	if restoredDraft.RevisionID != draft.RevisionID || restoredDraft.Summary != unpublished.Summary || restoredDraft.Publication != "draft" {
+		t.Fatalf("draft/published distinction lost: %+v", restoredDraft)
+	}
+	historic, err := restored.Call(writer, "revision_get", Args{ID: original.ID, Revision: original.RevisionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var historicRecord Record
+	if err = json.Unmarshal(historic.(json.RawMessage), &historicRecord); err != nil || historicRecord.RevisionID != original.RevisionID || len(historicRecord.Edges) != 0 {
+		t.Fatalf("original immutable history: %+v %v", historicRecord, err)
+	}
+	history, err := restored.Call(writer, "revision_list", Args{ID: r.ID})
+	if err != nil || len(history.(map[string]any)["revisions"].([]Record)) != 3 {
+		t.Fatalf("restored history: %v %v", history, err)
 	}
 	_, err = restored.Call(writer, "record_get", Args{ID: "project:after", Publication: "draft"})
 	code(t, err, "not_found")
