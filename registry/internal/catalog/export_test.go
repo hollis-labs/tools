@@ -311,14 +311,14 @@ func TestExportExpiredConcurrentAndFailedAttempts(t *testing.T) {
 	p = exportPlan(t, s, ExportRequest{Target: "fixture"})
 	results := make(chan error, 2)
 	for i := 0; i < 2; i++ {
-		go func() { _, err := s.Call(writer, "export_apply", exportArgs(p)); results <- err }()
+		go func() { _, callErr := s.Call(writer, "export_apply", exportArgs(p)); results <- callErr }()
 	}
 	successes := 0
 	for i := 0; i < 2; i++ {
-		if err := <-results; err == nil {
+		if callErr := <-results; callErr == nil {
 			successes++
 		} else {
-			code(t, err, "version_conflict")
+			code(t, callErr, "version_conflict")
 		}
 	}
 	if successes != 1 {
@@ -396,8 +396,31 @@ func TestExportRemovesOnlyUndriftedOwnedFiles(t *testing.T) {
 	if _, err = os.Stat(owned); !os.IsNotExist(err) {
 		t.Fatal("withdrawn output retained", err)
 	}
-	raw, err := os.ReadFile(unowned)
+	raw, err := os.ReadFile(unowned) // #nosec G304 -- isolated fixture output
 	if err != nil || string(raw) != "operator" {
 		t.Fatal("unowned output changed", err)
 	}
+}
+
+func TestExportRejectsReplacedDirectoryWithCopiedManifest(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	parent := t.TempDir()
+	root := filepath.Join(parent, "out")
+	if err := s.ConfigureExportTargets(map[string]string{"fixture": root}); err != nil {
+		t.Fatal(err)
+	}
+	first := exportPlan(t, s, ExportRequest{Target: "fixture"})
+	if _, err := s.Call(writer, "export_apply", exportArgs(first)); err != nil {
+		t.Fatal(err)
+	}
+	next := exportPlan(t, s, ExportRequest{Target: "fixture"})
+	saved := filepath.Join(parent, "saved")
+	if err := os.Rename(root, saved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.CopyFS(root, os.DirFS(saved)); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.Call(writer, "export_apply", exportArgs(next))
+	code(t, err, "version_conflict")
 }

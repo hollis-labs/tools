@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -16,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hollis-labs/libs/agent/agentdir"
 	"github.com/hollis-labs/libs/core/store"
 	"github.com/hollis-labs/libs/harness/core/workspace/materialize"
 	"github.com/hollis-labs/libs/harness/core/workspace/materialize/artifact"
@@ -204,6 +206,8 @@ func renderExportFiles(r Record) ([]renderedExportFile, error) {
 		return nil, failure("validation_error", "metadata."+field, "at most 200 source files allowed")
 	}
 	seen := map[string]bool{strings.ToLower(reserved): true}
+	var definition *agentdef.Definition
+	var hostContent string
 	nativeAgent, nativeHost := false, false
 	prefix := strings.TrimSuffix(path, reserved)
 	for _, file := range attachments {
@@ -216,18 +220,29 @@ func renderExportFiles(r Record) ([]renderedExportFile, error) {
 		}
 		seen[key] = true
 		if r.Kind == "agent" && file.Path == "agent.md" {
-			if _, err := agentdef.Parse([]byte(file.Content)); err != nil {
+			definition, err = agentdef.Parse([]byte(file.Content))
+			if err != nil {
 				return nil, failure("non_materializable", "metadata.agent_files", "invalid native agent definition")
 			}
 			nativeAgent = true
 		}
 		if r.Kind == "agent" && file.Path == "host.yaml" {
 			nativeHost = true
+			hostContent = file.Content
 		}
 		files = append(files, renderedExportFile{Path: prefix + file.Path, Content: []byte(file.Content)})
 	}
 	if r.Kind == "agent" && (!nativeAgent || !nativeHost) {
 		return nil, failure("validation_error", "metadata.agent_files", "native agent bundles require agent.md and host.yaml")
+	}
+	if r.Kind == "agent" {
+		decoder := yaml.NewDecoder(bytes.NewBufferString(hostContent))
+		decoder.KnownFields(true)
+		var profile agentdir.Profile
+		var extra any
+		if decoder.Decode(&profile) != nil || !errors.Is(decoder.Decode(&extra), io.EOF) || profile.Validate(definition) != nil {
+			return nil, failure("non_materializable", "metadata.agent_files", "invalid native host profile")
+		}
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	return files, nil
@@ -262,12 +277,12 @@ func buildExport(ctx context.Context, q store.Querier, request ExportRequest, ro
 		for rows.Next() {
 			var raw []byte
 			if err = rows.Scan(&raw); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return b, err
 			}
 			var r Record
 			if err = json.Unmarshal(raw, &r); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return b, err
 			}
 			if exportable(r.Kind) && r.Lifecycle != "archived" && r.Lifecycle != "deleted" {
@@ -275,7 +290,7 @@ func buildExport(ctx context.Context, q store.Querier, request ExportRequest, ro
 			}
 		}
 		err = rows.Err()
-		rows.Close()
+		_ = rows.Close()
 		if err != nil {
 			return b, err
 		}
@@ -427,10 +442,18 @@ func exportBaseline(root string) (*materialize.Manifest, string, error) {
 	}
 	info, err := os.Lstat(root)
 	if os.IsNotExist(err) {
-		return nil, "", nil
+		parent, parentErr := os.Lstat(filepath.Dir(root))
+		if parentErr != nil || !parent.IsDir() || materialize.InstalledIdentity(parent) == "" {
+			return nil, "", materialize.ErrUnsafeTarget
+		}
+		return nil, digest(struct{ ParentIdentity string }{materialize.InstalledIdentity(parent)}), nil
 	}
 	if err != nil || !info.IsDir() {
 		return nil, "", materialize.ErrUnsafeTarget
+	}
+	identity := materialize.InstalledIdentity(info)
+	if identity == "" {
+		return nil, "", materialize.ErrUnsupportedOperation
 	}
 	info, err = os.Lstat(materialize.ManifestPath(root))
 	if err != nil || !info.Mode().IsRegular() || info.Size() > MaxRequestBytes {
@@ -447,7 +470,10 @@ func exportBaseline(root string) (*materialize.Manifest, string, error) {
 		}
 		seen[e.Path] = true
 	}
-	return &m, digest(m), nil
+	return &m, digest(struct {
+		RootIdentity string
+		Manifest     materialize.Manifest
+	}{identity, m}), nil
 }
 func exportDiskRequest(root string, b ExportBundle) (materialize.Request, error) {
 	req := materialize.Request{Operation: materialize.OperationCreate, TargetRoot: root, Artifacts: b.Artifacts, Generation: b.Generation, ExistingTarget: materialize.ExistingTargetRefuse, Reconcile: materialize.ReconcilePolicy{Conflict: materialize.ConflictReport, RemoveOwned: true}}
@@ -514,12 +540,12 @@ func (s *Service) exportCall(ctx context.Context, p libauth.Principal, op string
 			if err != nil {
 				return nil, err
 			}
-			req, err := exportDiskRequest(root, b)
-			if err != nil {
-				return nil, exportError(err)
+			req, requestErr := exportDiskRequest(root, b)
+			if requestErr != nil {
+				return nil, exportError(requestErr)
 			}
-			plan, err := exportEngine().Plan(ctx, req)
-			return ExportPlan{Bundle: b, Report: plan.Report, WillMutate: plan.WillMutate}, exportError(err)
+			plan, planErr := exportEngine().Plan(ctx, req)
+			return ExportPlan{Bundle: b, Report: plan.Report, WillMutate: plan.WillMutate}, exportError(planErr)
 		}
 		authority := s.authorities[p.ID]
 		if authority == "" {
@@ -717,6 +743,13 @@ func guardedExportApply(ctx context.Context, req materialize.Request, baseline s
 		if _, err := os.Lstat(target); !os.IsNotExist(err) {
 			return materialize.ErrTargetExists
 		}
+		_, actual, err := exportBaseline(target)
+		if err != nil {
+			return err
+		}
+		if actual != baseline {
+			return materialize.ErrStaleGeneration
+		}
 		return nil
 	}})
 	return engine.Apply(ctx, req)
@@ -739,11 +772,20 @@ func exportLeaf(root, rel string) (string, error) {
 	if !info.Mode().IsRegular() || info.Size() > MaxRequestBytes {
 		return "", materialize.ErrUnsafeTarget
 	}
-	f, err := os.Open(p)
+	anchor, err := os.OpenRoot(root)
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = anchor.Close() }()
+	f, err := anchor.Open(filepath.FromSlash(rel))
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	opened, err := f.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return "", materialize.ErrUnsafeTarget
+	}
 	raw, err := io.ReadAll(io.LimitReader(f, MaxRequestBytes+1))
 	if err != nil || len(raw) > MaxRequestBytes {
 		return "", materialize.ErrUnsafeTarget

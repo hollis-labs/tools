@@ -57,9 +57,9 @@ func TestSourceFixturesPreserveTeamsProfilesWorkersAndSkillFiles(t *testing.T) {
 			r.TargetPins = map[string]string{}
 			for _, edge := range r.Edges {
 				if edge.Relation.To.Authority == "registry" {
-					target, err := readRecord(ctx, tx, edge.Relation.To.ID, -1)
-					if err != nil {
-						return err
+					target, readErr := readRecord(ctx, tx, edge.Relation.To.ID, -1)
+					if readErr != nil {
+						return readErr
 					}
 					r.TargetPins[edge.ID] = target.RevisionID
 				}
@@ -184,5 +184,22 @@ func TestSkillAuxiliaryPathsRefuseTraversalAndReservedNames(t *testing.T) {
 			_, err := renderExportFiles(r)
 			code(t, err, "validation_error")
 		})
+	}
+}
+
+func TestSourceRejectsInvalidNativeHostProfiles(t *testing.T) {
+	for _, host := range []string{
+		"kind: embedded\nlifetime: application\napplication_id: app\nunknown: true\n",
+		"kind: embedded\nlifetime: application\n",
+		"kind: embedded\nlifetime: application\napplication_id: app\n---\nkind: stable\n",
+		"kind: stable\nlifetime: application\nseat_id: fixture\n",
+		"kind: embedded\nlifetime: application\napplication_id: app\nruntime:\n  max_steps: -1\n",
+	} {
+		r := Record{ID: "agent:fixture", Kind: "agent", Payload: json.RawMessage(`{"schema":"agent/1","id":"fixture","name":"Fixture","charter":"Fixture"}`), Metadata: map[string]any{"agent_files": []SourceFile{
+			{Path: "agent.md", Content: "---\nschema_version: \"2\"\ndefinition_id: def:fixture-worker\nrevision: \"1\"\nname: fixture-worker\ndescription: Preserve the authored worker fixture.\nbehavior:\n  purpose: Preserve the fixture.\nrequirements: {}\nharness_profile:\n  permissions:\n    profile: default\ncontinuity:\n  mode: durable\n---\nFixture worker charter.\n"},
+			{Path: "host.yaml", Content: host},
+		}}}
+		_, err := renderExportFiles(r)
+		code(t, err, "non_materializable")
 	}
 }
