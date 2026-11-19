@@ -80,7 +80,7 @@ The explicit projection contains:
 - `edges`, sorted by unique exact ID: edge ID/revision, relation, pinned
   `target: {id, revision}`, and complete typed relation attributes;
 - `admission`: complete shared schema-bundle and edge-cycle-policy digest, `mapping_version: "native/1"`,
-  and `envelope_version: "registry.authored-envelope/1"`.
+  and `envelope_version: "registry.authored-envelope/2"`.
 
 The content digest covers the complete admitted payload and every enumerated
 Input envelope field: schema, key, summary, source (URI/revision/observed_at), and
