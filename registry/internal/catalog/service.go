@@ -340,7 +340,7 @@ func (s *Service) mutate(ctx context.Context, p libauth.Principal, op string, a 
 					return failure("validation_error", "lifecycle", "archived records cannot be replaced")
 				}
 				next.CreatedAt = r.CreatedAt
-				next.MappingVersion = r.MappingVersion
+				next.MappingVersion = "native/1"
 				if r.Kind != "project" {
 					for _, e := range r.Edges {
 						if !isPayloadEdge(e) {
