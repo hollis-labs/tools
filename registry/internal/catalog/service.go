@@ -15,6 +15,7 @@ import (
 )
 
 type Service struct {
+	Maintenance MaintenanceConfig
 	DB          *store.Store
 	authorities map[string]string
 	reviewers   map[string]string
@@ -32,7 +33,7 @@ func New(db *store.Store, authorities map[string]string, reviewers map[string]st
 	return &Service{DB: db, authorities: bindings, reviewers: roles}
 }
 
-var Operations = []string{"publication_approval_prepare", "publication_approval_get", "publication_approval_decide", "publication_publish", "publication_policy_get", "publication_policy_set", "kinds_list", "schema_get", "record_create", "record_get", "record_list", "record_search", "record_update", "record_archive", "record_delete", "record_verify", "revision_list", "revision_get", "relation_create", "relation_list", "relation_remove", "tool_resolve", "tool_classify", "tool_propose", "review_list", "review_decide", "snapshot_get", "diagnostics"}
+var Operations = []string{"references_report", "migration_list", "record_migrate", "relation_decide", "retention_run", "backup_create", "publication_approval_prepare", "publication_approval_get", "publication_approval_decide", "publication_publish", "publication_policy_get", "publication_policy_set", "kinds_list", "schema_get", "record_create", "record_get", "record_list", "record_search", "record_update", "record_archive", "record_delete", "record_verify", "revision_list", "revision_get", "relation_create", "relation_list", "relation_remove", "tool_resolve", "tool_classify", "tool_propose", "review_list", "review_decide", "snapshot_get", "diagnostics"}
 
 func (s *Service) Call(ctx context.Context, op string, a Args) (any, error) {
 	p, ok := libauth.FromContext(ctx)
@@ -66,6 +67,12 @@ func (s *Service) Call(ctx context.Context, op string, a Args) (any, error) {
 		return s.publicationCall(ctx, p, op, a)
 	}
 	switch op {
+	case "references_report":
+		return s.referencesReport(ctx, p.ID, a.Query)
+	case "migration_list":
+		return s.migrationList(ctx, a)
+	case "retention_run", "backup_create":
+		return s.maintenanceCall(ctx, p, op, a)
 	case "kinds_list":
 		return map[string]any{"schemas": kinds.Schemas(), "edges": kinds.EdgeSpecs()}, nil
 	case "schema_get":
@@ -255,10 +262,10 @@ func (s *Service) read(ctx context.Context, op string, a Args) (any, error) {
 }
 func (s *Service) mutate(ctx context.Context, p libauth.Principal, op string, a Args) (any, error) {
 	authority := s.authorities[p.ID]
-	if op == "review_decide" && s.reviewers[p.ID] == "" {
+	if (op == "review_decide" || op == "relation_decide") && s.reviewers[p.ID] == "" {
 		return nil, failure("forbidden", "reviewer", "configured reviewer authority required")
 	}
-	if op != "review_decide" && authority == "" {
+	if op != "review_decide" && op != "relation_decide" && authority == "" {
 		return nil, failure("forbidden", "authority", "caller has no publication authority binding")
 	}
 	var result Record
@@ -278,6 +285,7 @@ func (s *Service) mutate(ctx context.Context, p libauth.Principal, op string, a 
 			}
 		}
 		var r Record
+		var migrationFrom Record
 		var err error
 		if op == "record_create" {
 			r, err = prepare(a.Record, authority)
@@ -311,13 +319,20 @@ func (s *Service) mutate(ctx context.Context, p libauth.Principal, op string, a 
 			if !matches {
 				return failure("version_conflict", "version", "current version token or representation ETag required")
 			}
-			if op != "review_decide" && r.Authority != authority {
+			if op != "review_decide" && op != "relation_decide" && r.Authority != authority {
 				return failure("forbidden", "authority", "caller does not own this record")
 			}
-			if op == "record_update" {
+			if op == "record_update" || op == "record_migrate" {
+				migrationFrom = r
 				next, err := prepare(a.Record, authority)
 				if err != nil {
 					return err
+				}
+				if op == "record_update" && next.Schema != r.Schema {
+					return failure("validation_error", "record.schema", "use record_migrate for an explicit schema transition")
+				}
+				if op == "record_migrate" && (next.Schema == r.Schema || strings.TrimSpace(a.Reason) == "") {
+					return failure("validation_error", "reason", "a different supported schema and migration reason are required")
 				}
 				if next.ID != r.ID || next.Kind != r.Kind {
 					return failure("validation_error", "record.payload.id", "identity is immutable")
@@ -326,6 +341,9 @@ func (s *Service) mutate(ctx context.Context, p libauth.Principal, op string, a 
 					return failure("validation_error", "lifecycle", "archived records cannot be replaced")
 				}
 				next.CreatedAt = r.CreatedAt
+				for i := range next.Edges {
+					next.Edges[i].ProposedBy = p.ID
+				}
 				if r.Kind != "project" {
 					for _, e := range r.Edges {
 						if !isPayloadEdge(e) {
@@ -340,9 +358,14 @@ func (s *Service) mutate(ctx context.Context, p libauth.Principal, op string, a 
 			}
 		}
 		switch op {
-		case "record_create", "record_update":
+		case "record_create", "record_update", "record_migrate":
 			if checkErr := checkEdges(ctx, tx, r, a.AllowUnresolved); checkErr != nil {
 				return checkErr
+			}
+			for i := range r.Edges {
+				if op == "record_create" && r.Edges[i].ProposedBy == "" {
+					r.Edges[i].ProposedBy = p.ID
+				}
 			}
 			r.LastVerified = time.Now().UTC().Format(time.RFC3339Nano)
 			r.VerifiedBy = p.ID
@@ -374,13 +397,17 @@ func (s *Service) mutate(ctx context.Context, p libauth.Principal, op string, a 
 			if a.Relation.Status != "proposed" || a.Relation.Source == "reviewed" {
 				return failure("forbidden", "relation.status", "generic relationship writes create proposals only")
 			}
-			e := Edge{ID: "edge:" + newID(), Relation: *a.Relation}
+			e := Edge{ID: "edge:" + newID(), Relation: *a.Relation, ProposedBy: p.ID}
 			r.Edges = append(r.Edges, e)
 			if checkErr := checkEdges(ctx, tx, r, a.AllowUnresolved); checkErr != nil {
 				return checkErr
 			}
 			if checkErr := projectEdges(&r); checkErr != nil {
 				return checkErr
+			}
+		case "relation_decide":
+			if err := s.decideRelation(ctx, tx, p, &r, a); err != nil {
+				return err
 			}
 		case "relation_remove":
 			found := false
@@ -483,13 +510,18 @@ func (s *Service) mutate(ctx context.Context, p libauth.Principal, op string, a 
 				r.Review.Approval = nil
 			}
 		}
-		if op == "relation_create" || op == "relation_remove" {
+		if op == "relation_create" || op == "relation_remove" || op == "relation_decide" {
 			r.LastVerified = ""
 			r.VerifiedBy = ""
 			r.VerificationScope = ""
 		}
 		if checkErr := save(ctx, tx, &r); checkErr != nil {
 			return checkErr
+		}
+		if op == "record_migrate" {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO kind_migrations(id,record_id,from_schema,to_schema,from_revision,to_revision,actor,reason,migrated_at) VALUES(?,?,?,?,?,?,?,?,?)`, newID(), r.ID, migrationFrom.Schema, r.Schema, migrationFrom.RevisionID, r.RevisionID, p.ID, a.Reason, r.UpdatedAt); err != nil {
+				return err
+			}
 		}
 		if op == "record_archive" || op == "record_delete" {
 			if err := recordPublicationLifecycle(ctx, tx, r); err != nil {
@@ -533,7 +565,7 @@ func prepare(in *Input, authority string) (Record, error) {
 	if checkErr := json.Unmarshal(in.Payload, &common); checkErr != nil {
 		return Record{}, invalid("record.payload", checkErr)
 	}
-	kind := strings.TrimSuffix(in.Schema, "/1")
+	kind, _, _ := strings.Cut(in.Schema, "/")
 	switch kind {
 	case "project", "tool", "agent", "agency", "skill", "document", "workstream", "correlation", "service", "config", "knowledge", "mcp_server", "launch_profile":
 	default:
@@ -543,7 +575,10 @@ func prepare(in *Input, authority string) (Record, error) {
 	if kind == "tool" {
 		id = common.ID
 	}
-	r := Record{ID: id, Kind: kind, Schema: in.Schema, Key: in.Key, Name: common.Name, Summary: in.Summary, Owner: common.Owner, Subtype: common.Subtype, Lifecycle: common.Lifecycle, Authority: authority, Source: in.Source, Payload: append(json.RawMessage(nil), in.Payload...), Metadata: in.Metadata, Edges: []Edge{}}
+	if err := validateExamples(kind, in.Examples); err != nil {
+		return Record{}, err
+	}
+	r := Record{Examples: in.Examples, ID: id, Kind: kind, Schema: in.Schema, Key: in.Key, Name: common.Name, Summary: in.Summary, Owner: common.Owner, Subtype: common.Subtype, Lifecycle: common.Lifecycle, Authority: authority, Source: in.Source, Payload: append(json.RawMessage(nil), in.Payload...), Metadata: in.Metadata, Edges: []Edge{}}
 	if r.Name == "" {
 		r.Name = r.ID
 	} // display fallback; authored payload stays unchanged
@@ -614,6 +649,7 @@ func save(ctx context.Context, tx store.Tx, r *Record) error {
 	}
 	for i := range r.Edges {
 		r.Edges[i].SourceRevision = r.RevisionID
+		r.Edges[i].Hash = digest(r.Edges[i].Relation)
 	}
 	raw, err := json.Marshal(r)
 	if err != nil {
@@ -684,6 +720,7 @@ func checkEdges(ctx context.Context, q store.Querier, r Record, allow bool) erro
 func resolveEdges(ctx context.Context, q store.Querier, r *Record, boundary int64) error {
 	for i := range r.Edges {
 		e := &r.Edges[i]
+		e.Hash = digest(e.Relation)
 		if r.Publication == "published" {
 			if pin, ok := r.TargetPins[e.ID]; ok {
 				e.TargetRevision = pin

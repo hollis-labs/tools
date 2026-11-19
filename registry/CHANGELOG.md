@@ -17,3 +17,12 @@
 - Expose matching HTTP, installed CLI and HTTP/stdio MCP operations with scoped
   authority, consistent pagination, history and archive/tombstone semantics.
 - Add Folio-generated build/deployment descriptors and a staged activation plan.
+
+## Unreleased: phase 4 hardening
+
+- Index immutable draft/publication name, summary and body text with FTS5.
+- Add protected retention previews/application and verified online backups, with
+  a disabled schedule handoff and isolated restore runbook.
+- Require explicit, logged schema transitions; add paged reference reports.
+- Add authored tool examples, independent relationship review/weights and an
+  opt-in readable CLI mode; document the envelope/2 admission boundary.

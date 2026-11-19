@@ -484,8 +484,8 @@ func TestPublicationGoldenVectors(t *testing.T) {
 		edges []Edge
 		want  string
 	}{
-		{"empty", nil, "sha256:10660c73f5ef71ec9ce889b74660b645e4507858d20ded6d26525870008c00a2"},
-		{"edge", []Edge{{ID: "edge-1", SourceRevision: "revision-1", Relation: kinds.Relation{Schema: kinds.RelationSchema, Type: kinds.Consumes, From: kinds.Reference{Authority: "registry", Kind: "project", ID: r.ID}, To: kinds.Reference{Authority: "registry", Kind: "project", ID: target.ID}, Source: "authored", Status: "proposed"}}}, "sha256:aca73902104660da6f514214fc44631d1343188d5e4bb4781d4a66a500231468"},
+		{"empty", nil, "sha256:8162c329f57c985006d01150398691d6d47cf4ca410ba7312af38119d3274f18"},
+		{"edge", []Edge{{ID: "edge-1", SourceRevision: "revision-1", Relation: kinds.Relation{Schema: kinds.RelationSchema, Type: kinds.Consumes, From: kinds.Reference{Authority: "registry", Kind: "project", ID: r.ID}, To: kinds.Reference{Authority: "registry", Kind: "project", ID: target.ID}, Source: "authored", Status: "proposed"}}}, "sha256:aca16b7429c23e3d3beba26f55f2b1733b87053743dc1f384ad0e6b907e02693"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

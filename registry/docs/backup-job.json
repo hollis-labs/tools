@@ -1,0 +1,12 @@
+{
+  "definition": "registry-backup-handoff/1",
+  "enabled": false,
+  "schedule": "0 3 * * *",
+  "timezone": "UTC",
+  "overlap": "forbid",
+  "command": ["/ABSOLUTE/INSTALLED/registry", "backup", "--url", "REGISTRY_SERVICE_URL", "--token-file", "/ABSOLUTE/EXISTING/OWNER_CREDENTIAL_FILE", "--json"],
+  "server_config": {"registry.maintenance.backup_directory": "/srv/data/backups/registry"},
+  "activation_owner": "existing Cerberus deployment owner",
+  "success": "exit 0, integrity verified, manifest and maintenance audit recorded",
+  "failure": "retain evidence; inspect destination before retry; never overwrite or delete backups"
+}
