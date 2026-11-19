@@ -17,3 +17,12 @@
 - Expose matching HTTP, installed CLI and HTTP/stdio MCP operations with scoped
   authority, consistent pagination, history and archive/tombstone semantics.
 - Add Folio-generated build/deployment descriptors and a staged activation plan.
+
+## Unreleased
+
+- Add published-only deterministic export plans, caller-bound authorization
+  receipts, source manifests and shared materializer diff/apply for configured
+  isolated output targets.
+- Add immutable publication changes cursors and atomic prepare/commit imports
+  with source bindings, checkpoints, idempotent receipts and drift conflicts.
+- Add temporary connector runner contracts; scheduling remains disabled.

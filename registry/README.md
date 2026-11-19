@@ -251,3 +251,6 @@ All accept the common JSON operation envelope (`--file`). Prepare/publish requir
 write scope, decisions/policy changes require review scope, and inspection requires
 read scope. Publication additionally requires read scope for historical replay.
 The same operation schemas are exposed through HTTP and stdio MCP.
+
+Published export plan/diff/apply, publication changes cursors and temporary batch
+import contracts are described in [materialization](docs/materialization.md).

@@ -127,7 +127,20 @@ func catalogService(app *module.App) (*catalog.Service, error) {
 		}
 		reviewers[id] = role
 	}
-	return catalog.New(db, bindings, reviewers), nil
+	svc := catalog.New(db, bindings, reviewers)
+	targets := map[string]string{}
+	configuredTargets, _ := cfg["export_targets"].(map[string]any)
+	for name, value := range configuredTargets {
+		root, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("registry.export_targets requires directory strings")
+		}
+		targets[name] = root
+	}
+	if err := svc.ConfigureExportTargets(targets); err != nil {
+		return nil, err
+	}
+	return svc, nil
 }
 func registerMCP(app *module.App) {
 	server := mcp.Server(app)

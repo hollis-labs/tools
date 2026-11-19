@@ -15,9 +15,10 @@ import (
 )
 
 type Service struct {
-	DB          *store.Store
-	authorities map[string]string
-	reviewers   map[string]string
+	DB            *store.Store
+	exportTargets map[string]string
+	authorities   map[string]string
+	reviewers     map[string]string
 }
 
 func New(db *store.Store, authorities map[string]string, reviewers map[string]string) *Service {
@@ -32,7 +33,7 @@ func New(db *store.Store, authorities map[string]string, reviewers map[string]st
 	return &Service{DB: db, authorities: bindings, reviewers: roles}
 }
 
-var Operations = []string{"publication_approval_prepare", "publication_approval_get", "publication_approval_decide", "publication_publish", "publication_policy_get", "publication_policy_set", "kinds_list", "schema_get", "record_create", "record_get", "record_list", "record_search", "record_update", "record_archive", "record_delete", "record_verify", "revision_list", "revision_get", "relation_create", "relation_list", "relation_remove", "tool_resolve", "tool_classify", "tool_propose", "review_list", "review_decide", "snapshot_get", "diagnostics"}
+var Operations = []string{"export_plan", "export_diff", "export_apply", "changes_list", "import_prepare", "import_commit", "import_checkpoint", "publication_approval_prepare", "publication_approval_get", "publication_approval_decide", "publication_publish", "publication_policy_get", "publication_policy_set", "kinds_list", "schema_get", "record_create", "record_get", "record_list", "record_search", "record_update", "record_archive", "record_delete", "record_verify", "revision_list", "revision_get", "relation_create", "relation_list", "relation_remove", "tool_resolve", "tool_classify", "tool_propose", "review_list", "review_decide", "snapshot_get", "diagnostics"}
 
 func (s *Service) Call(ctx context.Context, op string, a Args) (any, error) {
 	p, ok := libauth.FromContext(ctx)
@@ -61,6 +62,15 @@ func (s *Service) Call(ctx context.Context, op string, a Args) (any, error) {
 	}
 	if !known {
 		return nil, failure("not_found", "operation", "unknown operation")
+	}
+	if strings.HasPrefix(op, "export_") {
+		return s.exportCall(ctx, p, op, a)
+	}
+	if strings.HasPrefix(op, "import_") {
+		return s.importCall(ctx, p, op, a)
+	}
+	if op == "changes_list" {
+		return s.changes(ctx, p.ID, a.Query)
 	}
 	if strings.HasPrefix(op, "publication_") {
 		return s.publicationCall(ctx, p, op, a)

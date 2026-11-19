@@ -20,6 +20,8 @@ func (e *Error) ToolErrorContent() any { return e }
 type Route struct{ Operation, Method, Path string }
 
 var Routes = []Route{
+	{"export_plan", "POST", "/v1/export/plan"}, {"export_diff", "POST", "/v1/export/diff"}, {"export_apply", "POST", "/v1/export/apply"},
+	{"changes_list", "GET", "/v1/changes"}, {"import_prepare", "POST", "/v1/import/prepare"}, {"import_commit", "POST", "/v1/import/commit"}, {"import_checkpoint", "GET", "/v1/import/checkpoint"},
 	{"publication_approval_prepare", "POST", "/v1/publication/prepare"}, {"publication_approval_get", "GET", "/v1/publication/approval"}, {"publication_approval_decide", "POST", "/v1/publication/decide"}, {"publication_publish", "POST", "/v1/publication/publish"}, {"publication_policy_get", "GET", "/v1/publication/policy"}, {"publication_policy_set", "PUT", "/v1/publication/policy"},
 	{"kinds_list", "GET", "/v1/kinds"}, {"schema_get", "GET", "/v1/schema"},
 	{"record_create", "POST", "/v1/records"}, {"record_get", "GET", "/v1/record"},
@@ -266,6 +268,22 @@ func argumentSchema(op string) any {
 		}
 	}
 	switch op {
+	case "export_plan":
+		add("export", "object", "Target binding, optional exact ids and expected_generation; published records only", true)
+	case "export_diff", "export_apply":
+		add("receipt_id", "string", "Caller-owned export authorization receipt", true)
+		add("hash", "string", "Exact deterministic bundle digest", true)
+	case "changes_list":
+		add("query", "object", "Publication changes cursor and limit", false)
+	case "import_checkpoint":
+		add("id", "string", "Connector identity", true)
+	case "import_prepare":
+		add("import", "object", "Temporary connector snapshot: connector, checkpoint, expected_checkpoint, entries with source_key/source_revision/record", true)
+	case "import_commit":
+		add("plan_id", "string", "Prepared immutable plan", true)
+		add("hash", "string", "Exact prepared plan digest", true)
+		add("source_digest", "string", "Confirmed current source snapshot digest", true)
+		add("idempotency_key", "string", "Caller-scoped retry key", true)
 	case "publication_policy_get":
 	case "publication_policy_set":
 		add("version", "string", "Current policy revision", true)

@@ -175,6 +175,46 @@ func TestAPIClientCLIMCPShareDataAndErrors(t *testing.T) {
 		}
 	}
 
+	// Import prepares over MCP, commits through the CLI HTTP client and is read
+	// through the API. No transport can inject publication or source authority.
+	snapshot := `{"import":{"connector":"fixture-parity","checkpoint":"snapshot-1","expected_checkpoint":"","entries":[{"source_key":"fixture-project","source_revision":"revision-1","record":{"schema":"project/1","key":"fixture-project","payload":{"schema":"project/1","id":"fixture-project","name":"Fixture","class":2,"lifecycle":"active","visibility":"public","owner":"user:test","interfaces":[{"type":"cli","auth":"none"}]}}}]}}`
+	result, err = cs.CallTool(ctx, &mcpsdk.CallToolParams{Name: "registry_import_prepare", Arguments: json.RawMessage(snapshot)})
+	if err != nil || result.IsError {
+		t.Fatalf("MCP import prepare: %v %v", result, err)
+	}
+	planRaw, _ := json.Marshal(result.StructuredContent)
+	var plan catalog.ImportPlan
+	if err = json.Unmarshal(planRaw, &plan); err != nil || plan.Counts.Created != 1 {
+		t.Fatalf("bad import plan: %s %v", planRaw, err)
+	}
+	commitRaw, _ := json.Marshal(catalog.Args{PlanID: plan.ID, Hash: plan.Digest, SourceDigest: plan.SourceDigest, IdempotencyKey: "parity-import"})
+	importRoot := &cobra.Command{Use: "registry"}
+	addClientCommands(importRoot)
+	var importOutput bytes.Buffer
+	importRoot.SetIn(bytes.NewReader(commitRaw))
+	importRoot.SetOut(&importOutput)
+	importRoot.SetArgs([]string{"import-commit", "--file", "-", "--url", endpoint, "--token-file", file, "--json"})
+	if err = importRoot.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var imported catalog.ImportResult
+	if err = json.Unmarshal(importOutput.Bytes(), &imported); err != nil || imported.Counts.Created != 1 {
+		t.Fatal(importOutput.String(), err)
+	}
+	out, err = client.Call(ctx, "record_get", catalog.Args{ID: "project:fixture-project", Publication: "draft"})
+	if err != nil || responseRecord(t, out).Publication != "draft" {
+		t.Fatal("import not visible as draft", out, err)
+	}
+	result, err = cs.CallTool(ctx, &mcpsdk.CallToolParams{Name: "registry_changes_list", Arguments: map[string]any{}})
+	if err != nil || result.IsError {
+		t.Fatal("MCP publication feed", result, err)
+	}
+	changesRaw, _ := json.Marshal(result.StructuredContent)
+	var changes catalog.Changes
+	if err = json.Unmarshal(changesRaw, &changes); err != nil || len(changes.Changes) != 0 || changes.Cursor == "" {
+		t.Fatal("draft import leaked", string(changesRaw), err)
+	}
+
 }
 func TestHTTPMCPWriteScopesAndExactIdentity(t *testing.T) {
 	endpoint := testService(t)
