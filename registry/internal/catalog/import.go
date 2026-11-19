@@ -304,7 +304,7 @@ func (s *Service) prepareImport(ctx context.Context, caller, authority string, a
 				switch {
 				case tracked && (old.ID != candidate.ID || old.SourceAuthority != request.SourceAuthority):
 					item.Reason = "source_identity_changed"
-				case tracked && old.SourceRevision == entry.SourceRevision && old.SourceDigest != item.SourceDigest:
+				case tracked && old.MappingVersion == request.MappingVersion && old.SourceRevision == entry.SourceRevision && old.SourceDigest != item.SourceDigest:
 					item.Reason = "source_revision_reused"
 				case tracked && (current.RevisionID != old.RegistryRevision || current.RevisionID != old.EdgeSetRevision):
 					if old.SourceDigest != item.SourceDigest || old.MappingVersion != request.MappingVersion {
@@ -676,7 +676,28 @@ func validateImportGraph(ctx context.Context, q store.Querier, records []Record)
 		return e
 	}
 
+	// Include the reachable existing graph in cycle admission, rather than only
+	// checking the relation types on imported records. The staged overlay wins
+	// for every identity, including existing unresolved edges into the batch.
+	reachable := append([]Record(nil), records...)
+	seenRecords := map[string]bool{}
 	for _, r := range records {
+		seenRecords[r.ID] = true
+	}
+	for i := 0; i < len(reachable); i++ {
+		for _, edge := range reachable[i].Edges {
+			if edge.Relation.To.Authority != "registry" || seenRecords[edge.Relation.To.ID] {
+				continue
+			}
+			target, err := load(edge.Relation.To.ID)
+			if err != nil {
+				continue
+			} // The validation below reports unresolved targets.
+			seenRecords[target.ID] = true
+			reachable = append(reachable, target)
+		}
+	}
+	for _, r := range reachable {
 		for _, edge := range r.Edges {
 			if err := edge.Relation.Validate(); err != nil {
 				return invalid("edges", err)
