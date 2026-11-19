@@ -171,6 +171,9 @@ func Decode(data []byte, out any) error {
 		return invalid("request", checkErr)
 	}
 	if _, ok := out.(*Args); ok {
+		if err := validateAuxiliarySecrets(data); err != nil {
+			return failure("validation_error", "arguments", "secret-like value refused")
+		}
 		var original struct {
 			Record         json.RawMessage `json:"record"`
 			Relation       json.RawMessage `json:"relation"`

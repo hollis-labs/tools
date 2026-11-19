@@ -69,7 +69,7 @@ func Handler(call CallFunc) http.Handler {
 			}
 			if v := r.Header.Get("If-Match"); v != "" {
 				v = strings.Trim(v, "\"")
-				if a.Version != "" && a.Version != v {
+				if a.Version != "" && a.Version != v && a.Version != etagRevision(v) {
 					err = failure("validation_error", "version", "If-Match disagrees with version")
 				}
 				a.Version = v
@@ -96,7 +96,7 @@ func Handler(call CallFunc) http.Handler {
 				// Resolution can change when a target changes without a source revision.
 				// Conditional reads of a representation with edges must be revalidated.
 				if len(record.Edges) == 0 {
-					w.Header().Set("ETag", `"`+digest(record)+`"`)
+					w.Header().Set("ETag", `"`+recordETag(record)+`"`)
 				}
 			}
 			if page, ok := result.(Page); ok {

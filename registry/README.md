@@ -144,7 +144,10 @@ No shell interpolation is needed for authored bodies.
 
 Mutations require the current `version` token; HTTP also accepts `If-Match`.
 Responses contain immutable `revision_id`, `version_token` and timestamps.
-Records without edges also carry an ETag. Live records with resolved edges omit
+Records without edges also carry a strong representation ETag, accepted in
+`If-Match` while its authored revision and observation state remain current.
+Verification changes that ETag without changing `version_token`; clients using
+the token directly condition only authored content. Live records with resolved edges omit
 it because target state can change independently of the source version; their
 `version_token` still controls writes. Fixed-boundary snapshots retain ETags.
 Stale writes/reviews return `version_conflict` (409). Creation receipts

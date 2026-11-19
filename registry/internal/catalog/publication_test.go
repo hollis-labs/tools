@@ -760,3 +760,40 @@ func TestPublicationRejectsArchivedTransitiveDependency(t *testing.T) {
 	_, err = s.Call(writer, "record_get", Args{ID: a.ID})
 	code(t, err, "not_found")
 }
+
+func TestPublicationReceiptKeysCannotStoreCredentials(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	r := create(t, s, input("a"))
+	ap := approvePublication(t, s, preparePublication(t, s, Candidate{ID: r.ID, Revision: r.RevisionID}))
+	// Construct a synthetic detector fixture, never a real credential.
+	key := strings.Join([]string{"Bearer", strings.Repeat("a", 40)}, " ")
+	_, err := s.Call(writer, "publication_publish", publicationArgs(ap, key))
+	code(t, err, "validation_error")
+	if strings.Contains(err.Error(), key) {
+		t.Fatal("credential-like key echoed")
+	}
+	var count int
+	if err = s.DB.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM publication_receipts`).Scan(&count); err != nil || count != 0 {
+		t.Fatal("credential-like receipt key persisted")
+	}
+}
+
+func TestReviewApprovalReferenceCannotPersistCredentials(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	r := create(t, s, toolInput("unsafe", "Definition", ""))
+	synthetic := strings.Join([]string{"Bearer", strings.Repeat("b", 40)}, " ")
+	args := Args{ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Classification: &kinds.Classification{SideEffect: []string{"read"}}, Decision: "reviewed", Reason: "Inspection", Approval: &kinds.Reference{Authority: "issuer", Kind: "approval", ID: "decision", URI: synthetic}}
+	_, err := s.Call(reviewer, "review_decide", args)
+	code(t, err, "validation_error")
+	if strings.Contains(err.Error(), synthetic) {
+		t.Fatal("approval error leaked value")
+	}
+	raw, _ := json.Marshal(args)
+	var decoded Args
+	err = Decode(raw, &decoded)
+	code(t, err, "validation_error")
+	got := callRecord(t, s, writer, "record_get", Args{ID: r.ID, Publication: "draft"})
+	if got.RevisionID != r.RevisionID || got.Review.Approval != nil {
+		t.Fatal("rejected approval changed record")
+	}
+}

@@ -46,16 +46,10 @@ func (s *Service) Call(ctx context.Context, op string, a Args) (any, error) {
 	if err = kinds.ValidateJSONValue(raw); err != nil {
 		return nil, invalid("arguments", err)
 	}
-	// Validate authored auxiliary fields before any schema error can echo them.
-	aux, err := json.Marshal(struct {
-		Relation       *kinds.Relation       `json:"relation,omitempty"`
-		Classification *kinds.Classification `json:"classification,omitempty"`
-		Reason         string                `json:"reason,omitempty"`
-	}{a.Relation, a.Classification, a.Reason})
-	if err != nil {
-		return nil, invalid("arguments", err)
-	}
-	if err = validateAuxiliarySecrets(aux); err != nil {
+	// Scan all string values, including receipt keys and policy principal IDs,
+	// before any error can echo them. Typed record admission additionally checks
+	// sensitive setting names using the shared schema-aware validator.
+	if err = validateAuxiliarySecrets(raw); err != nil {
 		return nil, failure("validation_error", "arguments", "secret-like value refused")
 	}
 	known := false
@@ -310,8 +304,12 @@ func (s *Service) mutate(ctx context.Context, p libauth.Principal, op string, a 
 			if r.Lifecycle == "deleted" {
 				return failure("deleted", "id", "tombstone cannot be changed")
 			}
-			if a.Version == "" || a.Version != r.VersionToken {
-				return failure("version_conflict", "version", "current version token required")
+			matches, err := matchesRecordVersion(ctx, tx, r, a.Version)
+			if err != nil {
+				return err
+			}
+			if !matches {
+				return failure("version_conflict", "version", "current version token or representation ETag required")
 			}
 			if op != "review_decide" && r.Authority != authority {
 				return failure("forbidden", "authority", "caller does not own this record")
@@ -883,4 +881,39 @@ func validateAuxiliarySecrets(raw []byte) error {
 		return err
 	}
 	return kinds.ValidateNoSecretsJSON(b)
+}
+
+// A strong representation ETag is also a supported write precondition. Check it
+// under the mutation transaction, including observation changes, while retaining
+// the authored version_token contract for clients that intentionally ignore them.
+func recordETag(r Record) string { return "record:" + r.RevisionID + ":" + digest(r) }
+func etagRevision(value string) string {
+	parts := strings.Split(value, ":")
+	if len(parts) == 3 && parts[0] == "record" {
+		return parts[1]
+	}
+	return value
+}
+func matchesRecordVersion(ctx context.Context, q store.Querier, r Record, value string) (bool, error) {
+	if value == "" {
+		return false, nil
+	}
+	if value == r.VersionToken {
+		return true, nil
+	}
+	if len(r.Edges) > 0 || etagRevision(value) != r.RevisionID {
+		return false, nil
+	}
+	if value == recordETag(r) {
+		return true, nil
+	}
+	published, err := readPublished(ctx, q, r.ID, -1)
+	var ce *Error
+	if errors.As(err, &ce) && ce.Code == "not_found" {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return published.RevisionID == r.RevisionID && value == recordETag(published), nil
 }
