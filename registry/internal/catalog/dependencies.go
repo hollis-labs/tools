@@ -92,11 +92,15 @@ func checkPublicationCycles(ctx context.Context, q store.Querier, records []Reco
 		if r, ok := loaded[n]; ok {
 			return r, nil
 		}
+		current, err := readPublished(ctx, q, n.id, -1)
+		if err != nil || current.Lifecycle == "archived" || current.Lifecycle == "deleted" {
+			return Record{}, failure("reference_unavailable", "edges", "transitive pinned dependency unavailable")
+		}
 		if len(loaded) >= limit {
 			return Record{}, failure("validation_error", "edges", "publication graph exceeds validation bound")
 		}
 		var raw []byte
-		err := q.QueryRowContext(ctx, `SELECT body FROM publication_events WHERE id=? AND revision=? ORDER BY seq DESC LIMIT 1`, n.id, n.revision).Scan(&raw)
+		err = q.QueryRowContext(ctx, `SELECT body FROM publication_events WHERE id=? AND revision=? ORDER BY seq DESC LIMIT 1`, n.id, n.revision).Scan(&raw)
 		if err != nil {
 			return Record{}, failure("reference_unavailable", "edges", "pinned revision unavailable")
 		}

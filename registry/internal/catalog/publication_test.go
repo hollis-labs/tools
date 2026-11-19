@@ -740,3 +740,23 @@ func TestPublicationSubjectEdgeOrderAndTargetPins(t *testing.T) {
 		t.Fatal("authored attributes omitted")
 	}
 }
+
+func TestPublicationRejectsArchivedTransitiveDependency(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	a := create(t, s, input("a"))
+	b := create(t, s, input("b"))
+	c := create(t, s, input("c"))
+	publish(t, s, approvePublication(t, s, preparePublication(t, s, Candidate{ID: c.ID, Revision: c.RevisionID})), "c")
+	link := func(source, target Record) Record {
+		return callRecord(t, s, writer, "relation_create", Args{ID: source.ID, Version: source.VersionToken, Relation: &kinds.Relation{Schema: kinds.RelationSchema, Type: kinds.Consumes, From: kinds.Reference{Authority: "registry", Kind: "project", ID: source.ID}, To: kinds.Reference{Authority: "registry", Kind: "project", ID: target.ID}, Source: "authored", Status: "proposed"}})
+	}
+	b = link(b, c)
+	publish(t, s, approvePublication(t, s, preparePublication(t, s, Candidate{ID: b.ID, Revision: b.RevisionID})), "b")
+	a = link(a, b)
+	ap := approvePublication(t, s, preparePublication(t, s, Candidate{ID: a.ID, Revision: a.RevisionID}))
+	callRecord(t, s, writer, "record_archive", Args{ID: c.ID, Version: c.VersionToken})
+	_, err := s.Call(writer, "publication_publish", publicationArgs(ap, "a"))
+	code(t, err, "reference_unavailable")
+	_, err = s.Call(writer, "record_get", Args{ID: a.ID})
+	code(t, err, "not_found")
+}
