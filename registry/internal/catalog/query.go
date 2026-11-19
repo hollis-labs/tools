@@ -14,6 +14,13 @@ import (
 
 func (s *Service) list(ctx context.Context, caller string, query Query) (Page, error) {
 	out := Page{Records: []Record{}, Schemas: kinds.Schemas()}
+	if query.Publication != "" && query.Publication != "published" && query.Publication != "draft" {
+		return out, failure("validation_error", "query.publication", "published or draft required")
+	}
+	table := "publication_events"
+	if query.Publication == "draft" {
+		table = "revisions"
+	}
 	if query.Limit == 0 {
 		query.Limit = 50
 	}
@@ -38,17 +45,17 @@ func (s *Service) list(ctx context.Context, caller string, query Query) (Page, e
 				return failure("validation_error", "query.cursor", "cursor belongs to another caller or query")
 			}
 		} else {
-			if checkErr := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM revisions`).Scan(&out.Boundary); checkErr != nil {
+			if checkErr := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM `+table).Scan(&out.Boundary); checkErr != nil {
 				return checkErr
 			}
 			out.AsOf = time.Unix(0, 0).UTC().Format(time.RFC3339Nano)
 			if out.Boundary > 0 {
-				if checkErr := q.QueryRowContext(ctx, `SELECT json_extract(body,'$.updated_at') FROM revisions WHERE seq=?`, out.Boundary).Scan(&out.AsOf); checkErr != nil {
+				if checkErr := q.QueryRowContext(ctx, `SELECT json_extract(body,'$.updated_at') FROM `+table+` WHERE seq=?`, out.Boundary).Scan(&out.AsOf); checkErr != nil {
 					return checkErr
 				}
 			}
 		}
-		rows, err := q.QueryContext(ctx, `SELECT body FROM revisions WHERE seq IN (SELECT MAX(seq) FROM revisions WHERE seq<=? GROUP BY id) AND id>? ORDER BY id`, out.Boundary, after)
+		rows, err := q.QueryContext(ctx, `SELECT body FROM `+table+` WHERE seq IN (SELECT MAX(seq) FROM `+table+` WHERE seq<=? GROUP BY id) AND id>? ORDER BY id`, out.Boundary, after)
 		if err != nil {
 			return err
 		}
@@ -61,6 +68,9 @@ func (s *Service) list(ctx context.Context, caller string, query Query) (Page, e
 			}
 			if checkErr := json.Unmarshal(raw, &r); checkErr != nil {
 				return checkErr
+			}
+			if r.Publication == "" {
+				r.Publication = "draft"
 			}
 			if !matches(r, query) {
 				continue

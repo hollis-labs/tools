@@ -20,6 +20,7 @@ func (e *Error) ToolErrorContent() any { return e }
 type Route struct{ Operation, Method, Path string }
 
 var Routes = []Route{
+	{"publication_approval_prepare", "POST", "/v1/publication/prepare"}, {"publication_approval_get", "GET", "/v1/publication/approval"}, {"publication_approval_decide", "POST", "/v1/publication/decide"}, {"publication_publish", "POST", "/v1/publication/publish"}, {"publication_policy_get", "GET", "/v1/publication/policy"}, {"publication_policy_set", "PUT", "/v1/publication/policy"},
 	{"kinds_list", "GET", "/v1/kinds"}, {"schema_get", "GET", "/v1/schema"},
 	{"record_create", "POST", "/v1/records"}, {"record_get", "GET", "/v1/record"},
 	{"record_list", "GET", "/v1/records"}, {"record_search", "GET", "/v1/search"},
@@ -68,7 +69,7 @@ func Handler(call CallFunc) http.Handler {
 			}
 			if v := r.Header.Get("If-Match"); v != "" {
 				v = strings.Trim(v, "\"")
-				if a.Version != "" && a.Version != v {
+				if a.Version != "" && a.Version != v && a.Version != etagRevision(v) {
 					err = failure("validation_error", "version", "If-Match disagrees with version")
 				}
 				a.Version = v
@@ -95,7 +96,7 @@ func Handler(call CallFunc) http.Handler {
 				// Resolution can change when a target changes without a source revision.
 				// Conditional reads of a representation with edges must be revalidated.
 				if len(record.Edges) == 0 {
-					w.Header().Set("ETag", `"`+record.VersionToken+`"`)
+					w.Header().Set("ETag", `"`+recordETag(record)+`"`)
 				}
 			}
 			if page, ok := result.(Page); ok {
@@ -265,6 +266,25 @@ func argumentSchema(op string) any {
 		}
 	}
 	switch op {
+	case "publication_policy_get":
+	case "publication_policy_set":
+		add("version", "string", "Current policy revision", true)
+		add("roles", "object", "Principal to publication role map", true)
+	case "publication_approval_prepare":
+		add("candidates", "array", "Exact candidate id/revision/expected_published_revision set", true)
+		add("expires_at", "string", "Optional RFC3339 approval expiry", false)
+	case "publication_approval_get":
+		add("approval_id", "string", "Approval identity", true)
+	case "publication_approval_decide", "publication_publish":
+		add("approval_id", "string", "Approval identity", true)
+		add("approval_revision", "string", "Exact approval receipt revision", true)
+		add("hash", "string", "Exact batch_manifest_digest reviewed", true)
+		if op == "publication_approval_decide" {
+			add("decision", "string", "approved, denied or withdrawn", true)
+		} else {
+			add("candidates", "array", "Exact approved candidate and expected pointer set", true)
+			add("idempotency_key", "string", "Caller-scoped committed replay key", true)
+		}
 	case "schema_get":
 		add("schema", "string", "Versioned schema, such as project/1", true)
 	case "record_create":
@@ -275,10 +295,12 @@ func argumentSchema(op string) any {
 		add("query", "object", "Filters kind/subtype/lifecycle/authority/owner/key/review_state/relation/search; full, limit 1..200, cursor", false)
 	case "record_get", "tool_classify", "relation_list":
 		add("id", "string", "Exact canonical record ID", true)
+		add("publication", "string", "published (default) or draft", false)
 		if op == "relation_list" {
 			add("direction", "string", "outgoing (default), incoming or both; inverses preserve the stored direction", false)
 		}
 	case "tool_resolve":
+		add("publication", "string", "published (default) or draft", false)
 		add("id", "string", "Exact tool ID, or use alias selectors", false)
 		add("alias_system", "string", "Alias system", false)
 		add("alias", "string", "Alias within system", false)

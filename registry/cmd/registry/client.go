@@ -40,13 +40,13 @@ func addClientCommands(root *cobra.Command) {
 	root.SilenceErrors = true
 	root.SilenceUsage = true
 	// Human commands and the discoverable exact operation names share one path.
-	names := map[string]string{"kinds_list": "kinds", "schema_get": "schema", "record_create": "create", "record_get": "get", "record_list": "list", "record_search": "search", "record_update": "update", "record_archive": "archive", "record_delete": "delete", "record_verify": "verify", "revision_list": "history", "revision_get": "revision", "snapshot_get": "snapshot", "diagnostics": "doctor"}
+	names := map[string]string{"kinds_list": "kinds", "schema_get": "schema", "record_create": "create", "record_get": "get", "publication_publish": "publish", "record_list": "list", "record_search": "search", "record_update": "update", "record_archive": "archive", "record_delete": "delete", "record_verify": "verify", "revision_list": "history", "revision_get": "revision", "snapshot_get": "snapshot", "diagnostics": "doctor"}
 	for _, op := range catalog.Operations {
 		name := names[op]
 		if name == "" {
 			name = strings.ReplaceAll(op, "_", "-")
 		}
-		var endpoint, tokenFile, file, id, version, key, schema, cursor, kind, search string
+		var endpoint, tokenFile, file, id, version, key, schema, cursor, kind, search, publication string
 		var full, jsonOutput, allow bool
 		var limit int
 		cmd := &cobra.Command{Use: name + " [id]", Short: "Registry " + strings.ReplaceAll(op, "_", " "), Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, pos []string) (runErr error) {
@@ -80,6 +80,10 @@ func addClientCommands(root *cobra.Command) {
 			}
 			if id != "" {
 				a.ID = id
+			}
+			if publication != "" {
+				a.Publication = publication
+				a.Query.Publication = publication
 			}
 			if version != "" {
 				a.Version = version
@@ -124,6 +128,7 @@ func addClientCommands(root *cobra.Command) {
 		cmd.Flags().StringVar(&key, "idempotency-key", "", "Creation retry key")
 		cmd.Flags().StringVar(&schema, "schema", "", "Versioned schema for discovery")
 		cmd.Flags().StringVar(&cursor, "cursor", "", "Continuation cursor")
+		cmd.Flags().StringVar(&publication, "publication", "", "Read published (default) or draft revisions")
 		cmd.Flags().StringVar(&kind, "kind", "", "Filter kind")
 		cmd.Flags().StringVar(&search, "query", "", "Search text")
 		cmd.Flags().IntVar(&limit, "limit", 50, "Page limit 1..200")

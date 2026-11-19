@@ -77,7 +77,7 @@ func TestAPIClientCLIMCPShareDataAndErrors(t *testing.T) {
 	addClientCommands(root)
 	var stdout bytes.Buffer
 	root.SetOut(&stdout)
-	root.SetArgs([]string{"get", r.ID, "--url", endpoint, "--token-file", file, "--json"})
+	root.SetArgs([]string{"get", r.ID, "--publication", "draft", "--url", endpoint, "--token-file", file, "--json"})
 	if checkErr := root.Execute(); checkErr != nil {
 		t.Fatal(checkErr)
 	}
@@ -108,7 +108,7 @@ func TestAPIClientCLIMCPShareDataAndErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer cs.Close()
-	result, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{Name: "registry_record_get", Arguments: map[string]any{"id": r.ID}})
+	result, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{Name: "registry_record_get", Arguments: map[string]any{"id": r.ID, "publication": "draft"}})
 	if err != nil || result.IsError {
 		t.Fatalf("MCP read: %v %v", result, err)
 	}
@@ -123,7 +123,7 @@ func TestAPIClientCLIMCPShareDataAndErrors(t *testing.T) {
 		t.Fatalf("MCP create: %v %v", result, err)
 	}
 	document := responseRecord(t, result.StructuredContent)
-	out, err = client.Call(ctx, "record_get", catalog.Args{ID: document.ID})
+	out, err = client.Call(ctx, "record_get", catalog.Args{Publication: "draft", ID: document.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,5 +206,93 @@ func TestHTTPMCPWriteScopesAndExactIdentity(t *testing.T) {
 		} else if !bytes.Contains(b, []byte(`"isError":true`)) && resp.StatusCode != 403 {
 			t.Fatalf("read credential wrote: %d %s", resp.StatusCode, b)
 		}
+	}
+}
+
+func TestPublicationHTTPCLIAndMCPParity(t *testing.T) {
+	endpoint := testService(t)
+	client := registryClient(endpoint, "")
+	client.Token = func() (string, error) { return "test-write-credential", nil }
+	ctx := context.Background()
+	v, err := client.Call(ctx, "record_create", catalog.Args{Record: &catalog.Input{Schema: "document/1", Key: "published-guide", Payload: json.RawMessage(`{"schema":"document/1","id":"publish/../guide","name":"Guide","subtype":"sop","format":"markdown","body":"Reviewed body"}`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := responseRecord(t, v)
+	if _, err = client.Call(ctx, "record_get", catalog.Args{ID: r.ID}); err == nil {
+		t.Fatal("HTTP default exposed draft")
+	}
+	v, err = client.Call(ctx, "publication_approval_prepare", catalog.Args{Candidates: []catalog.Candidate{{ID: r.ID, Revision: r.RevisionID}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ap catalog.Approval
+	if err = json.Unmarshal(v.(json.RawMessage), &ap); err != nil {
+		t.Fatal(err)
+	}
+	reviewClient := registryClient(endpoint, "")
+	reviewClient.Token = func() (string, error) { return "test-review-credential", nil }
+	v, err = reviewClient.Call(ctx, "publication_approval_decide", catalog.Args{ApprovalID: ap.ID, ApprovalRevision: ap.Revision, Hash: ap.ManifestDigest, Decision: "approved"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(v.(json.RawMessage), &ap); err != nil {
+		t.Fatal(err)
+	}
+	args := catalog.Args{ApprovalID: ap.ID, ApprovalRevision: ap.Revision, Hash: ap.ManifestDigest, Candidates: ap.Candidates, IdempotencyKey: "cli-publish"}
+	body, _ := json.Marshal(args)
+	t.Setenv("REGISTRY_TOKEN", "test-write-credential")
+	root := &cobra.Command{Use: "registry"}
+	addClientCommands(root)
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetIn(bytes.NewReader(body))
+	root.SetArgs([]string{"publish", "--file", "-", "--url", endpoint, "--json"})
+	if err = root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var receipt catalog.PublicationResult
+	if err = json.Unmarshal(output.Bytes(), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if len(receipt.Records) != 1 || receipt.Records[0].Publication != "published" {
+		t.Fatal("CLI publication failed")
+	}
+	adapter := gmcp.NewServer("publication-test", "test")
+	catalog.RegisterMCP(adapter, client.Call)
+	srvIn, cliOut := io.Pipe()
+	cliIn, srvOut := io.Pipe()
+	defer srvIn.Close()
+	defer cliOut.Close()
+	defer cliIn.Close()
+	defer srvOut.Close()
+	ss, err := adapter.SDKServer().Connect(ctx, &mcpsdk.IOTransport{Reader: srvIn, Writer: srvOut}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ss.Close()
+	cs, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, &mcpsdk.IOTransport{Reader: cliIn, Writer: cliOut}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	result, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{Name: "registry_publication_publish", Arguments: json.RawMessage(body)})
+	if err != nil || result.IsError {
+		t.Fatalf("MCP replay: %v %v", result, err)
+	}
+	b, _ := json.Marshal(result.StructuredContent)
+	var replay catalog.PublicationResult
+	if err = json.Unmarshal(b, &replay); err != nil {
+		t.Fatal(err)
+	}
+	if !replay.Replayed || replay.ID != receipt.ID {
+		t.Fatal("transport changed replay")
+	}
+	result, err = cs.CallTool(ctx, &mcpsdk.CallToolParams{Name: "registry_record_get", Arguments: map[string]any{"id": r.ID}})
+	if err != nil || result.IsError {
+		t.Fatalf("MCP published read: %v %v", result, err)
+	}
+	if responseRecord(t, result.StructuredContent).RevisionID != r.RevisionID {
+		t.Fatal("MCP read wrong revision")
 	}
 }
