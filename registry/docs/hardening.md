@@ -7,7 +7,7 @@ against its supported Cerberus schedule contract before activation.
 
 ## Search and reference reports
 
-Migration 003 adds two SQLite FTS5 indexes, one for immutable draft revisions and
+Migration 004 adds two SQLite FTS5 indexes, one for immutable draft revisions and
 one for immutable publication events. Names, summaries and complete authored
 payload string values (including decoded multiline bodies) are indexed. Triggers populate new rows and backfill
 existing data. Search selects the latest revision per ID at the cursor boundary,
@@ -52,7 +52,7 @@ select a filesystem path or confer a role. No new credential is created here.
 | `registry backup --json` | Consistent online SQLite copy, integrity check, SHA-256 manifest |
 
 Retention first expires cursors and both creation/publication replay receipts.
-Existing rows get a fresh clock when migration 003 is installed; expiry never
+Existing rows get a fresh clock when migration 004 is installed; expiry never
 uses the snapshot's `as_of` content timestamp. Expired cursors return a validation
 error and require a fresh query. Expired replay keys no longer guarantee replay;
 retain the receipt horizon longer than the longest client retry window.
@@ -134,12 +134,15 @@ or remove its sidecars while a process is using it.
 
 ## Explicit schema evolution
 
-SQLite schema changes are numbered embedded goose migrations. Files 001 and 002
-are unchanged; 003 is additive, backfills search and operational clocks, and
+SQLite schema changes are numbered embedded goose migrations. Version 003 is
+reserved for the independently developed sync/import migration. Files 001 and 002
+are unchanged; 004 is additive, backfills search and operational clocks, and
 creates kind-migration/maintenance logs. It never rewrites authored payloads or
 publishes retained drafts. Apply only through the normal service migration path,
 with a verified backup and the deployment owner's activation process. No
-automatic down/destructive migration is supplied.
+automatic down/destructive migration is supplied. Before activation, validate the
+combined 003 sync/import and 004 hardening sequence against fresh main. Do not
+apply isolated 004 to a live database and then introduce the reserved 003 later.
 
 Kind schemas come exclusively from the pinned shared Substrate kinds package.
 `registry kinds` lists exact supported versions; `registry schema --schema KIND/N`
