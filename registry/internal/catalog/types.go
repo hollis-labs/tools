@@ -236,7 +236,7 @@ func digest(v any) string {
 }
 func scope(op string) string {
 	switch op {
-	case "export_authorize", "export_apply", "import_prepare", "import_commit", "publication_approval_prepare", "publication_publish", "record_create", "record_update", "record_archive", "record_delete", "record_verify", "relation_create", "relation_remove", "tool_propose":
+	case "import_preparation_get", "export_authorize", "export_apply", "import_prepare", "import_commit", "publication_approval_prepare", "publication_publish", "record_create", "record_update", "record_archive", "record_delete", "record_verify", "relation_create", "relation_remove", "tool_propose":
 		return "registry.write"
 	case "review_decide", "publication_approval_decide", "publication_policy_set":
 		return "registry.review"

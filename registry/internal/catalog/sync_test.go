@@ -169,16 +169,16 @@ func (c *fixtureConnector) Snapshot(_ context.Context, _ string) (ImportRequest,
 func TestTemporaryConnectorRerunAndSourceConflict(t *testing.T) {
 	s := openTest(t, filepath.Join(t.TempDir(), "db"))
 	c := &fixtureConnector{request: batch("one", "", "a")}
-	r, e := RunConnector(writer, s.Call, c)
+	r, e := RunConnector(writer, s.Call, c, newID())
 	if e != nil || r.Counts.Created != 1 {
 		t.Fatal(r, e)
 	}
-	r, e = RunConnector(writer, s.Call, c)
+	r, e = RunConnector(writer, s.Call, c, newID())
 	if e != nil || r.Counts.Unchanged != 1 {
 		t.Fatal(r, e)
 	}
 	c = &fixtureConnector{request: batch("two", "one", "b"), mutate: true}
-	_, e = RunConnector(writer, s.Call, c)
+	_, e = RunConnector(writer, s.Call, c, newID())
 	code(t, e, "version_conflict")
 	_, e = s.Call(writer, "record_get", Args{ID: "project:b", Publication: "draft"})
 	code(t, e, "not_found")
