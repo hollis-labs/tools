@@ -7,7 +7,7 @@ require (
 	github.com/hollis-labs/libs/core/store v0.1.0
 	github.com/hollis-labs/libs/mcp/plugin-mcp v0.6.0
 	github.com/hollis-labs/libs/security/auth v0.3.1
-	github.com/hollis-labs/substrate v0.1.1-0.20261119200137-b83d561a0601
+	github.com/hollis-labs/substrate v0.1.1-0.20261119200612-112799f6da86
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/spf13/cobra v1.10.2
 	gopkg.in/yaml.v3 v3.0.1
