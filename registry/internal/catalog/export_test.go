@@ -369,3 +369,35 @@ func TestExportRefusesControlSymlinkAndMissingNativeBundle(t *testing.T) {
 	_, err = renderExportFiles(r)
 	code(t, err, "non_materializable")
 }
+
+func TestExportRemovesOnlyUndriftedOwnedFiles(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	root := filepath.Join(t.TempDir(), "out")
+	if err := s.ConfigureExportTargets(map[string]string{"fixture": root}); err != nil {
+		t.Fatal(err)
+	}
+	r := create(t, s, input("removed"))
+	publish(t, s, approvePublication(t, s, preparePublication(t, s, Candidate{ID: r.ID, Revision: r.RevisionID})), "published")
+	first := exportPlan(t, s, ExportRequest{Target: "fixture"})
+	v, err := s.Call(writer, "export_apply", exportArgs(first))
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned := filepath.Join(root, first.Bundle.Sources[0].Path)
+	unowned := filepath.Join(root, "operator.txt")
+	if err = os.WriteFile(unowned, []byte("operator"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	callRecord(t, s, writer, "record_archive", Args{ID: r.ID, Version: r.VersionToken})
+	next := exportPlan(t, s, ExportRequest{Target: "fixture", ExpectedGeneration: v.(materialize.Handle).Manifest.Generation})
+	if _, err = s.Call(writer, "export_apply", exportArgs(next)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(owned); !os.IsNotExist(err) {
+		t.Fatal("withdrawn output retained", err)
+	}
+	raw, err := os.ReadFile(unowned)
+	if err != nil || string(raw) != "operator" {
+		t.Fatal("unowned output changed", err)
+	}
+}

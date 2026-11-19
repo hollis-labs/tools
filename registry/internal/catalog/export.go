@@ -204,6 +204,7 @@ func renderExportFiles(r Record) ([]renderedExportFile, error) {
 		return nil, failure("validation_error", "metadata."+field, "at most 200 source files allowed")
 	}
 	seen := map[string]bool{strings.ToLower(reserved): true}
+	nativeAgent, nativeHost := false, false
 	prefix := strings.TrimSuffix(path, reserved)
 	for _, file := range attachments {
 		if err = artifact.ValidateRelPath(file.Path); err != nil {
@@ -218,10 +219,14 @@ func renderExportFiles(r Record) ([]renderedExportFile, error) {
 			if _, err := agentdef.Parse([]byte(file.Content)); err != nil {
 				return nil, failure("non_materializable", "metadata.agent_files", "invalid native agent definition")
 			}
+			nativeAgent = true
+		}
+		if r.Kind == "agent" && file.Path == "host.yaml" {
+			nativeHost = true
 		}
 		files = append(files, renderedExportFile{Path: prefix + file.Path, Content: []byte(file.Content)})
 	}
-	if r.Kind == "agent" && (!seen["agent.md"] || !seen["host.yaml"]) {
+	if r.Kind == "agent" && (!nativeAgent || !nativeHost) {
 		return nil, failure("validation_error", "metadata.agent_files", "native agent bundles require agent.md and host.yaml")
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
@@ -651,12 +656,26 @@ func (s *Service) exportCall(ctx context.Context, p libauth.Principal, op string
 // observed external drift; they do not claim an OS-wide lock on external writers.
 func guardedExportApply(ctx context.Context, req materialize.Request, baseline string) (materialize.Handle, error) {
 	before := map[string]string{}
+	removals := []string{}
 	for _, e := range req.Artifacts.Entries {
 		v, err := exportLeaf(req.TargetRoot, e.Path)
 		if err != nil {
 			return materialize.Handle{}, err
 		}
 		before[e.Path] = v
+	}
+	if req.CurrentManifest != nil {
+		for _, prior := range req.CurrentManifest.Entries {
+			if _, desired := before[prior.Path]; desired || prior.Path == materialize.ManifestRelPath {
+				continue
+			}
+			v, err := exportLeaf(req.TargetRoot, prior.Path)
+			if err != nil {
+				return materialize.Handle{}, err
+			}
+			before[prior.Path] = v
+			removals = append(removals, prior.Path)
+		}
 	}
 	engine := materialize.NewEngine(materialize.EngineOptions{Now: func() time.Time { return time.Unix(0, 0).UTC() }, BeforeWrite: func(_ string, e artifact.Entry) error {
 		if err := ctx.Err(); err != nil {
@@ -676,6 +695,18 @@ func guardedExportApply(ctx context.Context, req materialize.Request, baseline s
 			}
 			if v != before[e.Path] {
 				return materialize.ErrConflict
+			}
+		} else {
+			// Cairn's removal callback has no Entry. Recheck still-present
+			// removals; earlier removals from this attempt are now absent.
+			for _, path := range removals {
+				v, err := exportLeaf(req.TargetRoot, path)
+				if err != nil {
+					return err
+				}
+				if v != "absent" && v != before[path] {
+					return materialize.ErrConflict
+				}
 			}
 		}
 		return nil
