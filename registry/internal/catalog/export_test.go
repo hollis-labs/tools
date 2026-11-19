@@ -199,3 +199,68 @@ func TestExportApplyRerunUsesSameGeneration(t *testing.T) {
 		}
 	}
 }
+
+func TestExportOutputPreflight(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "output")
+	_, before, err := exportBaseline(root)
+	if err != nil || before == "" {
+		t.Fatal(before, err)
+	}
+	path := materialize.ManifestPath(root)
+	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(path, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, first, err := exportBaseline(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(path, []byte("{}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, second, err := exportBaseline(root)
+	if err != nil || first == second {
+		t.Fatal("manifest bytes not distinguished", err)
+	}
+	if err = os.Symlink(t.TempDir(), filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err = safeExportPath(root, "link"); err == nil {
+		t.Fatal("accepted nested symlink")
+	}
+	if _, _, err = exportBaseline(filepath.Join(root, "link", "new")); err == nil {
+		t.Fatal("accepted symlink ancestor")
+	}
+}
+
+func TestExportAuthorizationPinsOutputManifest(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	root := filepath.Join(t.TempDir(), "output")
+	if err := s.ConfigureExportTargets(map[string]string{"fixture": root}); err != nil {
+		t.Fatal(err)
+	}
+	a := create(t, s, input("manifest"))
+	publish(t, s, approvePublication(t, s, preparePublication(t, s, Candidate{ID: a.ID, Revision: a.RevisionID})), "pub")
+	first := exportPlan(t, s, ExportRequest{Target: "fixture"})
+	v, err := s.Call(writer, "export_apply", exportArgs(first))
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := exportPlan(t, s, ExportRequest{Target: "fixture", ExpectedGeneration: v.(ExportOutcome).Handle.Manifest.Generation})
+	path := materialize.ManifestPath(root)
+	raw, err := os.ReadFile(path) // #nosec G304 -- isolated output fixture
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(path, append(raw, '\n'), 0600); err != nil { // #nosec G703 -- isolated output fixture
+		t.Fatal(err)
+	}
+	_, err = s.Call(writer, "export_apply", exportArgs(next))
+	code(t, err, "version_conflict")
+	v, err = s.Call(writer, "export_attempt_get", Args{ReceiptID: next.ID})
+	if err != nil || v.(ExportOutcome).State != "failed" {
+		t.Fatal(v, err)
+	}
+}

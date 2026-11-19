@@ -67,7 +67,13 @@ At the materializer boundary, Registry verifies receipt identity, bundle bytes,
 configured destination binding and deadline, then atomically records **started**
 and releases its DB transaction. Only then does it invoke the BOM-selected
 [harness/core Engine](https://github.com/hollis-labs/libs/tree/main/harness/core/workspace/materialize).
-The engine performs its own output generation/CAS and ownership/drift checks;
+Registry rejects existing symlink components and pins the output manifest bytes in
+the authorization, checking them again before invoking Apply. The engine checks
+output generation and observed ownership/drift during planning. These checks do
+not provide race-proof per-file CAS: another writer can change paths or bytes
+between inspection and mutation, including the manifest save. Use an isolated
+root with one cooperative writer. Filesystem failure can leave partial writes;
+there is no atomic filesystem rollback.
 Registry records completed/failed outcome and any partial materializer report
 against the consumed receipt. `export_attempt_get` reads that outcome. No
 Registry DB transaction is held during filesystem work.
