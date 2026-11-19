@@ -95,6 +95,16 @@ func TestRejectedPreparationNeverCommits(t *testing.T) {
 	}
 }
 
+func TestEmptyPreparationIsNotSuccessfulRejection(t *testing.T) {
+	for _, report := range []json.RawMessage{nil, json.RawMessage(`null`), json.RawMessage(`[]`), json.RawMessage(` `)} {
+		f := &fakeImporter{prepared: Preparation{Report: report}}
+		_, err := Run(context.Background(), connector, "run", snapshot(`{"items":[]}`), f)
+		if !errors.Is(err, ErrInvalid) || len(f.commits) != 0 {
+			t.Fatal("malformed rejection became a successful sync")
+		}
+	}
+}
+
 func TestInvalidAndCanceledRunHasNoSideEffects(t *testing.T) {
 	for _, raw := range []string{"", "[]", "null", `{"a":1,"a":2}`, `{"a":9007199254740993}`} {
 		f := readyImporter()

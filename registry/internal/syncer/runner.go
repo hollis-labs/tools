@@ -73,6 +73,8 @@ type Result struct {
 // when retrying an uncertain response. The key deliberately excludes the batch
 // digest: changed input under the same run ID must conflict at the server, not
 // silently allocate another preparation. Expiry requires a new explicit run ID.
+// After response loss plus upstream change, inspect the saved preparation or
+// receipt before starting another run; a new run ID is not uncertain recovery.
 // No automatic retries or writes to the source occur here.
 func Run(ctx context.Context, connector Connector, runID string, source Source, importer Importer) (Result, error) {
 	if ctx == nil || source == nil || importer == nil || !connector.Temporary || !validID(connector.ID) || !validID(connector.MappingVersion) || !validID(runID) {
@@ -107,6 +109,9 @@ func Run(ctx context.Context, connector Connector, runID string, source Source, 
 	}
 	out.Preparation = prepared
 	if !prepared.Ready {
+		if len(prepared.Report) == 0 || kinds.ValidateJSONValue(prepared.Report) != nil || strings.TrimSpace(string(prepared.Report))[0] != '{' {
+			return out, ErrInvalid
+		}
 		out.Report = prepared.Report
 		return out, nil
 	}
