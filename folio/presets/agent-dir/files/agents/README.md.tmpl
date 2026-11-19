@@ -12,7 +12,7 @@ agent from a terminal. Run-time state belongs under the app's own data directory
 
 `agents.dir: agents/` is resolved through Substrate's `agents.Resolve` after operator config merges.
 With `SUBSTRATE_CONFIG`, relative paths are beside that file; with embedded config, they are beside
-`config.yaml` in the working directory (the generated checkout's root). For an installed app, set an
+`substrate.yaml` in the working directory (the generated checkout's root). For an installed app, set an
 absolute `agents.dir` or install `agents/` beside the operator config. Paths are published as
 `agent-directory.layout`; runtime data resolves to `$XDG_STATE_HOME/{{ .inputs.repo_name }}/agents/<name>`
 (default `~/.local/state/{{ .inputs.repo_name }}/agents/<name>`). Resolution creates no directories.

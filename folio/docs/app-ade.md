@@ -83,7 +83,7 @@ presets generate neither the directory nor the config key.
 The generated app uses Substrate's `agents.Resolve` after operator config merges,
 publishing `agent-directory.layout` on the Substrate app. Relative `agents.dir`
 paths are beside `SUBSTRATE_CONFIG` when set; with embedded config, they are beside
-`config.yaml` in the working directory, so a generated checkout uses `./agents/`.
+`substrate.yaml` in the working directory, so a generated checkout uses `./agents/`.
 For an installed app, set an absolute path or install the directory beside the
 operator config. Runtime paths resolve separately under
 `$XDG_STATE_HOME/<app>/agents/<name>` (default `~/.local/state/<app>/agents/<name>`).

@@ -47,6 +47,8 @@ func TestResolveMergedConfig(t *testing.T) {
 }
 
 func TestResolveEmbeddedAndAbsolute(t *testing.T) {
+	// Resolve beside the runtime manifest, independent of the build/source directory.
+	t.Chdir(t.TempDir())
 	t.Setenv("SUBSTRATE_CONFIG", "")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	app := &module.App{Config: map[string]any{"agents": map[string]any{"dir": "agents/"}}, Values: map[string]any{}}
