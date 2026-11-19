@@ -46,7 +46,7 @@ func TestCLIWriteSearchConflictAndArchive(t *testing.T) {
 	if err == nil || !bytes.Contains(raw, []byte(`"code":"version_conflict"`)) {
 		t.Fatalf("structured CLI conflict: %s %v", raw, err)
 	}
-	raw, err = invoke("", "search", "--query", "Updated content", "--full")
+	raw, err = invoke("", "search", "--publication", "draft", "--query", "Updated content", "--full")
 	if err != nil || !bytes.Contains(raw, []byte("Updated content")) {
 		t.Fatalf("search: %s %v", raw, err)
 	}

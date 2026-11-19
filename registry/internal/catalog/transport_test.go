@@ -18,7 +18,7 @@ func TestLiveResolvedEdgesNeverReturnStaleNotModified(t *testing.T) {
 	source := callRecord(t, s, writer, "relation_create", Args{ID: a.ID, Version: a.VersionToken, Relation: rel})
 	handler := Handler(s.Call)
 	read := func(etag string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest("GET", "/v1/record?id="+url.QueryEscape(a.ID), nil).WithContext(writer)
+		req := httptest.NewRequest("GET", "/v1/record?id="+url.QueryEscape(a.ID)+"&args="+url.QueryEscape(`{"publication":"draft"}`), nil).WithContext(writer)
 		req.Header.Set("If-None-Match", etag)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)

@@ -32,7 +32,7 @@ func New(db *store.Store, authorities map[string]string, reviewers map[string]st
 	return &Service{DB: db, authorities: bindings, reviewers: roles}
 }
 
-var Operations = []string{"kinds_list", "schema_get", "record_create", "record_get", "record_list", "record_search", "record_update", "record_archive", "record_delete", "record_verify", "revision_list", "revision_get", "relation_create", "relation_list", "relation_remove", "tool_resolve", "tool_classify", "tool_propose", "review_list", "review_decide", "snapshot_get", "diagnostics"}
+var Operations = []string{"publication_approval_prepare", "publication_approval_get", "publication_approval_decide", "publication_publish", "publication_policy_get", "publication_policy_set", "kinds_list", "schema_get", "record_create", "record_get", "record_list", "record_search", "record_update", "record_archive", "record_delete", "record_verify", "revision_list", "revision_get", "relation_create", "relation_list", "relation_remove", "tool_resolve", "tool_classify", "tool_propose", "review_list", "review_decide", "snapshot_get", "diagnostics"}
 
 func (s *Service) Call(ctx context.Context, op string, a Args) (any, error) {
 	p, ok := libauth.FromContext(ctx)
@@ -46,6 +46,18 @@ func (s *Service) Call(ctx context.Context, op string, a Args) (any, error) {
 	if err = kinds.ValidateJSONValue(raw); err != nil {
 		return nil, invalid("arguments", err)
 	}
+	// Validate authored auxiliary fields before any schema error can echo them.
+	aux, err := json.Marshal(struct {
+		Relation       *kinds.Relation       `json:"relation,omitempty"`
+		Classification *kinds.Classification `json:"classification,omitempty"`
+		Reason         string                `json:"reason,omitempty"`
+	}{a.Relation, a.Classification, a.Reason})
+	if err != nil {
+		return nil, invalid("arguments", err)
+	}
+	if err = validateAuxiliarySecrets(aux); err != nil {
+		return nil, failure("validation_error", "arguments", "secret-like value refused")
+	}
 	known := false
 	for _, v := range Operations {
 		if v == op {
@@ -55,6 +67,9 @@ func (s *Service) Call(ctx context.Context, op string, a Args) (any, error) {
 	}
 	if !known {
 		return nil, failure("not_found", "operation", "unknown operation")
+	}
+	if strings.HasPrefix(op, "publication_") {
+		return s.publicationCall(ctx, p, op, a)
 	}
 	switch op {
 	case "kinds_list":
@@ -79,6 +94,7 @@ func (s *Service) Call(ctx context.Context, op string, a Args) (any, error) {
 		}
 		if op == "review_list" {
 			a.Query.Kind = "tool"
+			a.Query.Publication = "draft"
 			if a.Query.ReviewState == "" {
 				a.Query.ReviewState = "pending"
 			}
@@ -107,6 +123,12 @@ func readRecord(ctx context.Context, q store.Querier, id string, boundary int64)
 	}
 	var r Record
 	err = json.Unmarshal(raw, &r)
+	if r.Publication == "" {
+		r.Publication = "draft"
+	}
+	if err == nil && boundary < 0 {
+		err = overlayVerification(ctx, q, &r)
+	}
 	return r, err
 }
 func (s *Service) read(ctx context.Context, op string, a Args) (any, error) {
@@ -117,7 +139,11 @@ func (s *Service) read(ctx context.Context, op string, a Args) (any, error) {
 			if id != "" {
 				return failure("validation_error", "id", "choose id or alias")
 			}
-			if checkErr := q.QueryRowContext(ctx, `SELECT id FROM aliases WHERE system=? AND alias=?`, a.AliasSystem, a.Alias).Scan(&id); checkErr != nil {
+			statement := `SELECT id FROM aliases WHERE system=? AND alias=?`
+			if a.Publication != "draft" {
+				statement = `SELECT e.id FROM published p JOIN publication_events e ON e.seq=p.seq, json_each(e.body,'$.payload.aliases') a WHERE json_extract(a.value,'$.system')=? AND json_extract(a.value,'$.alias')=?`
+			}
+			if checkErr := q.QueryRowContext(ctx, statement, a.AliasSystem, a.Alias).Scan(&id); checkErr != nil {
 				if errors.Is(checkErr, sql.ErrNoRows) {
 					return failure("not_found", "alias", "alias not found")
 				}
@@ -183,6 +209,15 @@ func (s *Service) read(ctx context.Context, op string, a Args) (any, error) {
 			out = map[string]any{"revisions": rs, "has_more": more, "before_revision": next}
 			return nil
 		}
+		if a.Publication != "" && a.Publication != "published" && a.Publication != "draft" {
+			return failure("validation_error", "publication", "published or draft required")
+		}
+		if a.Publication != "draft" {
+			r, err = readPublished(ctx, q, id, -1)
+			if err != nil {
+				return err
+			}
+		}
 		if r.Lifecycle == "deleted" {
 			return failure("deleted", "id", "record is a tombstone; use history")
 		}
@@ -210,7 +245,7 @@ func (s *Service) read(ctx context.Context, op string, a Args) (any, error) {
 				edges = []Edge{}
 			}
 			if a.Direction == "incoming" || a.Direction == "both" {
-				incoming, err := incomingEdges(ctx, q, r.ID)
+				incoming, err := incomingEdges(ctx, q, r.ID, a.Publication == "draft")
 				if err != nil {
 					return err
 				}
@@ -294,7 +329,11 @@ func (s *Service) mutate(ctx context.Context, p libauth.Principal, op string, a 
 				}
 				next.CreatedAt = r.CreatedAt
 				if r.Kind != "project" {
-					next.Edges = r.Edges
+					for _, e := range r.Edges {
+						if !isPayloadEdge(e) {
+							next.Edges = append(next.Edges, e)
+						}
+					}
 				}
 				if next.Review != nil && r.Review != nil && next.Review.DefinitionHash == r.Review.DefinitionHash {
 					next.Review = r.Review
@@ -314,6 +353,9 @@ func (s *Service) mutate(ctx context.Context, p libauth.Principal, op string, a 
 			r.LastVerified = time.Now().UTC().Format(time.RFC3339Nano)
 			r.VerifiedBy = p.ID
 			r.VerificationScope = "source_attestation"
+			_, err := tx.ExecContext(ctx, `INSERT INTO source_verifications(id,revision,verified_by,verified_at) VALUES(?,?,?,?)`, r.ID, r.RevisionID, p.ID, r.LastVerified)
+			result = r
+			return err
 		case "record_archive":
 			r.Lifecycle = "archived"
 		case "record_delete":
@@ -347,6 +389,9 @@ func (s *Service) mutate(ctx context.Context, p libauth.Principal, op string, a 
 			es := []Edge{}
 			for _, e := range r.Edges {
 				if e.ID == a.EdgeID {
+					if isPayloadEdge(e) {
+						return failure("validation_error", "edge_id", "edit the typed payload to change this dependency")
+					}
 					found = true
 				} else {
 					es = append(es, e)
@@ -448,6 +493,11 @@ func (s *Service) mutate(ctx context.Context, p libauth.Principal, op string, a 
 		if checkErr := save(ctx, tx, &r); checkErr != nil {
 			return checkErr
 		}
+		if op == "record_archive" || op == "record_delete" {
+			if err := recordPublicationLifecycle(ctx, tx, r); err != nil {
+				return err
+			}
+		}
 		result = r
 		if op == "record_create" && a.IdempotencyKey != "" {
 			raw, err := json.Marshal(r)
@@ -465,6 +515,13 @@ func prepare(in *Input, authority string) (Record, error) {
 	if in == nil {
 		return Record{}, failure("validation_error", "record", "record required")
 	}
+	raw, err := json.Marshal(in)
+	if err != nil {
+		return Record{}, invalid("record", err)
+	}
+	if err = kinds.ValidateNoSecretsJSON(raw); err != nil {
+		return Record{}, failure("validation_error", "record", "secret-like or invalid value refused")
+	}
 	if strings.TrimSpace(in.Key) == "" {
 		return Record{}, failure("validation_error", "record.key", "human key required")
 	}
@@ -480,7 +537,7 @@ func prepare(in *Input, authority string) (Record, error) {
 	}
 	kind := strings.TrimSuffix(in.Schema, "/1")
 	switch kind {
-	case "project", "tool", "agent", "agency", "skill", "document", "workstream", "correlation":
+	case "project", "tool", "agent", "agency", "skill", "document", "workstream", "correlation", "service", "config", "knowledge", "mcp_server", "launch_profile":
 	default:
 		return Record{}, failure("unknown_schema", "record.schema", "not a record schema")
 	}
@@ -526,6 +583,11 @@ func prepare(in *Input, authority string) (Record, error) {
 			r.Edges = append(r.Edges, Edge{ID: "edge:" + newID(), Relation: kinds.Relation{Schema: kinds.RelationSchema, Type: e.Type, From: kinds.Reference{Authority: "registry", Kind: kind, ID: id}, To: kinds.Reference{Authority: "registry", Kind: targetKind, ID: e.To}, Source: "authored", Status: "proposed"}})
 		}
 	}
+	generated, err := payloadEdges(r)
+	if err != nil {
+		return r, err
+	}
+	r.Edges = append(r.Edges, generated...)
 	return r, nil
 }
 func save(ctx context.Context, tx store.Tx, r *Record) error {
@@ -537,6 +599,10 @@ func save(ctx context.Context, tx store.Tx, r *Record) error {
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
+	r.Publication = "draft"
+	r.PublishedBy = ""
+	r.PublishedAt = ""
+	r.TargetPins = nil
 	r.VersionToken = newID()
 	r.RevisionID = r.VersionToken
 	r.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
@@ -620,12 +686,20 @@ func checkEdges(ctx context.Context, q store.Querier, r Record, allow bool) erro
 func resolveEdges(ctx context.Context, q store.Querier, r *Record, boundary int64) error {
 	for i := range r.Edges {
 		e := &r.Edges[i]
+		if r.Publication == "published" {
+			if pin, ok := r.TargetPins[e.ID]; ok {
+				e.TargetRevision = pin
+			}
+		}
 		e.CheckedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		e.TargetState = "unchecked"
 		if e.Relation.To.Authority != "registry" {
 			continue
 		}
 		target, err := readRecord(ctx, q, e.Relation.To.ID, boundary)
+		if r.Publication == "published" {
+			target, err = readPublished(ctx, q, e.Relation.To.ID, boundary)
+		}
 		if err != nil {
 			var ce *Error
 			if errors.As(err, &ce) && ce.Code == "not_found" {
@@ -709,8 +783,12 @@ func groundReview(r Record, c *kinds.Classification) bool {
 	return true
 }
 
-func incomingEdges(ctx context.Context, q store.Querier, id string) ([]Edge, error) {
-	rows, err := q.QueryContext(ctx, `SELECT r.body FROM records c JOIN revisions r ON c.seq=r.seq WHERE r.lifecycle!='deleted'`)
+func incomingEdges(ctx context.Context, q store.Querier, id string, draft bool) ([]Edge, error) {
+	statement := `SELECT r.body FROM publication_events r JOIN published p ON p.seq=r.seq WHERE json_extract(r.body,'$.lifecycle')!='deleted'`
+	if draft {
+		statement = `SELECT r.body FROM records c JOIN revisions r ON c.seq=r.seq WHERE r.lifecycle!='deleted'`
+	}
+	rows, err := q.QueryContext(ctx, statement)
 	if err != nil {
 		return nil, err
 	}
@@ -727,6 +805,11 @@ func incomingEdges(ctx context.Context, q store.Querier, id string) ([]Edge, err
 		}
 		for _, e := range r.Edges {
 			if e.Relation.To.Authority == "registry" && e.Relation.To.ID == id {
+				if !draft {
+					if pin, ok := r.TargetPins[e.ID]; ok {
+						e.TargetRevision = pin
+					}
+				}
 				e.Inverse, _ = kinds.Inverse(e.Relation.Type)
 				edges = append(edges, e)
 			}
@@ -739,6 +822,9 @@ func incomingEdges(ctx context.Context, q store.Querier, id string) ([]Edge, err
 		return nil, checkErr
 	}
 	resolved := Record{Edges: edges}
+	if !draft {
+		resolved.Publication = "published"
+	}
 	if checkErr := resolveEdges(ctx, q, &resolved, -1); checkErr != nil {
 		return nil, checkErr
 	}
@@ -764,4 +850,37 @@ func priorRestrictsGround(ctx context.Context, q store.Querier, r Record) (bool,
 		return true, nil
 	}
 	return !groundReview(prior, prior.Review.Effective), nil
+}
+
+// Auxiliary review fields have schema-defined names such as secret_access;
+// their enum names are not credential values. Scan every string (including
+// map keys) without treating the typed field names as arbitrary settings.
+func validateAuxiliarySecrets(raw []byte) error {
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return err
+	}
+	values := []string{}
+	var walk func(any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case string:
+			values = append(values, x)
+		case []any:
+			for _, item := range x {
+				walk(item)
+			}
+		case map[string]any:
+			for k, item := range x {
+				values = append(values, k)
+				walk(item)
+			}
+		}
+	}
+	walk(v)
+	b, err := json.Marshal(values)
+	if err != nil {
+		return err
+	}
+	return kinds.ValidateNoSecretsJSON(b)
 }

@@ -26,8 +26,8 @@ github.com/hollis-labs/libs/core/panics v0.1.0 h1:mWJ9yPTRCBsLFprCNGIJrroehfh/g3
 github.com/hollis-labs/libs/core/panics v0.1.0/go.mod h1:KugNEagpx3eqC72FOyQrrTcIzGD+hJb+EXkSV6jP4jU=
 github.com/hollis-labs/libs/core/store v0.1.0 h1:kcTrDBmi7ciKaSNCkWjrE+Uff6r10ZkJWg2+ot5gpSk=
 github.com/hollis-labs/libs/core/store v0.1.0/go.mod h1:aKsmHWniP1YHsQQdK/JHmLXV2JGBu/gJy8/JRlCeMhU=
-github.com/hollis-labs/libs/core/util v0.6.0 h1:uqVSuuRtKAzwDcMf5ekFlBUO9g6aZzAAp81dRadac4U=
-github.com/hollis-labs/libs/core/util v0.6.0/go.mod h1:CpS3EUj+MHivKVnGWJj8Vtq1+J3TN1uPyPCbLzhQLh0=
+github.com/hollis-labs/libs/core/util v0.11.1 h1:jhRJoQJDzXuVmRJUagCu4b3SwJ5f2VRztfQ0JHeoido=
+github.com/hollis-labs/libs/core/util v0.11.1/go.mod h1:BZUY24frcNPSvP9RGyOOTE5Go+uVZsMMfWQtvVy8CpQ=
 github.com/hollis-labs/libs/mcp/plugin-mcp v0.6.0 h1:wS9KsD0Jk4QD+SEepirMGZJwUtXpL5hMjPL/wYdEk20=
 github.com/hollis-labs/libs/mcp/plugin-mcp v0.6.0/go.mod h1:jf0jxxm5UOa5YBETO4u8WTD6JY87VAhxkBZgCnFd+UA=
 github.com/hollis-labs/libs/security/auth v0.3.1 h1:Oi9xrIucjr0mBcGCWGOiS8KC/+cI/HH8ZJ+ZIobFXKU=
@@ -38,8 +38,8 @@ github.com/hollis-labs/libs/security/secrets v0.1.0 h1:/wrYAM5viUnYMpDhvbQmPlTMe
 github.com/hollis-labs/libs/security/secrets v0.1.0/go.mod h1:Krd1kgmisOVmeN1G/ltaLMva58tIBki9xShsySqd86Y=
 github.com/hollis-labs/libs/ui/ui-go v0.4.0 h1:3TydDJElqD1ilgfY1FY+ei+joAuRcwMyuorGTDD1qIw=
 github.com/hollis-labs/libs/ui/ui-go v0.4.0/go.mod h1:MBO41Mrbgo6YfRbm8MI50qQXjDfwhkvA/WxRdtOiL38=
-github.com/hollis-labs/substrate v0.1.1-0.20261115180133-3a0d1b3d6781 h1:XZ1nNZYFZbNoKaHeVhuzJM5hs6wGKzQgQJAngazMPDI=
-github.com/hollis-labs/substrate v0.1.1-0.20261115180133-3a0d1b3d6781/go.mod h1:nprRr/7ZnqzwwO/KSiqHPOiJssPi0mXurDkOX/J9RS4=
+github.com/hollis-labs/substrate v0.1.1-0.20261119200137-b83d561a0601 h1:M+EjYrWeB8eWIOiReMv/Tm9lymKARgHdnbVGw7SZV5k=
+github.com/hollis-labs/substrate v0.1.1-0.20261119200137-b83d561a0601/go.mod h1:LNK7DIqGyVnvvKGYJIhnVKIdF1yIfNP9MtE252Y8G80=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=

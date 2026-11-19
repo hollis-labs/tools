@@ -38,7 +38,7 @@ func input(id string) *Input {
 }
 func create(t *testing.T, s *Service, in *Input) Record {
 	t.Helper()
-	x, err := s.Call(writer, "record_create", Args{Record: in})
+	x, err := s.Call(writer, "record_create", Args{Publication: "draft", Record: in})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func code(t *testing.T, err error, want string) {
 func TestPersistenceConflictsAndAuthority(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "registry.db")
 	s := openTest(t, path)
-	a := Args{Record: input("alpha"), IdempotencyKey: "request-1"}
+	a := Args{Publication: "draft", Record: input("alpha"), IdempotencyKey: "request-1"}
 	r := callRecord(t, s, writer, "record_create", a)
 	replay := callRecord(t, s, writer, "record_create", a)
 	if replay.VersionToken != r.VersionToken {
@@ -73,33 +73,33 @@ func TestPersistenceConflictsAndAuthority(t *testing.T) {
 	a.Record = input("beta")
 	_, err := s.Call(writer, "record_create", a)
 	code(t, err, "version_conflict")
-	_, err = s.Call(caller("other", "registry.write"), "record_create", Args{Record: input("alpha")})
+	_, err = s.Call(caller("other", "registry.write"), "record_create", Args{Publication: "draft", Record: input("alpha")})
 	code(t, err, "version_conflict")
-	_, err = s.Call(caller("other", "registry.write"), "record_update", Args{ID: r.ID, Version: r.VersionToken, Record: input("alpha")})
+	_, err = s.Call(caller("other", "registry.write"), "record_update", Args{Publication: "draft", ID: r.ID, Version: r.VersionToken, Record: input("alpha")})
 	code(t, err, "forbidden")
-	_, err = s.Call(caller("reader", "registry.read"), "record_update", Args{ID: r.ID, Version: r.VersionToken, Record: input("alpha")})
+	_, err = s.Call(caller("reader", "registry.read"), "record_update", Args{Publication: "draft", ID: r.ID, Version: r.VersionToken, Record: input("alpha")})
 	code(t, err, "forbidden")
-	r2 := callRecord(t, s, writer, "record_update", Args{ID: r.ID, Version: r.VersionToken, Record: input("alpha")})
-	_, err = s.Call(writer, "record_update", Args{ID: r.ID, Version: r.VersionToken, Record: input("alpha")})
+	r2 := callRecord(t, s, writer, "record_update", Args{Publication: "draft", ID: r.ID, Version: r.VersionToken, Record: input("alpha")})
+	_, err = s.Call(writer, "record_update", Args{Publication: "draft", ID: r.ID, Version: r.VersionToken, Record: input("alpha")})
 	code(t, err, "version_conflict")
 	if checkErr := s.DB.Close(); checkErr != nil {
 		t.Fatal(checkErr)
 	}
 	s = openTest(t, path)
-	got := callRecord(t, s, writer, "record_get", Args{ID: r.ID})
+	got := callRecord(t, s, writer, "record_get", Args{Publication: "draft", ID: r.ID})
 	if got.VersionToken != r2.VersionToken || got.VerifiedBy != "writer" {
 		t.Fatal("persistence/attestation lost")
 	}
-	archived := callRecord(t, s, writer, "record_archive", Args{ID: r.ID, Version: got.VersionToken})
-	tomb := callRecord(t, s, writer, "record_delete", Args{ID: r.ID, Version: archived.VersionToken})
+	archived := callRecord(t, s, writer, "record_archive", Args{Publication: "draft", ID: r.ID, Version: got.VersionToken})
+	tomb := callRecord(t, s, writer, "record_delete", Args{Publication: "draft", ID: r.ID, Version: archived.VersionToken})
 	if tomb.Lifecycle != "deleted" {
 		t.Fatal("not tombstoned")
 	}
-	_, err = s.Call(writer, "record_get", Args{ID: r.ID})
+	_, err = s.Call(writer, "record_get", Args{Publication: "draft", ID: r.ID})
 	code(t, err, "deleted")
-	_, err = s.Call(writer, "record_create", Args{Record: input("alpha")})
+	_, err = s.Call(writer, "record_create", Args{Publication: "draft", Record: input("alpha")})
 	code(t, err, "version_conflict")
-	old, err := s.Call(writer, "revision_get", Args{ID: r.ID, Revision: r.RevisionID})
+	old, err := s.Call(writer, "revision_get", Args{Publication: "draft", ID: r.ID, Revision: r.RevisionID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestSnapshotUsesImmutableRevisionsAcrossPages(t *testing.T) {
 	a := create(t, s, input("a"))
 	b := create(t, s, input("b"))
 	c := create(t, s, input("c"))
-	first, err := s.Call(writer, "snapshot_get", Args{Query: Query{Limit: 1}})
+	first, err := s.Call(writer, "snapshot_get", Args{Publication: "draft", Query: Query{Publication: "draft", Limit: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,11 +126,11 @@ func TestSnapshotUsesImmutableRevisionsAcrossPages(t *testing.T) {
 	}
 	in := input("b")
 	in.Summary = "after boundary"
-	callRecord(t, s, writer, "record_update", Args{ID: b.ID, Version: b.VersionToken, Record: in})
-	archived := callRecord(t, s, writer, "record_archive", Args{ID: c.ID, Version: c.VersionToken})
-	callRecord(t, s, writer, "record_delete", Args{ID: c.ID, Version: archived.VersionToken})
+	callRecord(t, s, writer, "record_update", Args{Publication: "draft", ID: b.ID, Version: b.VersionToken, Record: in})
+	archived := callRecord(t, s, writer, "record_archive", Args{Publication: "draft", ID: c.ID, Version: c.VersionToken})
+	callRecord(t, s, writer, "record_delete", Args{Publication: "draft", ID: c.ID, Version: archived.VersionToken})
 	create(t, s, input("d"))
-	second, err := s.Call(writer, "snapshot_get", Args{Query: Query{Limit: 1, Cursor: page.Cursor}})
+	second, err := s.Call(writer, "snapshot_get", Args{Publication: "draft", Query: Query{Publication: "draft", Limit: 1, Cursor: page.Cursor}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestSnapshotUsesImmutableRevisionsAcrossPages(t *testing.T) {
 	if p2.Records[0].VersionToken != b.VersionToken || p2.Records[0].Summary != "" || p2.Boundary != page.Boundary {
 		t.Fatalf("updated row leaked into snapshot: %+v", p2)
 	}
-	third, err := s.Call(writer, "snapshot_get", Args{Query: Query{Limit: 1, Cursor: p2.Cursor}})
+	third, err := s.Call(writer, "snapshot_get", Args{Publication: "draft", Query: Query{Publication: "draft", Limit: 1, Cursor: p2.Cursor}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,9 +146,9 @@ func TestSnapshotUsesImmutableRevisionsAcrossPages(t *testing.T) {
 	if p3.Records[0].VersionToken != c.VersionToken || p3.Records[0].Lifecycle != "active" || p3.HasMore {
 		t.Fatal("archive/delete/create changed snapshot")
 	}
-	_, err = s.Call(writer, "snapshot_get", Args{Query: Query{Limit: 1, Cursor: page.Cursor, Kind: "tool"}})
+	_, err = s.Call(writer, "snapshot_get", Args{Publication: "draft", Query: Query{Publication: "draft", Limit: 1, Cursor: page.Cursor, Kind: "tool"}})
 	code(t, err, "validation_error")
-	_, err = s.Call(caller("other", "registry.read"), "snapshot_get", Args{Query: Query{Limit: 1, Cursor: page.Cursor}})
+	_, err = s.Call(caller("other", "registry.read"), "snapshot_get", Args{Publication: "draft", Query: Query{Publication: "draft", Limit: 1, Cursor: page.Cursor}})
 	code(t, err, "validation_error")
 }
 func toolInput(name, description, alias string) *Input {
@@ -166,23 +166,23 @@ func TestToolReviewInvalidationAndAliasRollback(t *testing.T) {
 		t.Fatal(r)
 	}
 	cls := &kinds.Classification{SideEffect: []string{"read"}}
-	_, err := s.Call(writer, "review_decide", Args{ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Classification: cls, Decision: "reviewed", Approval: &kinds.Reference{Authority: "approval", Kind: "decision", ID: "review/1"}, Reason: "inspected"})
+	_, err := s.Call(writer, "review_decide", Args{Publication: "draft", ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Classification: cls, Decision: "reviewed", Approval: &kinds.Reference{Authority: "approval", Kind: "decision", ID: "review/1"}, Reason: "inspected"})
 	code(t, err, "forbidden")
-	approved := callRecord(t, s, reviewer, "review_decide", Args{ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Classification: cls, Decision: "reviewed", Approval: &kinds.Reference{Authority: "approval", Kind: "decision", ID: "review/1"}, Reason: "inspected"})
+	approved := callRecord(t, s, reviewer, "review_decide", Args{Publication: "draft", ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Classification: cls, Decision: "reviewed", Approval: &kinds.Reference{Authority: "approval", Kind: "decision", ID: "review/1"}, Reason: "inspected"})
 	if approved.Review.ReviewedBy != "reviewer" || approved.Review.Effective == nil {
 		t.Fatal("missing authenticated approval")
 	}
-	changed := callRecord(t, s, writer, "record_update", Args{ID: r.ID, Version: approved.VersionToken, Record: toolInput("..", "after", "lookup")})
+	changed := callRecord(t, s, writer, "record_update", Args{Publication: "draft", ID: r.ID, Version: approved.VersionToken, Record: toolInput("..", "after", "lookup")})
 	if changed.Review.Effective != nil || changed.Review.State != "unreviewed" || changed.Review.DefinitionHash == r.Review.DefinitionHash {
 		t.Fatal("stale approval carried forward")
 	}
-	_, err = s.Call(reviewer, "review_decide", Args{ID: r.ID, Version: changed.VersionToken, Hash: r.Review.DefinitionHash, Classification: cls, Decision: "reviewed", Approval: &kinds.Reference{Authority: "approval", Kind: "decision", ID: "review/1"}, Reason: "stale"})
+	_, err = s.Call(reviewer, "review_decide", Args{Publication: "draft", ID: r.ID, Version: changed.VersionToken, Hash: r.Review.DefinitionHash, Classification: cls, Decision: "reviewed", Approval: &kinds.Reference{Authority: "approval", Kind: "decision", ID: "review/1"}, Reason: "stale"})
 	code(t, err, "version_conflict")
-	_, err = s.Call(writer, "record_create", Args{Record: toolInput("_lookup", "other", "lookup")})
+	_, err = s.Call(writer, "record_create", Args{Publication: "draft", Record: toolInput("_lookup", "other", "lookup")})
 	code(t, err, "alias_conflict")
-	_, err = s.Call(writer, "record_get", Args{ID: "tool:mcp/example/_lookup"})
+	_, err = s.Call(writer, "record_get", Args{Publication: "draft", ID: "tool:mcp/example/_lookup"})
 	code(t, err, "not_found")
-	got := callRecord(t, s, writer, "tool_resolve", Args{AliasSystem: "test", Alias: "lookup"})
+	got := callRecord(t, s, writer, "tool_resolve", Args{Publication: "draft", AliasSystem: "test", Alias: "lookup"})
 	if got.ID != r.ID {
 		t.Fatal("alias changed on rollback")
 	}
@@ -191,7 +191,7 @@ func TestRelationsAndProjectPayloadAreAtomic(t *testing.T) {
 	s := openTest(t, filepath.Join(t.TempDir(), "registry.db"))
 	r := create(t, s, input("a"))
 	relation := &kinds.Relation{Schema: kinds.RelationSchema, Type: kinds.Consumes, From: kinds.Reference{Authority: "registry", Kind: "project", ID: r.ID}, To: kinds.Reference{Authority: "registry", Kind: "project", ID: "project:missing"}, Source: "authored", Status: "proposed"}
-	a := Args{ID: r.ID, Version: r.VersionToken, Relation: relation}
+	a := Args{Publication: "draft", ID: r.ID, Version: r.VersionToken, Relation: relation}
 	_, err := s.Call(writer, "relation_create", a)
 	code(t, err, "reference_unresolved")
 	a.AllowUnresolved = true
@@ -203,18 +203,18 @@ func TestRelationsAndProjectPayloadAreAtomic(t *testing.T) {
 	if len(p.Edges) != 1 || p.Edges[0].To != relation.To.ID {
 		t.Fatal("second graph diverged")
 	}
-	got := callRecord(t, s, writer, "record_get", Args{ID: r.ID})
+	got := callRecord(t, s, writer, "record_get", Args{Publication: "draft", ID: r.ID})
 	if got.Edges[0].TargetState != "unresolved" {
 		t.Fatal("unresolved hidden")
 	}
 	target := create(t, s, input("missing"))
-	archived := callRecord(t, s, writer, "record_archive", Args{ID: target.ID, Version: target.VersionToken})
-	callRecord(t, s, writer, "record_delete", Args{ID: target.ID, Version: archived.VersionToken})
-	got = callRecord(t, s, writer, "record_get", Args{ID: r.ID})
+	archived := callRecord(t, s, writer, "record_archive", Args{Publication: "draft", ID: target.ID, Version: target.VersionToken})
+	callRecord(t, s, writer, "record_delete", Args{Publication: "draft", ID: target.ID, Version: archived.VersionToken})
+	got = callRecord(t, s, writer, "record_get", Args{Publication: "draft", ID: r.ID})
 	if got.Edges[0].TargetState != "deleted" {
 		t.Fatal("tombstone target hidden")
 	}
-	removed := callRecord(t, s, writer, "relation_remove", Args{ID: r.ID, Version: got.VersionToken, EdgeID: got.Edges[0].ID})
+	removed := callRecord(t, s, writer, "relation_remove", Args{Publication: "draft", ID: r.ID, Version: got.VersionToken, EdgeID: got.Edges[0].ID})
 	p, err = kinds.ParseProjectJSON(removed.Payload)
 	if err != nil {
 		t.Fatal(err)
@@ -241,7 +241,7 @@ func TestAllContentKindsPersistBodiesAndOpaqueIDs(t *testing.T) {
 		}
 		raw := json.RawMessage(`{"schema":"` + schema + `","id":"native/../_id"` + name + `,` + tail + `}`)
 		r := create(t, s, &Input{Schema: schema, Key: schema, Payload: raw})
-		got := callRecord(t, s, writer, "record_get", Args{ID: r.ID})
+		got := callRecord(t, s, writer, "record_get", Args{Publication: "draft", ID: r.ID})
 		if string(got.Payload) != string(raw) {
 			t.Fatalf("payload changed: %s", got.Payload)
 		}
@@ -257,7 +257,7 @@ func TestConcurrentReplacementHasOneWinner(t *testing.T) {
 	results := make(chan error, 2)
 	for i := 0; i < 2; i++ {
 		go func() {
-			_, err := s.Call(writer, "record_update", Args{ID: r.ID, Version: r.VersionToken, Record: input("race")})
+			_, err := s.Call(writer, "record_update", Args{Publication: "draft", ID: r.ID, Version: r.VersionToken, Record: input("race")})
 			results <- err
 		}()
 	}
@@ -278,11 +278,11 @@ func TestGroundReviewNeedsExistingElevationForRelaxedHints(t *testing.T) {
 	no := false
 	cls := &kinds.Classification{SideEffect: []string{"read"}, Idempotent: &no, ApprovalTier: "ground", Egress: "none", SecretAccess: "none"}
 	ground := caller("ground", "registry.review")
-	pending := callRecord(t, s, ground, "review_decide", Args{ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Decision: "reviewed", Classification: cls, Reason: "looks safe"})
+	pending := callRecord(t, s, ground, "review_decide", Args{Publication: "draft", ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Decision: "reviewed", Classification: cls, Reason: "looks safe"})
 	if pending.Review.Effective != nil || pending.Review.QueueState != "needs_human" || pending.Review.ReviewedBy != "" {
 		t.Fatal("untrusted hints granted ground approval")
 	}
-	_, err := s.Call(reviewer, "review_decide", Args{ID: r.ID, Version: pending.VersionToken, Hash: r.Review.DefinitionHash, Decision: "reviewed", Classification: cls, Reason: "elevated"})
+	_, err := s.Call(reviewer, "review_decide", Args{Publication: "draft", ID: r.ID, Version: pending.VersionToken, Hash: r.Review.DefinitionHash, Decision: "reviewed", Classification: cls, Reason: "elevated"})
 	code(t, err, "validation_error")
 	in := toolInput("safe", "declared read", "")
 	var tool kinds.Tool
@@ -292,7 +292,7 @@ func TestGroundReviewNeedsExistingElevationForRelaxedHints(t *testing.T) {
 	tool.Definition.Annotations = json.RawMessage(`{"readOnlyHint":true,"destructiveHint":false,"openWorldHint":false}`)
 	in.Payload, _ = json.Marshal(tool)
 	safe := create(t, s, in)
-	approved := callRecord(t, s, ground, "review_decide", Args{ID: safe.ID, Version: safe.VersionToken, Hash: safe.Review.DefinitionHash, Decision: "reviewed", Classification: cls, Reason: "confirmed declaration"})
+	approved := callRecord(t, s, ground, "review_decide", Args{Publication: "draft", ID: safe.ID, Version: safe.VersionToken, Hash: safe.Review.DefinitionHash, Decision: "reviewed", Classification: cls, Reason: "confirmed declaration"})
 	if approved.Review.State != "reviewed" || approved.Review.Effective == nil {
 		t.Fatal("valid ground review denied")
 	}
@@ -311,8 +311,8 @@ func TestIncomingRelationsDeriveInverseWithoutRewritingStoredDirection(t *testin
 	source := create(t, s, input("source"))
 	target := create(t, s, input("target"))
 	rel := &kinds.Relation{Schema: kinds.RelationSchema, Type: kinds.Consumes, From: kinds.Reference{Authority: "registry", Kind: "project", ID: source.ID}, To: kinds.Reference{Authority: "registry", Kind: "project", ID: target.ID}, Source: "authored", Status: "proposed"}
-	updated := callRecord(t, s, writer, "relation_create", Args{ID: source.ID, Version: source.VersionToken, Relation: rel})
-	out, err := s.Call(writer, "relation_list", Args{ID: target.ID, Direction: "incoming"})
+	updated := callRecord(t, s, writer, "relation_create", Args{Publication: "draft", ID: source.ID, Version: source.VersionToken, Relation: rel})
+	out, err := s.Call(writer, "relation_list", Args{Publication: "draft", ID: target.ID, Direction: "incoming"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,16 +338,16 @@ func TestGroundCannotEraseSameHashAuthoritativeDecision(t *testing.T) {
 				no := false
 				high := &kinds.Classification{SideEffect: []string{"destructive"}, Idempotent: &no, ApprovalTier: "elevated", Egress: "external", SecretAccess: "reads"}
 				low := &kinds.Classification{SideEffect: []string{"read"}, Idempotent: &no, ApprovalTier: "ground", Egress: "none", SecretAccess: "none"}
-				r = callRecord(t, s, reviewer, "review_decide", Args{ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Decision: state, Classification: high, Reason: "restrictive evidence", Approval: &kinds.Reference{Authority: "approval", Kind: "decision", ID: "elevated/1"}})
+				r = callRecord(t, s, reviewer, "review_decide", Args{Publication: "draft", ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Decision: state, Classification: high, Reason: "restrictive evidence", Approval: &kinds.Reference{Authority: "approval", Kind: "decision", ID: "elevated/1"}})
 				if proposal {
-					r = callRecord(t, s, writer, "tool_propose", Args{ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Classification: low, Reason: "new proposal"})
+					r = callRecord(t, s, writer, "tool_propose", Args{Publication: "draft", ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Classification: low, Reason: "new proposal"})
 				}
-				r = callRecord(t, s, caller("ground", "registry.review"), "review_decide", Args{ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Decision: "reviewed", Classification: low, Reason: "declared read"})
+				r = callRecord(t, s, caller("ground", "registry.review"), "review_decide", Args{Publication: "draft", ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Decision: "reviewed", Classification: low, Reason: "declared read"})
 				if r.Review.Effective != nil || r.Review.QueueState != "needs_human" || r.Review.Approval != nil || r.Review.ReviewedBy != "" {
 					t.Fatalf("same-hash decision bypass: %+v", r.Review)
 				}
 				// Existing elevated authority can replace it, with newly bound evidence.
-				r = callRecord(t, s, reviewer, "review_decide", Args{ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Decision: "reviewed", Classification: low, Reason: "new evidence", Approval: &kinds.Reference{Authority: "approval", Kind: "decision", ID: "elevated/2"}})
+				r = callRecord(t, s, reviewer, "review_decide", Args{Publication: "draft", ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Decision: "reviewed", Classification: low, Reason: "new evidence", Approval: &kinds.Reference{Authority: "approval", Kind: "decision", ID: "elevated/2"}})
 				if r.Review.State != "reviewed" || r.Review.Approval == nil || r.Review.Approval.ID != "elevated/2" {
 					t.Fatal("elevation path lost")
 				}
@@ -370,7 +370,7 @@ func TestGroundConditionalRulesNeedElevation(t *testing.T) {
 		if err := json.Unmarshal([]byte(`{"side_effect":["read"],"idempotent":false,"approval_tier":"ground","egress":"none","secret_access":"none",`+conditional+`}`), &cls); err != nil {
 			t.Fatal(err)
 		}
-		r = callRecord(t, s, caller("ground", "registry.review"), "review_decide", Args{ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Decision: "reviewed", Classification: &cls, Reason: "read default"})
+		r = callRecord(t, s, caller("ground", "registry.review"), "review_decide", Args{Publication: "draft", ID: r.ID, Version: r.VersionToken, Hash: r.Review.DefinitionHash, Decision: "reviewed", Classification: &cls, Reason: "read default"})
 		if r.Review.Effective != nil || r.Review.QueueState != "needs_human" {
 			t.Fatalf("conditional ground approval: %+v", r.Review)
 		}
@@ -381,10 +381,10 @@ func TestIncomingAndBothResolveArchivedTarget(t *testing.T) {
 	a := create(t, s, input("from"))
 	b := create(t, s, input("to"))
 	rel := &kinds.Relation{Schema: kinds.RelationSchema, Type: kinds.Consumes, From: kinds.Reference{Authority: "registry", Kind: "project", ID: a.ID}, To: kinds.Reference{Authority: "registry", Kind: "project", ID: b.ID}, Source: "authored", Status: "proposed"}
-	callRecord(t, s, writer, "relation_create", Args{ID: a.ID, Version: a.VersionToken, Relation: rel})
-	callRecord(t, s, writer, "record_archive", Args{ID: b.ID, Version: b.VersionToken})
+	callRecord(t, s, writer, "relation_create", Args{Publication: "draft", ID: a.ID, Version: a.VersionToken, Relation: rel})
+	callRecord(t, s, writer, "record_archive", Args{Publication: "draft", ID: b.ID, Version: b.VersionToken})
 	for _, direction := range []string{"incoming", "both"} {
-		out, err := s.Call(writer, "relation_list", Args{ID: b.ID, Direction: direction})
+		out, err := s.Call(writer, "relation_list", Args{Publication: "draft", ID: b.ID, Direction: direction})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -401,7 +401,7 @@ func TestEnvelopeMetadataAdmissionRejectsWithoutRowsOrReceipts(t *testing.T) {
 			s := openTest(t, filepath.Join(t.TempDir(), "db"))
 			in := input("metadata")
 			in.Metadata = map[string]any{"nested": []any{json.Number(n)}}
-			_, err := s.Call(writer, "record_create", Args{Record: in, IdempotencyKey: "metadata-request"})
+			_, err := s.Call(writer, "record_create", Args{Publication: "draft", Record: in, IdempotencyKey: "metadata-request"})
 			code(t, err, "validation_error")
 			for _, table := range []string{"records", "revisions", "receipts"} {
 				var count int
@@ -423,16 +423,16 @@ func TestEnvelopeMetadataAdmissionRejectsWithoutRowsOrReceipts(t *testing.T) {
 			}
 			// Reusing the rejected creation key for admitted data must succeed: no receipt.
 			in.Metadata = map[string]any{"number": json.Number("9007199254740991"), "exact": "9007199254740993"}
-			r := callRecord(t, s, writer, "record_create", Args{Record: in, IdempotencyKey: "metadata-request"})
-			got := callRecord(t, s, writer, "record_get", Args{ID: r.ID})
+			r := callRecord(t, s, writer, "record_create", Args{Publication: "draft", Record: in, IdempotencyKey: "metadata-request"})
+			got := callRecord(t, s, writer, "record_get", Args{Publication: "draft", ID: r.ID})
 			if got.Metadata["number"] != float64(9007199254740991) || got.Metadata["exact"] != "9007199254740993" {
 				t.Fatalf("admitted metadata changed: %+v", got.Metadata)
 			}
 			// Invalid replacement must leave the old revision current and readable.
 			in.Metadata = map[string]any{"number": json.Number(n)}
-			_, err = s.Call(writer, "record_update", Args{ID: r.ID, Version: r.VersionToken, Record: in})
+			_, err = s.Call(writer, "record_update", Args{Publication: "draft", ID: r.ID, Version: r.VersionToken, Record: in})
 			code(t, err, "validation_error")
-			unchanged := callRecord(t, s, writer, "record_get", Args{ID: r.ID})
+			unchanged := callRecord(t, s, writer, "record_get", Args{Publication: "draft", ID: r.ID})
 			if unchanged.VersionToken != r.VersionToken {
 				t.Fatal("invalid update advanced revision")
 			}

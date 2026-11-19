@@ -1,7 +1,8 @@
 # Registry
 
 Registry stores operational definitions and typed relationships: projects,
-tools, agents, agencies, skills, documents, workstreams and correlation contexts.
+tools, agents, agencies, skills, documents, workstreams, correlation contexts,
+services, config, knowledge, MCP servers and launch profiles.
 It is a class 2 Substrate service with one SQLite database, an authenticated HTTP
 API, HTTP MCP, and installed CLI/stdio MCP clients of that same service.
 
@@ -9,6 +10,11 @@ Registry does not execute workflows, launch agents, own runtime sessions or
 leases, or infer permissions from catalog records. Existing authorities retain
 those responsibilities. Project parsing establishes structural validity, not
 class certification. No consumers are repointed by installing Registry.
+
+Definitions are drafts until explicitly published. Default reads select the
+published revision; use `--publication draft` to inspect edits. See
+[publication and approval](docs/publication.md) for the receipt protocol, pinned
+dependencies and the fail-closed elevated-publication boundary.
 
 ## Build and run
 
@@ -59,7 +65,7 @@ point the client at a credential that actually holds write scope.
 registry kinds --json
 registry schema --schema document/1 --json
 registry create --file request.json --idempotency-key authoring-1 --json
-registry get 'document:guide/../operations' --json
+registry get 'document:guide/../operations' --publication draft --json
 registry update 'document:guide/../operations' --version CURRENT_TOKEN --file replacement.json --json
 registry search --query 'backup' --kind document --full --limit 20 --json
 registry history 'document:guide/../operations' --json
@@ -226,3 +232,19 @@ go run github.com/hollis-labs/substrate/cmd/substrate pins check --app .
 
 The repository-root registry check/build workflows produce versioned fleet
 artifacts. See [deployment plan](docs/deployment.md) before installation.
+
+### Publication operations
+
+| Operation / MCP suffix | HTTP | CLI |
+|---|---|---|
+| publication_approval_prepare | POST /v1/publication/prepare | publication-approval-prepare |
+| publication_approval_get | GET /v1/publication/approval | publication-approval-get |
+| publication_approval_decide | POST /v1/publication/decide | publication-approval-decide |
+| publication_publish | POST /v1/publication/publish | publish |
+| publication_policy_get | GET /v1/publication/policy | publication-policy-get |
+| publication_policy_set | PUT /v1/publication/policy | publication-policy-set |
+
+All accept the common JSON operation envelope (`--file`). Prepare/publish require
+write scope, decisions/policy changes require review scope, and inspection requires
+read scope. Publication additionally requires read scope for historical replay.
+The same operation schemas are exposed through HTTP and stdio MCP.
