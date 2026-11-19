@@ -100,6 +100,9 @@ func (s *Service) retain(ctx context.Context, actor string, apply bool) (Retenti
     AND seq NOT IN (SELECT seq FROM records)
     AND id NOT IN (SELECT id FROM publication_events)
     AND id NOT IN (SELECT id FROM revisions WHERE COALESCE(json_extract(body,'$.review.reviewed_by'),'')!='')
+    AND id NOT IN (SELECT r.id FROM revisions r,json_each(r.body,'$.edges') e
+      WHERE COALESCE(json_extract(e.value,'$.reviewed_by'),'')!=''
+         OR COALESCE(json_extract(e.value,'$.review_hash'),'')!='')
     AND token NOT IN (SELECT json_extract(body,'$.revision_id') FROM receipts)
     AND token NOT IN (SELECT json_extract(c.value,'$.revision') FROM publication_approvals a,json_each(a.body,'$.candidates') c)
     AND token NOT IN (SELECT revision FROM source_verifications)

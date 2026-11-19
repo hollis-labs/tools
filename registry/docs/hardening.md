@@ -67,6 +67,9 @@ Draft history pruning is conservative:
 - Creation responses, approval candidates, migration audit endpoints and pinned
   draft-edge target revisions are protected. Tool identities with authoritative
   classification decisions retain all revisions, preserving restrictive history.
+  Any identity with historical relationship review stamps or a review hash also
+  retains all revisions, including the original proposal and a later removal;
+  removing an edge cannot erase its independent review evidence.
 
 Only older, unprotected revisions of never-published identities are eligible.
 The FTS delete trigger follows pruning in the same transaction. Maintenance logs

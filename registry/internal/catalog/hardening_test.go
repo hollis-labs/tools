@@ -485,3 +485,53 @@ func TestTypedDependencyReviewRemainsPublishable(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestRetentionKeepsNeverPublishedRelationshipReviewAfterRemoval(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	s.reviewers["owner"] = "owner"
+	s.Maintenance.DraftHistoryTTL = time.Hour
+	source := create(t, s, input("reviewed-source"))
+	target := create(t, s, input("reviewed-target"))
+	rel := kinds.Relation{Schema: kinds.RelationSchema, Type: kinds.Consumes,
+		From: kinds.Reference{Authority: "registry", Kind: "project", ID: source.ID},
+		To:   kinds.Reference{Authority: "registry", Kind: "project", ID: target.ID}, Source: "authored", Status: "proposed"}
+	proposed := callRecord(t, s, writer, "relation_create", Args{ID: source.ID, Version: source.VersionToken, Relation: &rel})
+	edge := proposed.Edges[0]
+	reviewed := callRecord(t, s, ground, "relation_decide", Args{ID: source.ID, Version: proposed.VersionToken, EdgeID: edge.ID, Hash: edge.Hash, Decision: "reviewed", Reason: "Keep durable independent relationship evidence"})
+	removed := callRecord(t, s, writer, "relation_remove", Args{ID: source.ID, Version: reviewed.VersionToken, EdgeID: edge.ID})
+	// An unrelated draft-only identity still needs ordinary history expiration.
+	unreviewed := create(t, s, input("ordinary-draft"))
+	callRecord(t, s, writer, "record_update", Args{ID: unreviewed.ID, Version: unreviewed.VersionToken, Record: input("ordinary-draft")})
+	if _, err := s.DB.ExecContext(context.Background(), `UPDATE revisions SET body=json_set(body,'$.updated_at','2000-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.Call(caller("owner", "registry.review"), "retention_run", Args{Apply: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []Record{source, proposed, reviewed, removed} {
+		if _, err = s.Call(writer, "revision_get", Args{ID: source.ID, Revision: want.RevisionID}); err != nil {
+			t.Fatalf("relationship proposal/decision history %s lost after removal: %v", want.RevisionID, err)
+		}
+	}
+	retained, err := s.Call(writer, "revision_get", Args{ID: source.ID, Revision: reviewed.RevisionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decision Record
+	if err = json.Unmarshal(retained.(json.RawMessage), &decision); err != nil {
+		t.Fatal(err)
+	}
+	if len(decision.Edges) != 1 || decision.Edges[0].ReviewedBy != "ground" || decision.Edges[0].ReviewHash != edge.Hash || decision.Edges[0].Reason != reviewed.Edges[0].Reason {
+		t.Fatalf("relationship decision evidence changed: %+v", decision)
+	}
+	latest := callRecord(t, s, writer, "record_get", Args{ID: source.ID, Publication: "draft"})
+	if latest.RevisionID != removed.RevisionID || len(latest.Edges) != 0 {
+		t.Fatal("retention revived removed relationship", latest)
+	}
+	_, err = s.Call(writer, "revision_get", Args{ID: unreviewed.ID, Revision: unreviewed.RevisionID})
+	code(t, err, "not_found")
+	if result.(RetentionResult).DraftRevisions != 1 {
+		t.Fatalf("only unrelated unreviewed history should expire: %+v", result)
+	}
+}
