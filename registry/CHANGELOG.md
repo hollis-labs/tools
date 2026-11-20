@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Add an offline project draft rewriter that promotes metadata into project/2
+  fields, preserves source files and requires shared project/2 schema support.
+
 - Explicit draft/published revisions, published graph snapshots and pinned target
   references across default reads, with draft selectors for authoring.
 - Hash-bound local approval receipts, revisioned role policy, transactional batch
@@ -30,3 +33,11 @@
 - Add immutable publication changes cursors and atomic prepare/commit imports
   with source bindings, checkpoints, idempotent receipts and drift conflicts.
 - Add temporary connector runner contracts; scheduling remains disabled.
+## Unreleased: phase 4 hardening
+
+- Index immutable draft/publication name, summary and body text with FTS5.
+- Add protected retention previews/application and verified online backups, with
+  a disabled schedule handoff and isolated restore runbook.
+- Require explicit, logged schema transitions; add paged reference reports.
+- Add authored tool examples, independent relationship review/weights and an
+  opt-in readable CLI mode; document the envelope/2 admission boundary.

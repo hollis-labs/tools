@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 )
 
 //go:embed migrations/*/*.sql
@@ -53,7 +53,16 @@ type Source struct {
 	Revision   string `json:"revision,omitempty"`
 	ObservedAt string `json:"observed_at,omitempty"`
 }
+
+// ToolExample is authored documentation, never executed by Registry.
+type ToolExample struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Arguments   json.RawMessage `json:"arguments"`
+	Result      json.RawMessage `json:"result,omitempty"`
+}
 type Input struct {
+	Examples []ToolExample   `json:"examples,omitempty"`
 	Schema   string          `json:"schema"`
 	Key      string          `json:"key"`
 	Summary  string          `json:"summary,omitempty"`
@@ -62,6 +71,12 @@ type Input struct {
 	Metadata map[string]any  `json:"metadata,omitempty"`
 }
 type Edge struct {
+	Hash           string         `json:"hash"`
+	ProposedBy     string         `json:"proposed_by,omitempty"`
+	ReviewedBy     string         `json:"reviewed_by,omitempty"`
+	ReviewedAt     string         `json:"reviewed_at,omitempty"`
+	Reason         string         `json:"reason,omitempty"`
+	ReviewHash     string         `json:"review_hash,omitempty"`
 	TargetRevision string         `json:"target_revision,omitempty"`
 	SourceRevision string         `json:"source_revision,omitempty"`
 	Inverse        string         `json:"inverse,omitempty"`
@@ -85,6 +100,7 @@ type Review struct {
 type Record struct {
 	DependencyPins    map[string]string `json:"dependency_pins,omitempty"`
 	MappingVersion    string            `json:"mapping_version,omitempty"`
+	Examples          []ToolExample     `json:"examples,omitempty"`
 	Publication       string            `json:"publication"`
 	PublishedBy       string            `json:"published_by,omitempty"`
 	PublishedAt       string            `json:"published_at,omitempty"`
@@ -146,6 +162,7 @@ type Args struct {
 	Import           *ImportRequest        `json:"import,omitempty"`
 	PlanID           string                `json:"plan_id,omitempty"`
 	SourceDigest     string                `json:"source_digest,omitempty"`
+	Apply            bool                  `json:"apply,omitempty"`
 	Publication      string                `json:"publication,omitempty"`
 	Candidates       []Candidate           `json:"candidates,omitempty"`
 	ApprovalID       string                `json:"approval_id,omitempty"`
@@ -236,9 +253,9 @@ func digest(v any) string {
 }
 func scope(op string) string {
 	switch op {
-	case "export_authorize", "export_apply", "import_prepare", "import_commit", "publication_approval_prepare", "publication_publish", "record_create", "record_update", "record_archive", "record_delete", "record_verify", "relation_create", "relation_remove", "tool_propose":
+	case "record_migrate", "export_authorize", "export_apply", "import_prepare", "import_commit", "publication_approval_prepare", "publication_publish", "record_create", "record_update", "record_archive", "record_delete", "record_verify", "relation_create", "relation_remove", "tool_propose":
 		return "registry.write"
-	case "review_decide", "publication_approval_decide", "publication_policy_set":
+	case "relation_decide", "retention_run", "backup_create", "review_decide", "publication_approval_decide", "publication_policy_set":
 		return "registry.review"
 	default:
 		return "registry.read"

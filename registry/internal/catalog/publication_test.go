@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 )
 
 const sensitiveSettingName = "password"
@@ -484,8 +484,8 @@ func TestPublicationGoldenVectors(t *testing.T) {
 		edges []Edge
 		want  string
 	}{
-		{"empty", nil, "sha256:10660c73f5ef71ec9ce889b74660b645e4507858d20ded6d26525870008c00a2"},
-		{"edge", []Edge{{ID: "edge-1", SourceRevision: "revision-1", Relation: kinds.Relation{Schema: kinds.RelationSchema, Type: kinds.Consumes, From: kinds.Reference{Authority: "registry", Kind: "project", ID: r.ID}, To: kinds.Reference{Authority: "registry", Kind: "project", ID: target.ID}, Source: "authored", Status: "proposed"}}}, "sha256:aca73902104660da6f514214fc44631d1343188d5e4bb4781d4a66a500231468"},
+		{"empty", nil, "sha256:523e5e3a38ff4f5198b052a778d447af4aa7905ca95bdf48549810ddcd042229"},
+		{"edge", []Edge{{ID: "edge-1", SourceRevision: "revision-1", Relation: kinds.Relation{Schema: kinds.RelationSchema, Type: kinds.Consumes, From: kinds.Reference{Authority: "registry", Kind: "project", ID: r.ID}, To: kinds.Reference{Authority: "registry", Kind: "project", ID: target.ID}, Source: "authored", Status: "proposed"}}}, "sha256:dd9a9b90fcef543b46aa65db3f895ad02107e6ab88f8ea8bfd0532cfe6fd53ad"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

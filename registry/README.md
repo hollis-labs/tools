@@ -73,7 +73,8 @@ registry snapshot --full --limit 100 --json
 registry mcp --token-file /absolute/protected/credential
 ```
 
-Success output is always JSON. `--json` emits one structured error envelope, including input decoding and
+Success output defaults to JSON. `--readable` renders record/history tables and readable
+field details; it is mutually exclusive with `--json`. `--json` emits one structured error envelope, including input decoding and
 file errors, before returning a nonzero exit status. `--file -` reads operation arguments from stdin.
 `create` and `update` take an operation envelope, for example:
 
@@ -96,7 +97,7 @@ file errors, before returning a nonzero exit status. `--file -` reads operation 
 ```
 
 Authored input accepts only `schema`, `key`, `summary`, `source` (uri, revision,
-observed_at), `payload` and `metadata`. Updates replace this whole input, with
+observed_at), `payload`, `metadata` and tool-only `examples`. Updates replace this whole input, with
 omission clearing optional fields; they are not PATCH. The common operation
 arguments include `id`, `version`, `allow_unresolved` and `idempotency_key` where
 applicable. Use discovery to retrieve each kind's strict schema.
@@ -136,6 +137,11 @@ by routers/proxies.
 | POST /v1/tools/proposals | tool-propose | registry_tool_propose |
 | GET /v1/reviews; POST /v1/reviews/decisions | review-list, review-decide | registry_review_list, registry_review_decide |
 | GET /v1/snapshot, /v1/diagnostics | snapshot, doctor | registry_snapshot_get, registry_diagnostics |
+| GET /v1/references | references | registry_references_report |
+| POST /v1/record/migrate; GET /v1/migrations | migrate, migrations | registry_record_migrate, registry_migration_list |
+| POST /v1/relations/decide | relation-decide | registry_relation_decide |
+| POST /v1/maintenance/retention | retention | registry_retention_run |
+| POST /v1/maintenance/backup | backup | registry_backup_create |
 
 For operations with more fields, CLI `--file` carries the same operation
 arguments as HTTP/MCP. Discovery documents `relation`, `edge_id`, `direction`,
@@ -155,14 +161,17 @@ bind the authenticated caller, authority, key and complete request content;
 changed-content retries conflict. A retry returns the original creation response.
 
 `query` supports kind, subtype, lifecycle, authority, owner, key, review_state,
-relation, search, full, limit and cursor. Limit is 1–200, default 50. Search scans
-stored name/summary/payload text. Default lists omit bodies and archived/deleted
+relation, search, full, limit and cursor. Limit is 1–200, default 50. Search uses SQLite FTS5 token phrases over
+name/summary/payload bodies, with separate immutable draft/publication indexes. Default lists omit bodies and archived/deleted
 records; `full` includes payloads, and lifecycle `*` includes tombstones.
 A cursor binds the caller and complete query to immutable record and edge
 revisions at a fixed boundary. Updates, archives, deletion and later creation
 cannot change later pages. Snapshots return schemas, boundary and as_of; ETags
 support conditional GET. History uses `revision` as a before-revision cursor.
-Cursor/receipt/history retention is indefinite in this initial service.
+Cursor/receipt/draft-history retention is configurable and defaults to disabled.
+Every revision of an ever-published identity is preserved. See the
+[hardening and restore runbook](docs/hardening.md) for protection rules and
+the prepared, disabled backup job.
 
 Archive retains content and history. Delete requires archive and creates a
 permanent tombstone: no purge, ID reuse or cascading deletion. Reading a deleted
@@ -193,8 +202,24 @@ external-authority slot. Other kinds can use external graph references.
 Generic graph writes create proposals, including mined edges; they cannot claim
 reviewed evidence. Launch profiles and other authored-body references remain
 retrievable even when unavailable. Reading a reference never grants launch or
-execution permission. Advanced relationship approval/weight mining and authored
-tool examples are later extensions; typed selection relationships are available.
+execution permission. `relation-decide` accepts a configured independent reviewer, current source
+version, edge ID, returned edge `hash`, `decision: reviewed` and a reason. Weights
+are explicit shared-schema values in [0, 1], never inferred or permission grants.
+Generic writes cannot claim reviewed status. Changing attributes requires a new
+proposal; a stale version/hash cannot approve replacement content. Legacy edges
+without a known proposer must be recreated before review. Elevated agent/config,
+agency and launch-profile relationships require the existing owner reviewer.
+This decision revises only the draft; publication is still separately approved.
+
+Tool inputs may include up to 50 uniquely named authored `examples` in the
+Registry envelope, each with `name`, optional `description`, object `arguments`
+and optional JSON `result`. They are secret-scanned documentation, never executed
+or asserted to be runtime-tested. They affect publication content approval while
+leaving the tool definition/classification hash unchanged. Example:
+
+```json
+{"record":{"schema":"tool/1","key":"lookup","payload":{"schema":"tool/1","id":"tool:mcp/example/lookup","source":"mcp","origin":"example","lifecycle":"active","definition":{"name":"lookup","input_schema":{"type":"object"}}},"examples":[{"name":"Lookup guide","arguments":{"id":"document:guide"},"result":{"found":true}}]}}
+```
 
 New tool definitions open an unreviewed queue item. Hash changes invalidate the
 current effective classification atomically; previous decisions remain in
@@ -226,9 +251,17 @@ is included.
 
 ## Verification and deployment
 
+The offline [project draft migration](docs/project2-migration.md) promotes
+authored metadata into `project/2` fields once, with agency-owned `registry/contracts` validation.
+The contracts module preserves each supported version independently, including
+`project/1`; `project/2` requires authored type and disposition. Applications keep
+their own object schemas and sync from Registry explicitly.
+See [contracts provenance](contracts/PROVENANCE.md).
+
 ```sh
 go test -race ./...
 go vet ./...
+(cd contracts && go test -race ./... && go vet ./...)
 go build ./...
 go run github.com/hollis-labs/substrate/cmd/substrate pins check --app .
 ```
@@ -254,3 +287,5 @@ The same operation schemas are exposed through HTTP and stdio MCP.
 
 Published export plan/diff/apply, publication changes cursors and temporary batch
 import contracts are described in [materialization](docs/materialization.md).
+The [agent guide skill](skills/use-registry/SKILL.md) covers lookup, authoring,
+reference reporting and the separate review/publication boundaries.

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 )
 
 func TestLiveResolvedEdgesNeverReturnStaleNotModified(t *testing.T) {

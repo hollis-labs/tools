@@ -80,7 +80,7 @@ The explicit projection contains:
 - `edges`, sorted by unique exact ID: edge ID/revision, relation, pinned
   `target: {id, revision}`, and complete typed relation attributes;
 - `admission`: complete shared schema-bundle and edge-cycle-policy digest, `mapping_version: "native/1"`,
-  and `envelope_version: "registry.authored-envelope/1"`.
+  and `envelope_version: "registry.authored-envelope/2"`.
 
 The content digest covers the complete admitted payload and every enumerated
 Input envelope field: schema, key, summary, source (URI/revision/observed_at), and
@@ -101,3 +101,8 @@ Secret-like values are refused before persistence with value-free errors;
 structured secret locators are retained without resolution. Detection is
 conservative, not proof that every opaque string is non-secret. App-owned
 configuration remains in its application database.
+
+The schema bundle includes every supported version from agency-owned
+`registry/contracts`. Adding `project/2` changes the admission digest and requires
+fresh approval preparation for subsequent publication. Existing published
+snapshots and immutable revisions retain their original bytes.

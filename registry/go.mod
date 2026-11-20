@@ -7,9 +7,11 @@ require (
 	github.com/hollis-labs/libs/core/store v0.1.0
 	github.com/hollis-labs/libs/mcp/plugin-mcp v0.6.0
 	github.com/hollis-labs/libs/security/auth v0.3.1
-	github.com/hollis-labs/substrate v0.1.1-0.20261119200612-112799f6da86
+	github.com/hollis-labs/substrate v0.1.1-0.20261120023626-babfaed3c70d
+	github.com/hollis-labs/tools/registry/contracts v0.0.0-20261120025733-4199eedcd2f4
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/sys v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -24,7 +26,7 @@ require (
 	github.com/hollis-labs/libs/app/app-host v0.1.0 // indirect
 	github.com/hollis-labs/libs/core/panics v0.1.0 // indirect
 	github.com/hollis-labs/libs/core/util v0.11.1 // indirect
-	github.com/hollis-labs/libs/harness/core v0.17.1-0.20261115212742-8f2ed31176b0
+	github.com/hollis-labs/libs/harness/core v0.17.1-0.20261119210534-e787671699c2
 	github.com/hollis-labs/libs/security/redact v0.2.0 // indirect
 	github.com/hollis-labs/libs/security/secrets v0.1.0 // indirect
 	github.com/hollis-labs/libs/ui/ui-go v0.4.0 // indirect
@@ -47,7 +49,6 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	modernc.org/libc v1.78.0 // indirect

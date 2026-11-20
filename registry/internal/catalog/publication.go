@@ -13,7 +13,7 @@ import (
 	"github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/hollis-labs/libs/core/store"
 	libauth "github.com/hollis-labs/libs/security/auth"
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 )
 
 // Candidate binds both the draft and the pointer that publication may replace.
@@ -236,14 +236,14 @@ func schemaAdmission(mapping string) (Admission, error) {
 	if mapping == "" {
 		mapping = "native/1"
 	}
-	return Admission{SchemaDigest: schemaDigest, MappingVersion: mapping, EnvelopeVersion: "registry.authored-envelope/1"}, nil
+	return Admission{SchemaDigest: schemaDigest, MappingVersion: mapping, EnvelopeVersion: "registry.authored-envelope/2"}, nil
 }
 func subjectFor(ctx context.Context, q store.Querier, r Record, batch map[string]string) (PublicationSubject, error) {
 	if err := validatePublicationRecord(r); err != nil {
 		return PublicationSubject{}, err
 	}
-	// Envelope/1 enumerates every authored field outside the admitted kind payload.
-	content, err := canonicalDigest(Input{Schema: r.Schema, Key: r.Key, Summary: r.Summary, Source: r.Source, Payload: r.Payload, Metadata: r.Metadata})
+	// Envelope/2 enumerates every authored field outside the admitted kind payload.
+	content, err := canonicalDigest(Input{Examples: r.Examples, Schema: r.Schema, Key: r.Key, Summary: r.Summary, Source: r.Source, Payload: r.Payload, Metadata: r.Metadata})
 	if err != nil {
 		return PublicationSubject{}, err
 	}
@@ -704,7 +704,7 @@ func overlayVerification(ctx context.Context, q store.Querier, r *Record) error 
 // Re-admit retained drafts against the current contract. Migration never grants
 // eligibility to old records that bypassed current secret/schema/dependency rules.
 func validatePublicationRecord(r Record) error {
-	raw, err := json.Marshal(Input{Schema: r.Schema, Key: r.Key, Summary: r.Summary, Source: r.Source, Payload: r.Payload, Metadata: r.Metadata})
+	raw, err := json.Marshal(Input{Examples: r.Examples, Schema: r.Schema, Key: r.Key, Summary: r.Summary, Source: r.Source, Payload: r.Payload, Metadata: r.Metadata})
 	if err != nil {
 		return err
 	}
@@ -713,6 +713,9 @@ func validatePublicationRecord(r Record) error {
 	}
 	if err = kinds.ValidateJSON(r.Schema, r.Payload); err != nil {
 		return invalid("record.payload", err)
+	}
+	if err = validateExamples(r.Kind, r.Examples); err != nil {
+		return err
 	}
 	expected, err := payloadEdges(r)
 	if err != nil {
@@ -732,6 +735,13 @@ func validatePublicationRecord(r Record) error {
 	}
 	for _, e := range expected {
 		have, ok := actual[e.ID]
+		if have.Relation.Status == "reviewed" && have.ReviewedBy != "" {
+			have.Relation.Status = "proposed"
+			have.Relation.Source = "authored"
+			if have.ReviewHash != digest(have.Relation) {
+				return failure("validation_error", "edges", "relationship review binding differs from typed dependency")
+			}
+		}
 		if !ok || digest(have.Relation) != digest(e.Relation) || have.TargetRevision != e.TargetRevision {
 			return failure("validation_error", "edges", "typed dependency snapshot requires a new draft edit")
 		}

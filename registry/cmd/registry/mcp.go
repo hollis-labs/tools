@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	gmcp "github.com/hollis-labs/libs/mcp/plugin-mcp/go-mcp/server"
 	libauth "github.com/hollis-labs/libs/security/auth"
@@ -153,6 +154,27 @@ func catalogService(app *module.App) (*catalog.Service, error) {
 	}
 	if err := svc.ConfigureExportTargets(targets); err != nil {
 		return nil, err
+	}
+	maintenance, _ := cfg["maintenance"].(map[string]any)
+	for key, dest := range map[string]*time.Duration{"cursor_ttl": &svc.Maintenance.CursorTTL, "receipt_ttl": &svc.Maintenance.ReceiptTTL, "draft_history_ttl": &svc.Maintenance.DraftHistoryTTL} {
+		if raw, exists := maintenance[key]; exists {
+			text, ok := raw.(string)
+			if !ok {
+				return nil, fmt.Errorf("registry.maintenance.%s requires a duration string", key)
+			}
+			value, err := time.ParseDuration(text)
+			if err != nil || value < 0 {
+				return nil, fmt.Errorf("registry.maintenance.%s requires a nonnegative duration", key)
+			}
+			*dest = value
+		}
+	}
+	if raw, exists := maintenance["backup_directory"]; exists {
+		dir, ok := raw.(string)
+		if !ok || !filepath.IsAbs(dir) {
+			return nil, fmt.Errorf("registry.maintenance.backup_directory requires an absolute path")
+		}
+		svc.Maintenance.BackupDirectory = dir
 	}
 	return svc, nil
 }

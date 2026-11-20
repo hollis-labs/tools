@@ -11,7 +11,7 @@ import (
 
 	"github.com/hollis-labs/libs/core/store"
 	libauth "github.com/hollis-labs/libs/security/auth"
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 )
 
 type ImportLimits struct {

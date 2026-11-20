@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/libs/core/store"
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 )
 
 func (s *Service) list(ctx context.Context, caller string, query Query) (Page, error) {
@@ -31,7 +31,10 @@ func (s *Service) list(ctx context.Context, caller string, query Query) (Page, e
 	query.Cursor = ""
 	hash := digest(query)
 	after := ""
-	err := s.DB.ReadTx(ctx, func(ctx context.Context, q store.Querier) error {
+	// Reserve the continuation under the same writer transaction as its
+	// boundary. Retention must not prune between reading a snapshot and
+	// recording the cursor that protects it.
+	err := s.DB.WriteTx(ctx, func(ctx context.Context, q store.Tx) error {
 		if token != "" {
 			var storedHash, storedCaller string
 			err := q.QueryRowContext(ctx, `SELECT query_hash,caller,boundary,after_id,as_of FROM cursors WHERE token=?`, token).Scan(&storedHash, &storedCaller, &out.Boundary, &after, &out.AsOf)
@@ -55,7 +58,19 @@ func (s *Service) list(ctx context.Context, caller string, query Query) (Page, e
 				}
 			}
 		}
-		rows, err := q.QueryContext(ctx, `SELECT body FROM `+table+` WHERE seq IN (SELECT MAX(seq) FROM `+table+` WHERE seq<=? GROUP BY id) AND id>? ORDER BY id`, out.Boundary, after)
+		statement := `SELECT body FROM ` + table + ` WHERE seq IN (SELECT MAX(seq) FROM ` + table + ` WHERE seq<=? GROUP BY id) AND id>?`
+		params := []any{out.Boundary, after}
+		if strings.TrimSpace(query.Search) != "" {
+			index := "publication_fts"
+			if table == "revisions" {
+				index = "revision_fts"
+			}
+			// Treat operators and punctuation as literal phrase text.
+			phrase := `"` + strings.ReplaceAll(query.Search, `"`, `""`) + `"`
+			statement += ` AND seq IN (SELECT rowid FROM ` + index + ` WHERE ` + index + ` MATCH ?)`
+			params = append(params, phrase)
+		}
+		rows, err := q.QueryContext(ctx, statement+` ORDER BY id`, params...)
 		if err != nil {
 			return err
 		}
@@ -103,16 +118,14 @@ func (s *Service) list(ctx context.Context, caller string, query Query) (Page, e
 				r.Metadata = nil
 			}
 		}
+		if out.HasMore {
+			out.Cursor = newID()
+			after = out.Records[len(out.Records)-1].ID
+			_, err = q.ExecContext(ctx, `INSERT INTO cursors(token,query_hash,caller,boundary,after_id,as_of) VALUES(?,?,?,?,?,?)`, out.Cursor, hash, caller, out.Boundary, after, out.AsOf)
+			return err
+		}
 		return nil
 	})
-	if err != nil {
-		return out, err
-	}
-	if out.HasMore {
-		out.Cursor = newID()
-		after = out.Records[len(out.Records)-1].ID
-		_, err = s.DB.ExecContext(ctx, `INSERT INTO cursors(token,query_hash,caller,boundary,after_id,as_of) VALUES(?,?,?,?,?,?)`, out.Cursor, hash, caller, out.Boundary, after, out.AsOf)
-	}
 	return out, err
 }
 func matches(r Record, q Query) bool {
@@ -126,9 +139,6 @@ func matches(r Record, q Query) bool {
 		if p[0] != "" && p[0] != p[1] {
 			return false
 		}
-	}
-	if q.Search != "" && !strings.Contains(strings.ToLower(r.Name+" "+r.Summary+" "+string(r.Payload)), strings.ToLower(q.Search)) {
-		return false
 	}
 	if q.ReviewState != "" {
 		if r.Review == nil {

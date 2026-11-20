@@ -23,6 +23,7 @@ var Routes = []Route{
 	{"export_authorize", "POST", "/v1/export/authorize"}, {"export_attempt_get", "GET", "/v1/export/attempt"},
 	{"export_plan", "POST", "/v1/export/plan"}, {"export_diff", "POST", "/v1/export/diff"}, {"export_apply", "POST", "/v1/export/apply"},
 	{"changes_list", "GET", "/v1/changes"}, {"import_prepare", "POST", "/v1/import/prepare"}, {"import_commit", "POST", "/v1/import/commit"}, {"import_checkpoint", "GET", "/v1/import/checkpoint"},
+	{"references_report", "GET", "/v1/references"}, {"migration_list", "GET", "/v1/migrations"}, {"record_migrate", "POST", "/v1/record/migrate"}, {"relation_decide", "POST", "/v1/relations/decide"}, {"retention_run", "POST", "/v1/maintenance/retention"}, {"backup_create", "POST", "/v1/maintenance/backup"},
 	{"publication_approval_prepare", "POST", "/v1/publication/prepare"}, {"publication_approval_get", "GET", "/v1/publication/approval"}, {"publication_approval_decide", "POST", "/v1/publication/decide"}, {"publication_publish", "POST", "/v1/publication/publish"}, {"publication_policy_get", "GET", "/v1/publication/policy"}, {"publication_policy_set", "PUT", "/v1/publication/policy"},
 	{"kinds_list", "GET", "/v1/kinds"}, {"schema_get", "GET", "/v1/schema"},
 	{"record_create", "POST", "/v1/records"}, {"record_get", "GET", "/v1/record"},
@@ -296,6 +297,12 @@ func argumentSchema(op string) any {
 		add("hash", "string", "Exact prepared plan digest", true)
 		add("source_digest", "string", "Confirmed current source snapshot digest", true)
 		add("idempotency_key", "string", "Caller-scoped retry key", true)
+	case "backup_create":
+	case "retention_run":
+		add("apply", "boolean", "False previews and rolls back; true applies protected server retention policy", false)
+	case "migration_list":
+		add("id", "string", "Exact record ID", true)
+		add("query", "object", "Limit and continuation cursor", false)
 	case "publication_policy_get":
 	case "publication_policy_set":
 		add("version", "string", "Current policy revision", true)
@@ -316,12 +323,12 @@ func argumentSchema(op string) any {
 			add("idempotency_key", "string", "Caller-scoped committed replay key", true)
 		}
 	case "schema_get":
-		add("schema", "string", "Versioned schema, such as project/1", true)
+		add("schema", "string", "Versioned schema, such as project/2", true)
 	case "record_create":
 		add("record", "object", "Authored Input: schema, key, payload, optional summary/source/metadata", true)
 		add("idempotency_key", "string", "Caller-scoped creation retry key", false)
 		add("allow_unresolved", "boolean", "Explicitly accept missing local relation targets", false)
-	case "record_list", "record_search", "snapshot_get", "review_list":
+	case "references_report", "record_list", "record_search", "snapshot_get", "review_list":
 		add("query", "object", "Filters kind/subtype/lifecycle/authority/owner/key/review_state/relation/search; full, limit 1..200, cursor", false)
 	case "record_get", "tool_classify", "relation_list":
 		add("id", "string", "Exact canonical record ID", true)
@@ -346,12 +353,21 @@ func argumentSchema(op string) any {
 		add("id", "string", "Exact canonical record ID", true)
 		add("version", "string", "Current version_token (optimistic concurrency)", true)
 		switch op {
+		case "record_migrate":
+			add("record", "object", "Complete replacement using a different supported shared schema; never publishes", true)
+			add("reason", "string", "Migration rationale recorded with old/new schema and revisions", true)
+			add("allow_unresolved", "boolean", "Allow missing local relation targets", false)
 		case "record_update":
 			add("record", "object", "Complete replacement authored Input", true)
 			add("allow_unresolved", "boolean", "Allow missing local relation targets", false)
 		case "relation_create":
 			add("relation", "object", "relation/1 typed proposed relationship", true)
 			add("allow_unresolved", "boolean", "Allow missing local target", false)
+		case "relation_decide":
+			add("edge_id", "string", "Stored edge ID", true)
+			add("hash", "string", "Exact proposed edge hash returned by reads", true)
+			add("decision", "string", "reviewed", true)
+			add("reason", "string", "Independent review rationale", true)
 		case "relation_remove":
 			add("edge_id", "string", "Stored edge ID", true)
 		case "tool_propose", "review_decide":

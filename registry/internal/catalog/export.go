@@ -19,7 +19,7 @@ import (
 	"github.com/hollis-labs/libs/harness/core/workspace/materialize"
 	"github.com/hollis-labs/libs/harness/core/workspace/materialize/artifact"
 	libauth "github.com/hollis-labs/libs/security/auth"
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 	"gopkg.in/yaml.v3"
 )
 

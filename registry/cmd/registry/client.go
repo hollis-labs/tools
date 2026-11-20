@@ -41,14 +41,14 @@ func addClientCommands(root *cobra.Command) {
 	root.SilenceErrors = true
 	root.SilenceUsage = true
 	// Human commands and the discoverable exact operation names share one path.
-	names := map[string]string{"kinds_list": "kinds", "schema_get": "schema", "record_create": "create", "record_get": "get", "publication_publish": "publish", "record_list": "list", "record_search": "search", "record_update": "update", "record_archive": "archive", "record_delete": "delete", "record_verify": "verify", "revision_list": "history", "revision_get": "revision", "snapshot_get": "snapshot", "diagnostics": "doctor"}
+	names := map[string]string{"kinds_list": "kinds", "schema_get": "schema", "record_create": "create", "record_get": "get", "publication_publish": "publish", "record_list": "list", "record_search": "search", "record_update": "update", "record_archive": "archive", "record_delete": "delete", "record_verify": "verify", "revision_list": "history", "revision_get": "revision", "snapshot_get": "snapshot", "diagnostics": "doctor", "backup_create": "backup", "retention_run": "retention", "references_report": "references", "record_migrate": "migrate", "migration_list": "migrations"}
 	for _, op := range catalog.Operations {
 		name := names[op]
 		if name == "" {
 			name = strings.ReplaceAll(op, "_", "-")
 		}
 		var endpoint, tokenFile, file, id, version, key, schema, cursor, kind, search, publication string
-		var full, jsonOutput, allow bool
+		var full, jsonOutput, allow, readable, apply bool
 		var limit int
 		cmd := &cobra.Command{Use: name + " [id]", Short: "Registry " + strings.ReplaceAll(op, "_", " "), Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, pos []string) (runErr error) {
 			defer func() {
@@ -113,9 +113,18 @@ func addClientCommands(root *cobra.Command) {
 			if cmd.Flags().Changed("limit") {
 				a.Query.Limit = limit
 			}
+			if cmd.Flags().Changed("apply") {
+				a.Apply = apply
+			}
+			if jsonOutput && readable {
+				return fmt.Errorf("choose --json or --readable")
+			}
 			out, err := registryClient(endpoint, tokenFile).Call(cmd.Context(), op, a)
 			if err != nil {
 				return err
+			}
+			if readable {
+				return renderReadable(cmd.OutOrStdout(), out)
 			}
 			encoder := json.NewEncoder(cmd.OutOrStdout())
 			encoder.SetIndent("", "  ")
@@ -135,7 +144,11 @@ func addClientCommands(root *cobra.Command) {
 		cmd.Flags().IntVar(&limit, "limit", 50, "Page limit 1..200")
 		cmd.Flags().BoolVar(&full, "full", false, "Include full payloads")
 		cmd.Flags().BoolVar(&allow, "allow-unresolved", false, "Allow absent local relation targets")
-		cmd.Flags().BoolVar(&jsonOutput, "json", false, "Include structured errors; success output is always JSON")
+		cmd.Flags().BoolVar(&readable, "readable", false, "Render human tables and readable details")
+		if op == "retention_run" {
+			cmd.Flags().BoolVar(&apply, "apply", false, "Apply retention; default previews without changes")
+		}
+		cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit structured errors and JSON success output")
 		root.AddCommand(cmd)
 	}
 }
