@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/hollis-labs/substrate/kinds"
 	"github.com/hollis-labs/tools/registry/internal/projectmigration"
@@ -57,14 +58,34 @@ func migrate(output string, paths []string) error {
 		}
 		drafts[name] = append(next, '\n')
 	}
-	if err := os.Mkdir(output, 0700); err != nil {
-		return fmt.Errorf("cannot create new output directory")
-	}
-	for name, raw := range drafts {
-		if err := os.WriteFile(filepath.Join(output, name), raw, 0600); err != nil { // #nosec G306 -- private authored drafts
-			return fmt.Errorf("cannot write output draft; discard incomplete output directory")
-		}
+	if err := publishDrafts(output, drafts, os.WriteFile); err != nil {
+		return err
 	}
 	fmt.Printf("Rewrote and validated %d project drafts; source files unchanged.\n", len(drafts))
+	return nil
+}
+
+func publishDrafts(output string, drafts map[string][]byte, write func(string, []byte, os.FileMode) error) error {
+	if _, err := os.Lstat(output); !os.IsNotExist(err) {
+		return fmt.Errorf("output must not exist")
+	}
+	stage, err := os.MkdirTemp(filepath.Dir(output), ".project2-staging-*")
+	if err != nil {
+		return fmt.Errorf("cannot create private sibling staging directory")
+	}
+	defer func() { _ = os.RemoveAll(stage) }()
+	names := make([]string, 0, len(drafts))
+	for name := range drafts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if err := write(filepath.Join(stage, name), drafts[name], 0600); err != nil {
+			return fmt.Errorf("cannot write staged draft; output not published")
+		}
+	}
+	if err := publishDirectory(stage, output); err != nil {
+		return fmt.Errorf("cannot publish output without replacing a destination")
+	}
 	return nil
 }

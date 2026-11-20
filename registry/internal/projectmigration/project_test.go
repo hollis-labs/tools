@@ -101,3 +101,23 @@ func TestRewriteLibraryAndConflicts(t *testing.T) {
 		}
 	}
 }
+
+func TestWrapperShapeRejectsUnknownAndMistypedFields(t *testing.T) {
+	payload := `{"schema":"project/1","id":"example","name":"Example","class":2,"lifecycle":"active","visibility":"public","owner":"user:example","interfaces":[{"type":"cli"}],"metadata":{"type":"service","disposition":"continue"}}`
+	input := `{"schema":"project/1","key":"example","payload":` + payload + `}`
+	for _, raw := range []string{
+		strings.Replace(input, `"key":"example"`, `"key":42`, 1),
+		strings.Replace(input, `"key":"example"`, `"key":null`, 1),
+		strings.Replace(input, `"key":"example"`, `"key":""`, 1),
+		strings.Replace(input, `"key":"example"`, `"key":"example","unknown":true`, 1),
+		`{"record":` + input + `,"unknown":true}`,
+		`{"record":` + input + `,"version":42}`,
+		`{"record":` + input + `,"reason":{}}`,
+		`{"record":` + input + `,"id":"project:example","version":"token"}`,
+		`{"record":` + input + `,"publication":"published"}`,
+	} {
+		if _, err := Rewrite([]byte(raw)); err == nil {
+			t.Errorf("accepted invalid wrapper: %s", raw)
+		}
+	}
+}

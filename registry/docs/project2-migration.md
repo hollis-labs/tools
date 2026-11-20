@@ -29,11 +29,18 @@ responses. It never opens SQLite or submits API mutations.
 go run ./cmd/registry-project2-migrate --output ./project2-copy ./drafts/*.json
 ```
 
-All files are transformed and validated against the shared schema before the
-output directory is created. An existing output directory is refused. Input
-files remain unchanged; output drafts use private file permissions. A filesystem
-write failure can leave an incomplete output directory; discard that directory
-before retrying.
+All files are transformed and validated against the shared schema before any
+output is staged. Input/argument envelopes also pass Registry's strict catalog
+decoder; unknown fields, wrong field types and empty keys are refused. Existing
+record migration envelopes require an id, version and reason together.
+
+The complete output is written into a private sibling staging directory, then
+published atomically with Linux `RENAME_NOREPLACE`. Existing destinations,
+including ones created during staging, are never replaced. Failures clean the
+staging directory; sources remain unchanged. Files use mode 0600 and the output
+directory mode 0700. Publication is supported on Linux; other platforms fail
+closed. Retrying the unchanged source batch with a fresh output path is safe;
+rerunning against an existing output path is refused.
 
 The rewriter:
 
@@ -44,6 +51,8 @@ The rewriter:
 3. Removes class `"lib"`, preserving an explicit framework, monorepo or lib
    type. If no type is authored, class `"lib"` supplies type `"lib"`. Other
    explicit types conflict and need an authored tier correction.
+   Explicit type takes precedence over inference from the legacy class; both
+   metadata locations must agree with each other and any first-class value.
 4. Requires an authored disposition and type. It supplies no defaults and does
    not map lifecycle to disposition. It updates both schema fields to `project/2`.
 5. Validates every destination payload with Substrate/kinds and refuses

@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
+
+	"github.com/hollis-labs/tools/registry/internal/catalog"
 )
 
 // Rewrite accepts a project descriptor, an authored Registry Input, or a
@@ -15,6 +18,9 @@ import (
 // before writing anything. Missing decisions are errors, never inferred tiers
 // or lifecycle-to-disposition mappings.
 func Rewrite(raw []byte) ([]byte, error) {
+	if err := validateShape(raw); err != nil {
+		return nil, err
+	}
 	var doc map[string]any
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
@@ -85,6 +91,43 @@ func Rewrite(raw []byte) ([]byte, error) {
 	input["schema"] = "project/2"
 	payload["schema"] = "project/2"
 	return json.MarshalIndent(doc, "", "  ")
+}
+
+func validateShape(raw []byte) error {
+	var shape map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &shape); err != nil || shape == nil {
+		return fmt.Errorf("expected a JSON object")
+	}
+	var input *catalog.Input
+	if _, exists := shape["record"]; exists {
+		var args catalog.Args
+		if err := catalog.Decode(raw, &args); err != nil || args.Record == nil {
+			return fmt.Errorf("invalid Registry argument envelope")
+		}
+		if args.ID != "" || args.Version != "" || args.Reason != "" {
+			if strings.TrimSpace(args.ID) == "" || strings.TrimSpace(args.Version) == "" || strings.TrimSpace(args.Reason) == "" {
+				return fmt.Errorf("migration envelope requires id, version and reason")
+			}
+		}
+		if args.Publication != "" && args.Publication != "draft" {
+			return fmt.Errorf("only draft argument envelopes may be rewritten")
+		}
+		input = args.Record
+	} else if _, exists := shape["payload"]; exists {
+		var value catalog.Input
+		if err := catalog.Decode(raw, &value); err != nil {
+			return fmt.Errorf("invalid Registry authored Input")
+		}
+		input = &value
+	} else {
+		// Standalone descriptors have their own shared schema; wrapper-only
+		// fields are never interpreted here.
+		return nil
+	}
+	if strings.TrimSpace(input.Key) == "" {
+		return fmt.Errorf("record.key must be a nonempty string")
+	}
+	return nil
 }
 
 // Payload extracts the schema document from any accepted authored shape.
