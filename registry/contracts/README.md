@@ -1,3 +1,8 @@
+# Registry contracts
+
+Agency-owned versioned contracts. See [provenance and project/2](PROVENANCE.md).
+The following is the preserved staged-source reference for the original kinds.
+
 # Shared operational kinds
 
 `kinds` is a pure contract package for FC-8 / TR-1
@@ -7,7 +12,7 @@ Schemas, strict parsers and deterministic definition hashes. Registry owns
 records, revisions, storage, publication authority and review decisions.
 
 No boot registration or running Substrate host is needed. Import
-`github.com/hollis-labs/substrate/kinds` from generators, CI or services.
+`github.com/hollis-labs/tools/registry/contracts` from generators, CI or services.
 It does not change Folio descriptors, register tools or migrate consumers.
 
 ## Entry points

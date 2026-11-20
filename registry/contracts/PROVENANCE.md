@@ -9,7 +9,10 @@ The staged source is `github.com/hollis-labs/substrate/kinds` at
 Registry pinned when this module was created. Its 13 record kinds and the two
 auxiliary relation/classification schemas are copied byte-for-byte. The
 machine-readable SHA-256 manifest is `schema-provenance.json`; the upstream
-fixture tests are retained with only their import path changed. The original
+fixture tests are retained with only their import path changed. In addition,
+`testdata/pinned-fixtures.json` freezes 30 accepted/rejected outcomes across all
+15 schemas, independently checked against that exact upstream validator before
+switching Registry imports; `TestPinnedFixtureParity` runs the frozen corpus. The original
 license is retained. Validators, references, hashes and secret checks were
 staged from that same source to preserve admission behavior.
 
