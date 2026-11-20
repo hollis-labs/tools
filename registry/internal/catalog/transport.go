@@ -20,6 +20,8 @@ func (e *Error) ToolErrorContent() any { return e }
 type Route struct{ Operation, Method, Path string }
 
 var Routes = []Route{
+	{"workstream_ensure", "POST", "/v1/workstreams/ensure"},
+	{"correlation_register", "POST", "/v1/correlations/register"},
 	{"export_authorize", "POST", "/v1/export/authorize"}, {"export_attempt_get", "GET", "/v1/export/attempt"},
 	{"export_plan", "POST", "/v1/export/plan"}, {"export_diff", "POST", "/v1/export/diff"}, {"export_apply", "POST", "/v1/export/apply"},
 	{"import_preparation_get", "POST", "/v1/import/preparation"},
@@ -69,7 +71,14 @@ func Handler(call CallFunc) http.Handler {
 				if e != nil {
 					err = failure("validation_error", "request", "unable to read request within 2 MiB limit")
 				} else {
-					err = Decode(raw, &a)
+					if route.Operation == "workstream_ensure" || route.Operation == "correlation_register" {
+						err = decodeMint(raw, route.Operation, &a)
+						if r.Header.Get("Idempotency-Key") == "" {
+							err = failure("validation_error", "idempotency_key", "Idempotency-Key header required")
+						}
+					} else {
+						err = Decode(raw, &a)
+					}
 				}
 			}
 			if v := r.Header.Get("If-Match"); v != "" {
@@ -129,7 +138,7 @@ func Status(code string) int {
 		return 404
 	case "deleted":
 		return 410
-	case "version_conflict", "alias_conflict":
+	case "version_conflict", "alias_conflict", "workstream_closed":
 		return 409
 	case "unavailable":
 		return 503
@@ -157,7 +166,19 @@ func (c *Client) Call(ctx context.Context, op string, a Args) (any, error) {
 	if route.Operation == "" {
 		return nil, failure("not_found", "operation", "unknown operation")
 	}
-	raw, err := json.Marshal(a)
+	if op == "workstream_ensure" || op == "correlation_register" {
+		if err := validateMintArgs(a); err != nil {
+			return nil, err
+		}
+	}
+	var payload any = a
+	if op == "workstream_ensure" {
+		payload = ensureRequest{a.Key, a.Name, a.ProjectURNs}
+	}
+	if op == "correlation_register" {
+		payload = a.LaunchFacts
+	}
+	raw, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -173,6 +194,9 @@ func (c *Client) Call(ctx context.Context, op string, a Args) (any, error) {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if op == "workstream_ensure" || op == "correlation_register" {
+		req.Header.Set("Idempotency-Key", a.IdempotencyKey)
+	}
 	if c.Token != nil {
 		token, tokenErr := c.Token()
 		if tokenErr != nil {
@@ -273,6 +297,16 @@ func argumentSchema(op string) any {
 		}
 	}
 	switch op {
+	case "workstream_ensure":
+		add("key", "string", "Stable application reference, not an id", true)
+		add("name", "string", "Authored display name", false)
+		add("project_urns", "array", "Project key domain", false)
+		add("idempotency_key", "string", "30 day replay key", true)
+	case "correlation_register":
+		for _, n := range launchFields {
+			add(n, "string", "Typed launch fact; absent when unknown", n == "urn" || n == "session" || n == "run_id")
+		}
+		add("idempotency_key", "string", "30 day replay key", true)
 	case "export_plan":
 		add("export", "object", "Target binding, optional exact ids and expected_generation; published records only", true)
 	case "export_diff":

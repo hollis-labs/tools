@@ -252,6 +252,12 @@ deleted, reference_unresolved, alias_conflict, version_conflict, forbidden and
 unavailable. Bodies are limited to 2 MiB; no bulk import or telemetry ingestion
 is included.
 
+## Registry-owned identities
+
+`POST /v1/workstreams/ensure` and `POST /v1/correlations/register` mint stable
+Registry identities with atomic, 30-day replay receipts and permanent logical
+uniqueness. See [API, authorization and enrichment reference](docs/minting.md).
+
 ## Verification and deployment
 
 The offline [project draft migration](docs/project2-migration.md) promotes

@@ -38,7 +38,7 @@ func New(db *store.Store, authorities map[string]string, reviewers map[string]st
 	return &Service{DB: db, authorities: bindings, reviewers: roles, importLimits: DefaultImportLimits(), now: time.Now}
 }
 
-var Operations = []string{"import_preparation_get", "export_authorize", "export_attempt_get", "export_plan", "export_diff", "export_apply", "changes_list", "import_prepare", "import_commit", "import_checkpoint", "publication_approval_prepare", "publication_approval_get", "publication_approval_decide", "publication_publish", "publication_policy_get", "publication_policy_set", "kinds_list", "schema_get", "record_create", "record_get", "record_list", "record_search", "record_update", "record_archive", "record_delete", "record_verify", "revision_list", "revision_get", "relation_create", "relation_list", "relation_remove", "tool_resolve", "tool_classify", "tool_propose", "review_list", "review_decide", "snapshot_get", "diagnostics", "references_report", "migration_list", "record_migrate", "relation_decide", "retention_run", "backup_create"}
+var Operations = []string{"workstream_ensure", "correlation_register", "import_preparation_get", "export_authorize", "export_attempt_get", "export_plan", "export_diff", "export_apply", "changes_list", "import_prepare", "import_commit", "import_checkpoint", "publication_approval_prepare", "publication_approval_get", "publication_approval_decide", "publication_publish", "publication_policy_get", "publication_policy_set", "kinds_list", "schema_get", "record_create", "record_get", "record_list", "record_search", "record_update", "record_archive", "record_delete", "record_verify", "revision_list", "revision_get", "relation_create", "relation_list", "relation_remove", "tool_resolve", "tool_classify", "tool_propose", "review_list", "review_decide", "snapshot_get", "diagnostics", "references_report", "migration_list", "record_migrate", "relation_decide", "retention_run", "backup_create"}
 
 func (s *Service) Call(ctx context.Context, op string, a Args) (any, error) {
 	p, ok := libauth.FromContext(ctx)
@@ -67,6 +67,9 @@ func (s *Service) Call(ctx context.Context, op string, a Args) (any, error) {
 	}
 	if !known {
 		return nil, failure("not_found", "operation", "unknown operation")
+	}
+	if op == "workstream_ensure" || op == "correlation_register" {
+		return s.mint(ctx, p, op, a)
 	}
 	if strings.HasPrefix(op, "export_") {
 		return s.exportCall(ctx, p, op, a)
@@ -646,6 +649,17 @@ func savePrepared(ctx context.Context, tx store.Tx, r *Record) error {
 	return saveRecord(ctx, tx, r, true)
 }
 func saveRecord(ctx context.Context, tx store.Tx, r *Record, allocated bool) error {
+	if old, err := readRecord(ctx, tx, r.ID, -1); err == nil {
+		if err := protectMinted(ctx, tx, old, *r); err != nil {
+			return err
+		}
+	} else {
+		var ce *Error
+		if !errors.As(err, &ce) || ce.Code != "not_found" {
+			return err
+		}
+	}
+
 	var other string
 	err := tx.QueryRowContext(ctx, `SELECT r.id FROM records c JOIN revisions r ON r.seq=c.seq WHERE r.kind=? AND r.authority=? AND json_extract(r.body,'$.key')=? AND r.id<>?`, r.Kind, r.Authority, r.Key, r.ID).Scan(&other)
 	if err == nil {
