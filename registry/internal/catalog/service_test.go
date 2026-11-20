@@ -10,7 +10,7 @@ import (
 	"github.com/hollis-labs/libs/core/store"
 	"github.com/hollis-labs/libs/core/store/migrate"
 	libauth "github.com/hollis-labs/libs/security/auth"
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 )
 
 func openTest(t *testing.T, path string) *Service {

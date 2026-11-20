@@ -8,8 +8,10 @@ require (
 	github.com/hollis-labs/libs/mcp/plugin-mcp v0.6.0
 	github.com/hollis-labs/libs/security/auth v0.3.1
 	github.com/hollis-labs/substrate v0.1.1-0.20261119200612-112799f6da86
+	github.com/hollis-labs/tools/registry/contracts v0.0.0-20261120025733-4199eedcd2f4
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/sys v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -44,7 +46,6 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	modernc.org/libc v1.78.0 // indirect

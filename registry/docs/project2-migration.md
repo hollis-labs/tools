@@ -1,8 +1,8 @@
 # Project draft migration
 
 `registry-project2-migrate` is an offline, one-time JSON draft rewriter. It
-requires a Substrate version whose shared kinds support `project/2`. The
-command refuses to produce output if that schema is unavailable. Registry's
+validates with the agency-owned `registry/contracts` module and its `project/2`
+contract. Registry's
 normal request path never rewrites old schemas or reads metadata aliases.
 
 The destination contract has first-class `disposition` and `type`:
@@ -29,7 +29,7 @@ responses. It never opens SQLite or submits API mutations.
 go run ./cmd/registry-project2-migrate --output ./project2-copy ./drafts/*.json
 ```
 
-All files are transformed and validated against the shared schema before any
+All files are transformed and validated against the contracts schema before any
 output is staged. Input/argument envelopes also pass Registry's strict catalog
 decoder; unknown fields, wrong field types and empty keys are refused. Existing
 record migration envelopes require an id, version and reason together.
@@ -49,13 +49,13 @@ The rewriter:
    into the descriptor's first-class fields, deleting both metadata entries.
    Conflicting values fail the batch. Unrelated metadata is preserved.
 3. Removes class `"lib"`, preserving any explicit authored type. If no type is
-   authored, class `"lib"` supplies type `"lib"`. The shared destination schema
+   authored, class `"lib"` supplies type `"lib"`. The contracts destination schema
    alone validates type enums and requires a numeric tier where applicable.
    Explicit type takes precedence over inference from the legacy class; both
    metadata locations must agree with each other and any first-class value.
 4. Requires an authored disposition and type. It supplies no defaults and does
    not map lifecycle to disposition. It updates both schema fields to `project/2`.
-5. Validates every destination payload with Substrate/kinds and refuses
+5. Validates every destination payload with registry/contracts and refuses
    secret-like values. A second rewrite of the destination is refused.
 
 For example, an authored draft fragment:
@@ -81,3 +81,7 @@ the existing conditional `registry migrate --file ...` operation only during
 a separately authorized activation. Do not re-create identities, edit immutable
 history, or migrate published revisions in place. This offline utility does
 not apply the migration or grant deployment approval.
+
+Rehearsal drafts are archived rather than migrated. Tests generate independent
+legacy fixtures, take a verified SQLite backup, and migrate only the disposable
+copy. These fixtures are not evidence of live population or the authored cohort.

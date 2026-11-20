@@ -147,10 +147,12 @@ automatic down/destructive migration is supplied. Before activation, validate th
 combined 003 sync/import and 004 hardening sequence against fresh main. Do not
 apply isolated 004 to a live database and then introduce the reserved 003 later.
 
-Kind schemas come exclusively from the pinned shared Substrate kinds package.
+Kind schemas come exclusively from the pinned agency-owned Registry contracts
+module (`registry/contracts`), with independent validation per version.
 `registry kinds` lists exact supported versions; `registry schema --schema KIND/N`
-retrieves one. Adding `kind/2` requires the shared owner's approved contract/pin,
-not a local alias. Unknown versions fail closed. Ordinary `update` cannot change
+retrieves one. Adding `kind/2` requires a new version in that module and an explicit
+Registry dependency update. Existing versions are unchanged. Unknown versions fail
+closed. Ordinary `update` cannot change
 a schema; `migrate` takes the full replacement input, current source token and a
 nonempty `reason`. Only the owning publication authority can migrate an identity;
 its kind and canonical ID cannot change. The transaction validates the target,

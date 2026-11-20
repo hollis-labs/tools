@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 	"github.com/hollis-labs/tools/registry/internal/projectmigration"
 )
 
@@ -49,9 +49,9 @@ func migrate(output string, paths []string) error {
 			return fmt.Errorf("input %d: cannot extract payload", i+1)
 		}
 		if err := kinds.ValidateJSON("project/2", payload); err != nil {
-			// Shared validators can include authored values in errors. Do not
+			// Contracts validators can include authored values in errors. Do not
 			// print draft content, which may contain private operator metadata.
-			return fmt.Errorf("input %d: shared project/2 validation failed; check schema support and authored values", i+1)
+			return fmt.Errorf("input %d: contracts project/2 validation failed; check schema support and authored values", i+1)
 		}
 		if err := kinds.ValidateNoSecretsJSON(next); err != nil {
 			return fmt.Errorf("input %d: secret-like value refused", i+1)

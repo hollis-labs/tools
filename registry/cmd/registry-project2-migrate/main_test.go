@@ -3,39 +3,17 @@ package main
 import (
 	"errors"
 	"fmt"
-	"github.com/hollis-labs/substrate/kinds"
-	"github.com/hollis-labs/tools/registry/internal/projectmigration"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/hollis-labs/tools/registry/contracts"
+	"github.com/hollis-labs/tools/registry/internal/projectmigration"
 )
 
 const completeDraft = `{"schema":"project/1","id":"example","name":"Example","class":2,"lifecycle":"active","visibility":"public","owner":"user:example","interfaces":[{"type":"cli"}],"metadata":{"type":"service","disposition":"continue"}}`
-
-func TestUnavailableSharedSchemaRefusesCompleteDraft(t *testing.T) {
-	if _, err := kinds.Schema("project/2"); err == nil {
-		t.Skip("shared project/2 is available")
-	}
-	dir := t.TempDir()
-	source := filepath.Join(dir, "source.json")
-	if err := os.WriteFile(source, []byte(completeDraft), 0600); err != nil {
-		t.Fatal(err)
-	}
-	err := migrate(filepath.Join(dir, "output"), []string{source})
-	if err == nil || !strings.Contains(err.Error(), "shared project/2 validation failed") {
-		t.Fatalf("expected missing-schema refusal: %v", err)
-	}
-	entries, readErr := os.ReadDir(dir)
-	if readErr != nil || len(entries) != 1 || entries[0].Name() != "source.json" {
-		t.Fatal("failed batch left output")
-	}
-	raw, readErr := os.ReadFile(source)
-	if readErr != nil || string(raw) != completeDraft {
-		t.Fatal("source changed")
-	}
-}
 
 func TestInvalidBatchLeavesSourcesAndNoOutput(t *testing.T) {
 	requireProject2(t)
@@ -66,7 +44,7 @@ func TestInvalidBatchLeavesSourcesAndNoOutput(t *testing.T) {
 	}
 }
 
-func TestSharedValidationOwnsTierAfterLibraryRewrite(t *testing.T) {
+func TestContractsValidationOwnsTierAfterLibraryRewrite(t *testing.T) {
 	requireProject2(t)
 	for _, typ := range []string{"service", "app", "tool"} {
 		raw := strings.Replace(completeDraft, `"class":2`, `"class":"lib"`, 1)
@@ -76,7 +54,7 @@ func TestSharedValidationOwnsTierAfterLibraryRewrite(t *testing.T) {
 			t.Fatalf("transformer validated tier: %v", err)
 		}
 		if err := kinds.ValidateJSON("project/2", next); err == nil {
-			t.Fatalf("shared validator accepted missing %s tier", typ)
+			t.Fatalf("contracts validator accepted missing %s tier", typ)
 		}
 	}
 }
@@ -173,7 +151,7 @@ func TestStagingPublishesCompletePrivateDirectory(t *testing.T) {
 func requireProject2(t *testing.T) {
 	t.Helper()
 	if _, err := kinds.Schema("project/2"); errors.Is(err, kinds.ErrUnknownSchema) {
-		t.Skip("pending shared project/2 prerequisite; not migration success evidence")
+		t.Fatal("contracts must provide project/2")
 	} else if err != nil {
 		t.Fatal(err)
 	}

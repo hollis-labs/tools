@@ -14,7 +14,7 @@ import (
 
 // Rewrite accepts a project descriptor, an authored Registry Input, or a
 // record_create/record_migrate argument envelope. It preserves unrelated fields.
-// The caller must validate the result with the current shared project schema
+// The caller must validate the result with the current contracts project schema
 // before writing anything. Missing decisions are errors, never inferred tiers
 // or lifecycle-to-disposition mappings.
 func Rewrite(raw []byte) ([]byte, error) {
@@ -114,7 +114,7 @@ func validateShape(raw []byte) error {
 		}
 		input = &value
 	} else {
-		// Standalone descriptors have their own shared schema; wrapper-only
+		// Standalone descriptors have their own contracts schema; wrapper-only
 		// fields are never interpreted here.
 		return nil
 	}

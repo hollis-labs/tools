@@ -293,7 +293,7 @@ func argumentSchema(op string) any {
 			add("idempotency_key", "string", "Caller-scoped committed replay key", true)
 		}
 	case "schema_get":
-		add("schema", "string", "Versioned schema, such as project/1", true)
+		add("schema", "string", "Versioned schema, such as project/2", true)
 	case "record_create":
 		add("record", "object", "Authored Input: schema, key, payload, optional summary/source/metadata", true)
 		add("idempotency_key", "string", "Caller-scoped creation retry key", false)

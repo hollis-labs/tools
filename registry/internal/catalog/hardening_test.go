@@ -13,7 +13,7 @@ import (
 
 	"github.com/hollis-labs/libs/core/store"
 	"github.com/hollis-labs/libs/core/store/migrate"
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 )
 
 func TestFTSNamesSummariesBodiesAndImmutablePublicationBoundary(t *testing.T) {
@@ -401,8 +401,9 @@ func TestToolExamplesPersistBindApprovalAndRejectSecrets(t *testing.T) {
 func TestExplicitKindMigrationIsAtomicAndLogged(t *testing.T) {
 	s := openTest(t, filepath.Join(t.TempDir(), "db"))
 	r := create(t, s, input("legacy"))
-	// Model a retained old kind version. No new shared schema is invented by
-	// Registry; migration targets must exist in the pinned Substrate kinds.
+	// Model a retained old kind version; migration targets must exist in the
+	// pinned agency-owned Registry contracts. Project/1 -> project/2 is tested
+	// separately with generated backup fixtures and no historical row edits.
 	if _, err := s.DB.ExecContext(context.Background(), `UPDATE revisions SET body=json_set(body,'$.schema','project/0') WHERE token=?`, r.RevisionID); err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +422,7 @@ func TestExplicitKindMigrationIsAtomicAndLogged(t *testing.T) {
 		t.Fatal(logs)
 	}
 	unknown := input("legacy")
-	unknown.Schema = "project/2"
+	unknown.Schema = "project/999"
 	_, err = s.Call(writer, "record_migrate", Args{ID: r.ID, Version: migrated.VersionToken, Record: unknown, Reason: "unsupported"})
 	code(t, err, "unknown_schema")
 	_, err = s.Call(writer, "record_migrate", Args{ID: r.ID, Version: migrated.VersionToken, Record: input("legacy"), Reason: "same version"})

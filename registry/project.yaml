@@ -1,7 +1,7 @@
-# project.yaml — the project descriptor (project/1, release candidate 1: fields may change without a version bump
-# until 1.0). Written once by Folio and never overwritten; edit it by hand. `internal/descriptor` validates it
-# and checks that deploy.yaml, registry.cerberus.yaml and the code agree with it.
-schema: project/1
+# Agency-owned versioned Registry project descriptor.
+schema: project/2
+type: service
+disposition: continue
 id: registry
 name: Registry
 description: "Operational definitions and typed relationships"

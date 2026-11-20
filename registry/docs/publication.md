@@ -101,3 +101,8 @@ Secret-like values are refused before persistence with value-free errors;
 structured secret locators are retained without resolution. Detection is
 conservative, not proof that every opaque string is non-secret. App-owned
 configuration remains in its application database.
+
+The schema bundle includes every supported version from agency-owned
+`registry/contracts`. Adding `project/2` changes the admission digest and requires
+fresh approval preparation for subsequent publication. Existing published
+snapshots and immutable revisions retain their original bytes.
