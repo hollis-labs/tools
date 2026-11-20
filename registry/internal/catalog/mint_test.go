@@ -201,6 +201,17 @@ func TestMintAuthorizationAndInjection(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
+	var minted MintResult
+	if err := json.Unmarshal(w.Body.Bytes(), &minted); err != nil {
+		t.Fatal(err)
+	}
+	agencyReader := caller("agency-reader", "registry.read")
+	read := callRecord(t, s, agencyReader, "record_get", Args{ID: minted.ID, Publication: "draft"})
+	if read.ID != minted.ID || read.Kind != "workstream" {
+		t.Fatal("authenticated agency reader cannot see minted workstream draft")
+	}
+	_, err := s.Call(agencyReader, "record_get", Args{ID: minted.ID})
+	code(t, err, "not_found") // Default reads remain published; minting does not publish.
 }
 func TestCorrelationUniquenessAndConditionalEnrichment(t *testing.T) {
 	s := openTest(t, filepath.Join(t.TempDir(), "db"))

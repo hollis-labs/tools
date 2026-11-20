@@ -20,7 +20,9 @@ ensure capability is reserved for the Torque dispatcher; register is reserved
 for the Tether launcher. This change does not provision credentials or scopes.
 A verified agency reader with `registry.read` can retrieve the authored record
 using `GET /v1/record?id=<id>&args={"publication":"draft"}` (URL-encode args).
-Minting does not publish a record or bypass publication review.
+Minting does not publish a record or bypass publication review. The default
+published selector returns `not_found` for a newly minted draft; use the explicit
+draft selector above until separately authorized publication.
 
 ### Workstreams
 
