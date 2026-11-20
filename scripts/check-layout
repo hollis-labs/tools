@@ -3,7 +3,7 @@
 #   - the tree breaks the flat layout: a loose file at the root, a submodule, an LFS filter,
 #     a file over 10 MiB, a directory name that is not lower case [a-z0-9._-];
 #   - a go.work or go.work.sum is tracked or sits in the tree and is not ignored;
-#   - a go.mod exists anywhere but <name>/go.mod (not at the root, none nested in a tool);
+#   - a go.mod exists outside <name>/go.mod or the explicit registry/contracts/go.mod exception;
 #   - a module path is not github.com/hollis-labs/tools/<name> (plus /vN for v2 and later);
 #   - a go.mod has no go directive, or contains a replace directive;
 #   - a scan-public allowlist line has no reason, or a reason that quotes an address or value.
@@ -35,6 +35,7 @@ while IFS= read -r f; do
   case "$f" in */testdata/*) continue ;; esac
   case "$f" in
     go.mod) bad "go.mod at the repository root; modules live at <name>/go.mod" ;;
+    registry/contracts/go.mod) ;; # Agency-owned contracts module; explicit nested-module exception.
     */go.mod)
       d="${f%/go.mod}"
       case "$d" in
@@ -62,4 +63,4 @@ for m in $(modules); do
 done
 
 [ "$fail" -eq 0 ] || exit 1
-echo "ok: layout (flat; $count Go modules: $(modules | tr '\n' ' ')under $MODULE_PREFIX; $(project_dirs | wc -l | tr -d ' ') tool directories)"
+echo "ok: layout (flat with registry/contracts exception; $count Go modules: $(modules | tr '\n' ' ')under $MODULE_PREFIX; $(project_dirs | wc -l | tr -d ' ') tool directories)"

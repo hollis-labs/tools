@@ -57,12 +57,13 @@ project_dirs() {
   done
 }
 
-# Print the Go modules (tools only): <name> for every <name>/go.mod.
+# Print top-level Go tools plus the agency-owned registry/contracts module.
 modules() {
   local d
   for d in $(project_dirs); do
     [ -f "$REPO_ROOT/$d/go.mod" ] && echo "$d"
   done
+  [ ! -f "$REPO_ROOT/registry/contracts/go.mod" ] || echo "registry/contracts"
   return 0
 }
 
