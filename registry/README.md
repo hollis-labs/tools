@@ -251,6 +251,10 @@ is included.
 
 ## Verification and deployment
 
+The offline [project draft migration](docs/project2-migration.md) promotes
+authored metadata into `project/2` fields once, with shared-schema validation.
+It requires a Substrate pin that supports `project/2`.
+
 ```sh
 go test -race ./...
 go vet ./...
