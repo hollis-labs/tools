@@ -261,9 +261,9 @@ func (s *Service) planExport(ctx context.Context, q store.Querier, request Expor
 	if s.exportTargets[request.Target] == "" {
 		return bundle, failure("forbidden", "export.target", "configured isolated output binding required")
 	}
-	_, baseline, err := exportBaseline(s.exportTargets[request.Target])
-	if err != nil {
-		return bundle, materializerError(err)
+	_, baseline, baselineErr := exportBaseline(s.exportTargets[request.Target])
+	if baselineErr != nil {
+		return bundle, materializerError(baselineErr)
 	}
 	bundle.BaselineManifest = baseline
 	if len(bundle.IDs) > 200 {
