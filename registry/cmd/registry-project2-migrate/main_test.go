@@ -44,6 +44,8 @@ func TestInvalidBatchLeavesSourcesAndNoOutput(t *testing.T) {
 		strings.Replace(completeDraft, `"type":"service"`, `"type":"wrong"`, 1),
 		strings.Replace(completeDraft, `"disposition":"continue"`, `"disposition":"wrong"`, 1),
 		strings.Replace(completeDraft, `"class":2`, `"class":2,"class":"lib"`, 1),
+		strings.Replace(completeDraft, `"disposition":"continue"`, `"disposition":"unlisted"`, 1),
+		strings.Replace(completeDraft, `"class":2`, `"class":"1 plus lib"`, 1),
 	} {
 		dir := t.TempDir()
 		source := filepath.Join(dir, "source.json")
@@ -60,6 +62,21 @@ func TestInvalidBatchLeavesSourcesAndNoOutput(t *testing.T) {
 		unchanged, err := os.ReadFile(source)
 		if err != nil || string(unchanged) != raw {
 			t.Fatal("source changed")
+		}
+	}
+}
+
+func TestSharedValidationOwnsTierAfterLibraryRewrite(t *testing.T) {
+	requireProject2(t)
+	for _, typ := range []string{"service", "app", "tool"} {
+		raw := strings.Replace(completeDraft, `"class":2`, `"class":"lib"`, 1)
+		raw = strings.Replace(raw, `"type":"service"`, `"type":"`+typ+`"`, 1)
+		next, err := projectmigration.Rewrite([]byte(raw))
+		if err != nil {
+			t.Fatalf("transformer validated tier: %v", err)
+		}
+		if err := kinds.ValidateJSON("project/2", next); err == nil {
+			t.Fatalf("shared validator accepted missing %s tier", typ)
 		}
 	}
 }

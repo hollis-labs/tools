@@ -72,13 +72,7 @@ func Rewrite(raw []byte) ([]byte, error) {
 		}
 	}
 	if class, _ := payload["class"].(string); class == "lib" {
-		if typ, exists := payload["type"]; exists {
-			switch typ {
-			case "framework", "monorepo", "lib":
-			default:
-				return nil, fmt.Errorf("class lib conflicts with authored type")
-			}
-		} else {
+		if _, exists := payload["type"]; !exists {
 			payload["type"] = "lib"
 		}
 		delete(payload, "class")

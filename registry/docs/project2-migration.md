@@ -48,9 +48,9 @@ The rewriter:
 2. Promotes metadata.disposition and metadata.type from the descriptor or Input
    into the descriptor's first-class fields, deleting both metadata entries.
    Conflicting values fail the batch. Unrelated metadata is preserved.
-3. Removes class `"lib"`, preserving an explicit framework, monorepo or lib
-   type. If no type is authored, class `"lib"` supplies type `"lib"`. Other
-   explicit types conflict and need an authored tier correction.
+3. Removes class `"lib"`, preserving any explicit authored type. If no type is
+   authored, class `"lib"` supplies type `"lib"`. The shared destination schema
+   alone validates type enums and requires a numeric tier where applicable.
    Explicit type takes precedence over inference from the legacy class; both
    metadata locations must agree with each other and any first-class value.
 4. Requires an authored disposition and type. It supplies no defaults and does
