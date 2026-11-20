@@ -251,3 +251,8 @@ properties through schema combinators. Decoded schema documentation strings
 are screened too. A similarly named field under metadata or instance settings
 does not gain a schema exemption. This checks credentials without resolving
 schemas or applying their defaults.
+
+`ToolPackage`, `ToolPackage.Validate`, `ParseContentJSON` and `ValidateJSON`
+support agency-authored `tool-package/1`. See the [transport and immutability
+contract](../docs/tool-packages.md). This schema is independent of `tool/1`,
+which describes a tool definition rather than a downloadable package.
