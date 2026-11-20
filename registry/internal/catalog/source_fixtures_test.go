@@ -11,7 +11,7 @@ import (
 
 	"github.com/hollis-labs/libs/core/store"
 	"github.com/hollis-labs/substrate/agents"
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 	"gopkg.in/yaml.v3"
 )
 

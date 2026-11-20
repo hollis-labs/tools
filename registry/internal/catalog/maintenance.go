@@ -86,9 +86,8 @@ func (s *Service) retain(ctx context.Context, actor string, apply bool) (Retenti
 		if err := prune("receipts", cfg.ReceiptTTL, &out.Receipts); err != nil {
 			return err
 		}
-		if err := prune("publication_receipts", cfg.ReceiptTTL, &out.PublicationReceipts); err != nil {
-			return err
-		}
+		// Publication receipts are durable idempotency tombstones. Expiring them
+		// would turn an old committed key into a new publish action.
 		var cursors int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM cursors`).Scan(&cursors); err != nil {
 			return err
@@ -103,6 +102,10 @@ func (s *Service) retain(ctx context.Context, actor string, apply bool) (Retenti
     AND id NOT IN (SELECT r.id FROM revisions r,json_each(r.body,'$.edges') e
       WHERE COALESCE(json_extract(e.value,'$.reviewed_by'),'')!=''
          OR COALESCE(json_extract(e.value,'$.review_hash'),'')!='')
+    AND id NOT IN (SELECT id FROM import_sources)
+    AND id NOT IN (SELECT json_extract(i.value,'$.id') FROM import_plans p,json_each(p.body,'$.items') i)
+    AND id NOT IN (SELECT json_extract(e.value,'$.relation.to.id') FROM import_plans p,json_each(p.body,'$.candidates') c,json_each(c.value,'$.edges') e)
+    AND id NOT IN (SELECT d.key FROM import_plans p,json_each(p.body,'$.candidates') c,json_each(c.value,'$.dependency_pins') d)
     AND token NOT IN (SELECT json_extract(body,'$.revision_id') FROM receipts)
     AND token NOT IN (SELECT json_extract(c.value,'$.revision') FROM publication_approvals a,json_each(a.body,'$.candidates') c)
     AND token NOT IN (SELECT revision FROM source_verifications)

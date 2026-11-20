@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/libs/harness/core/workspace/materialize"
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 )
 
 func exportPlan(t *testing.T, s *Service, r ExportRequest) ExportReceipt {
