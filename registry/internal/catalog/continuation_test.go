@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/hollis-labs/libs/core/store"
 	"github.com/hollis-labs/libs/core/store/migrate"
+	"github.com/hollis-labs/tools/registry/contracts"
 )
 
 func TestPhase3UpgradesAlreadyHardenedDatabase(t *testing.T) {
@@ -74,10 +76,46 @@ func TestProject2ImportPublicationAndExportUseRegistryContracts(t *testing.T) {
 	if len(bundle.Artifacts.Entries) != 2 || len(bundle.Sources) != 1 {
 		t.Fatal(bundle)
 	}
-	// Compare the actual renderer rather than treating version admission as export proof.
-	_, raw, err := renderExport(r)
-	if err != nil || !strings.Contains(string(raw), "schema: project/2") || !strings.Contains(string(raw), "type: service") {
-		t.Fatal(string(raw), err)
+	// Inspect the actual artifact selected by its source manifest, rather than
+	// rerendering separately or accepting YAML-looking substrings.
+	source := bundle.Sources[0]
+	if source.ID != r.ID || source.Revision != r.RevisionID || source.EdgeSetRevision != r.RevisionID {
+		t.Fatal("project manifest lost its imported source revision")
+	}
+	var raw []byte
+	for _, entry := range bundle.Artifacts.Entries {
+		if entry.Path == source.Path {
+			raw = entry.Bytes
+		}
+	}
+	if len(raw) == 0 || source.Digest != "sha256:"+artifactDigest(raw).Hex {
+		t.Fatal("project artifact missing or different from source manifest digest")
+	}
+	project, err := kinds.ParseProjectYAML(raw)
+	if err != nil {
+		t.Fatal("exported project YAML does not parse under Registry contracts", err)
+	}
+	if project.Schema != "project/2" || project.Type != "service" || project.Disposition != "continue" {
+		t.Fatal("export changed the project version, type or disposition", project)
+	}
+	roundtrip, err := json.Marshal(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = kinds.ValidateJSON("project/2", roundtrip); err != nil {
+		t.Fatal("exported manifest roundtrip fails project/2 schema", err)
+	}
+	originalDigest, err := canonicalDigest(r.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundtripDigest, err := canonicalDigest(json.RawMessage(roundtrip))
+	if err != nil || originalDigest != roundtripDigest {
+		t.Fatal("YAML roundtrip changed the complete admitted project payload", err)
+	}
+	reparsed, err := kinds.ParseProjectJSON(roundtrip)
+	if err != nil || !reflect.DeepEqual(project, reparsed) {
+		t.Fatal("typed project does not survive JSON roundtrip", err)
 	}
 }
 
