@@ -358,6 +358,7 @@ func (s *Service) mutate(ctx context.Context, p libauth.Principal, op string, a 
 				for i := range next.Edges {
 					next.Edges[i].ProposedBy = p.ID
 				}
+				next.MappingVersion = "native/1"
 				if r.Kind != "project" {
 					for _, e := range r.Edges {
 						if !isPayloadEdge(e) {
