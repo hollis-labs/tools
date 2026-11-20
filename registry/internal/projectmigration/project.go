@@ -72,9 +72,6 @@ func Rewrite(raw []byte) ([]byte, error) {
 		}
 	}
 	if class, _ := payload["class"].(string); class == "lib" {
-		if _, exists := payload["type"]; !exists {
-			payload["type"] = "lib"
-		}
 		delete(payload, "class")
 	}
 	for _, field := range []string{"disposition", "type"} {

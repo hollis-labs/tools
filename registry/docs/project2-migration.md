@@ -48,11 +48,11 @@ The rewriter:
 2. Promotes metadata.disposition and metadata.type from the descriptor or Input
    into the descriptor's first-class fields, deleting both metadata entries.
    Conflicting values fail the batch. Unrelated metadata is preserved.
-3. Removes class `"lib"`, preserving any explicit authored type. If no type is
-   authored, class `"lib"` supplies type `"lib"`. The contracts destination schema
-   alone validates type enums and requires a numeric tier where applicable.
-   Explicit type takes precedence over inference from the legacy class; both
-   metadata locations must agree with each other and any first-class value.
+3. Removes class `"lib"`, preserving the explicit authored type from the payload
+   or metadata. Missing type is refused even when the legacy class is `"lib"`;
+   no type is inferred from a class. The contracts destination schema validates
+   type enums and requires a numeric tier where applicable. Both metadata
+   locations must agree with each other and any first-class value.
 4. Requires an authored disposition and type. It supplies no defaults and does
    not map lifecycle to disposition. It updates both schema fields to `project/2`.
 5. Validates every destination payload with registry/contracts and refuses

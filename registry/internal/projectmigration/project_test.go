@@ -80,14 +80,8 @@ func TestRewriteLibraryAndConflicts(t *testing.T) {
 			t.Fatalf("explicit no-tier type lost: %s", got)
 		}
 	}
-	got, err := Rewrite([]byte(`{"schema":"project/1","class":"lib","metadata":{"disposition":"harvested"}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var p map[string]any
-	_ = json.Unmarshal(got, &p)
-	if _, exists := p["class"]; exists || p["type"] != "lib" {
-		t.Fatalf("library tier retained: %s", got)
+	if _, err := Rewrite([]byte(`{"schema":"project/1","class":"lib","metadata":{"disposition":"harvested"}}`)); err == nil || err.Error() != "authored type is required" {
+		t.Fatalf("missing authored library type must be refused: %v", err)
 	}
 	for _, raw := range []string{
 		`null`, `[]`, `{"record":null}`, `{"schema":"project/1","payload":null}`,

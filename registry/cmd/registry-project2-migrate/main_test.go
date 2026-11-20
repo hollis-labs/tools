@@ -18,6 +18,7 @@ const completeDraft = `{"schema":"project/1","id":"example","name":"Example","cl
 func TestInvalidBatchLeavesSourcesAndNoOutput(t *testing.T) {
 	requireProject2(t)
 	for _, raw := range []string{
+		strings.Replace(strings.Replace(completeDraft, `"class":2`, `"class":"lib"`, 1), `"type":"service",`, "", 1),
 		strings.Replace(completeDraft, `,"disposition":"continue"`, "", 1),
 		strings.Replace(completeDraft, `"type":"service"`, `"type":"wrong"`, 1),
 		strings.Replace(completeDraft, `"disposition":"continue"`, `"disposition":"wrong"`, 1),
