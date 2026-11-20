@@ -51,6 +51,9 @@ Optional string facts: `task_id`, `workstream_id`, `token_jti`, `manifest_digest
 Unknown facts stay absent. Never send token material; `token_jti` is only its
 opaque identifier. Facts are provenance, never caller authentication.
 
+The authored correlation `name` is deterministically `session + " / " + run_id`;
+it is a display label, not the identity or uniqueness key.
+
 A launch has one permanent identity per `(authority, session, run_id)`. Later
 turns and compaction reuse it. A new retry key with matching facts returns that
 identity; conflicting supplied facts return `version_conflict`. Registration

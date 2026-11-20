@@ -448,3 +448,38 @@ func TestMintProjectDomainsOverlapConverge(t *testing.T) {
 		code(t, err, "workstream_closed")
 	}
 }
+
+func TestMintFixedRetentionIndependentOfMaintenance(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	start := time.Now().UTC().Add(-24 * time.Hour)
+	s.now = func() time.Time { return start }
+	a := ensureArgs("retention", "fixed-thirty-days")
+	original := ensured(t, s, dispatcher, "workstream_ensure", a)
+	// Give ordinary configurable retention a receipt it must remove. Mint
+	// receipts remain in a separate table with their own fixed 30-day deadline.
+	_, err := s.Call(writer, "record_create", Args{Record: input("ordinary"), IdempotencyKey: "ordinary"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.DB.ExecContext(context.Background(), `UPDATE receipts SET created_at='2000-01-01T00:00:00Z'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Maintenance.ReceiptTTL = time.Nanosecond
+	s.reviewers["reviewer"] = "owner"
+	_, err = s.Call(reviewer, "retention_run", Args{Apply: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rowCount(t, s, "receipts") != 0 || rowCount(t, s, "mint_receipts") != 1 || rowCount(t, s, "minted_identities") != 1 {
+		t.Fatal("configurable retention shortened mint retention or lost permanent mapping")
+	}
+	if ensured(t, s, dispatcher, "workstream_ensure", a) != original {
+		t.Fatal("maintenance changed unexpired original receipt")
+	}
+	s.now = func() time.Time { return start.Add(31 * 24 * time.Hour) }
+	expired := ensured(t, s, dispatcher, "workstream_ensure", a)
+	if expired.ID != original.ID || expired.Created || rowCount(t, s, "minted_identities") != 1 {
+		t.Fatal("receipt expiry reminted or lost permanent mapping")
+	}
+}
