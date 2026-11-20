@@ -201,9 +201,9 @@ func TestExportApplyRerunUsesSameGeneration(t *testing.T) {
 }
 
 func TestExportOutputPreflight(t *testing.T) {
-	root := t.TempDir()
-	before, err := inspectExportOutput(root)
-	if err != nil || before != "absent" {
+	root := filepath.Join(t.TempDir(), "output")
+	_, before, err := exportBaseline(root)
+	if err != nil || before == "" {
 		t.Fatal(before, err)
 	}
 	path := materialize.ManifestPath(root)
@@ -213,24 +213,24 @@ func TestExportOutputPreflight(t *testing.T) {
 	if err = os.WriteFile(path, []byte("{}"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	first, err := inspectExportOutput(root)
+	_, first, err := exportBaseline(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = os.WriteFile(path, []byte("{}\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	second, err := inspectExportOutput(root)
+	_, second, err := exportBaseline(root)
 	if err != nil || first == second {
 		t.Fatal("manifest bytes not distinguished", err)
 	}
 	if err = os.Symlink(t.TempDir(), filepath.Join(root, "link")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = inspectExportOutput(root); err == nil {
+	if err = safeExportPath(root, "link"); err == nil {
 		t.Fatal("accepted nested symlink")
 	}
-	if _, err = inspectExportOutput(filepath.Join(root, "link", "new")); err == nil {
+	if _, _, err = exportBaseline(filepath.Join(root, "link", "new")); err == nil {
 		t.Fatal("accepted symlink ancestor")
 	}
 }

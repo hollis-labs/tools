@@ -17,6 +17,7 @@ HTTP, HTTP-client CLI and MCP share these operations. MCP prefixes names with
 | `changes_list` | GET `/v1/changes` | registry.read |
 | `import_prepare` | POST `/v1/import/prepare` | registry.write |
 | `import_commit` | POST `/v1/import/commit` | registry.write |
+| `import_preparation_get` | POST `/v1/import/preparation` | registry.write |
 | `import_checkpoint` | GET `/v1/import/checkpoint` | registry.read |
 
 Writes/import checkpoints also require the configured owning authority. Only the
@@ -43,7 +44,8 @@ A separate authorization request accepts `bundle`, `hash`, a scoped
 `idempotency_key` and optional `expires_at`. It verifies exact selected published
 record/edge revisions, recursively pinned dependencies and their current
 eligibility in one Registry transaction. It binds the manifest bytes, destination,
-caller, owning authority, active policy revision, authorization time and start
+caller, owning authority, output-directory identity and baseline manifest, active
+policy revision, authorization time and start
 deadline. Default deadline is 15 minutes; an explicit deadline must be within
 24 hours. Same-key/same-request replay returns the same authorization, including
 after expiry; a changed request conflicts. It never silently renews permission.
@@ -90,8 +92,12 @@ Initial apply requires an absent destination. Refresh supplies the current
 materializer generation in `expected_generation`. A fresh authorization for
 identical content reconciles the same generation and unchanged files. External
 owned-file edits are reported by diff and refused by apply; unowned files remain.
+Registry rechecks each write/removal and the control-manifest commit against its
+observed baseline; Cairn commits manifests through anchored directory handles,
+including no-op refresh. These checks do not claim an OS-wide external-writer lock.
 Filesystem refresh follows the shared materializer's partial-failure/recovery
-contract, not SQLite atomicity. Large scopes must fit the HTTP request cap when
+contract, not SQLite atomicity. Export scopes are bounded to 200 records in the dependency closure and 2 MiB
+of rendered content. Large scopes must fit the HTTP request cap when
 resubmitted for authorization; partition explicit scopes when necessary.
 
 ## Output mappings and source bundles
@@ -108,8 +114,9 @@ locators are not resolved and source launch semantics are not inferred.
 is the config key, defaulting to `agents/`. Source adapters can preserve native
 `agent.md` and `host.yaml` in `metadata.agent_files`, following the
 [Folio directory preset](https://github.com/hollis-labs/tools/tree/main/folio/presets/agent-dir).
-Native bundles require both files; without a bundle only `definition.yaml` is
-exported. No runtime permission/host field is inferred from a catalog role.
+Native bundles require the exact lowercase names `agent.md` and `host.yaml`;
+missing bundles are non-materializable. The shared agent-definition parser and
+agent-directory host-profile validator check both files before authorization. No runtime permission/host field is inferred from a catalog role.
 
 `metadata.skill_files` retains auxiliary text. Both attachment envelopes are
 arrays of `{ "path": "references/guide.md", "content": "text" }`. Paths are
@@ -183,19 +190,30 @@ deletions. Generic imports cannot stamp review/publication.
 
 ## Temporary connectors
 
-`Connector` and `RunConnector` use the same service operations: read the committed
-checkpoint, read source snapshot, prepare under a key binding the snapshot and observed source/resulting/current
-Registry positions,
-reread and confirm the source digest, then commit. A remote source cannot be
-locked by SQLite: adapters must use immutable snapshots or hold their own lease
-through commit. There is no reverse push or implied cross-source atomicity.
+`Connector` and `RunConnector` require an explicit stable run identity. The
+caller or external scheduler chooses it before the first request, reuses it for
+uncertain retries, and chooses a new one for an intended new synchronization.
+The run key excludes source bytes and mutable Registry checkpoints.
 
-`registry import-run --connector NAME --file snapshot.json` is a concrete temporary
-JSON snapshot adapter. It rereads an explicit file instead of accepting stdin,
-uses HTTP only, and opens no Registry DB. Retain stable connector/native keys and
-supply exact source authority/mapping/revisions. Failed runs leave the last
-committed checkpoint available. An expired snapshot preparation is never
-automatically renewed: pass an explicit new `--preparation-key` (or invoke
-`RunConnectorWithPreparationKey`) after reviewing its current bases. Current revision observations make later local edits produce a new conflict
-check rather than replaying an old successful preparation. No scheduler is installed or enabled; an external
-scheduler may explicitly invoke the same command later during migration.
+The runner first calls `import_preparation_get` with `idempotency_key`. This
+caller/authority-scoped lookup recovers the frozen preparation and whether it
+committed. A committed run replays its original receipt without reading current
+sources or replacing its baseline. An uncommitted run confirms the source against
+its saved checkpoint before committing; changed bytes conflict. Response loss at
+prepare or commit therefore survives process restart. A new run reads the current
+checkpoint, snapshots the source, prepares, confirms it and commits atomically.
+
+A remote source cannot be locked by SQLite: adapters must use immutable snapshots
+or hold their own lease through commit. There is no reverse push or implied
+cross-source atomicity.
+
+`registry import-run --connector NAME --run-id RUN --file snapshot.json` is the
+concrete temporary JSON snapshot adapter. It reads an explicit file rather than
+stdin, uses HTTP only, and opens no local Registry DB. Retain stable connector and
+native keys and supply exact source authority/mapping/revisions. Failed runs leave
+the last committed checkpoint available. Expired preparations are not renewed;
+inspect the old run and choose a new run ID after reviewing current bases. Use the
+same run ID to recover uncertainty, even if the source has since moved. A new run
+checks current local drift; replay intentionally returns its historical result.
+No scheduler is installed or enabled; an external scheduler can invoke the same
+command during migration. Remove temporary adapters at consumer cutover.

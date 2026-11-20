@@ -45,8 +45,8 @@ func connectorCommand() *cobra.Command {
 				runErr = reportedError{runErr}
 			}
 		}()
-		if file == "" || file == "-" || id == "" {
-			return fmt.Errorf("explicit --file and --connector are required; snapshot is reread before commit")
+		if file == "" || file == "-" || id == "" || preparationKey == "" {
+			return fmt.Errorf("explicit --file, --connector and --run-id are required; snapshot is reread before commit")
 		}
 		result, err := catalog.RunConnectorWithPreparationKey(cmd.Context(), registryClient(endpoint, tokenFile).Call, snapshotFileConnector{id: id, path: file}, preparationKey)
 		if err != nil {
@@ -57,7 +57,7 @@ func connectorCommand() *cobra.Command {
 	cmd.Flags().StringVar(&endpoint, "url", defaultURL(), "Registry service URL")
 	cmd.Flags().StringVar(&tokenFile, "token-file", "", "Credential file")
 	cmd.Flags().StringVar(&file, "file", "", "JSON import snapshot file (read twice)")
-	cmd.Flags().StringVar(&preparationKey, "preparation-key", "", "Explicit new preparation key after expiry; default retains snapshot retry identity")
+	cmd.Flags().StringVar(&preparationKey, "run-id", "", "Stable run identity: reuse for uncertain retries; change for an intended new sync")
 	cmd.Flags().StringVar(&id, "connector", "", "Stable temporary connector identity")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Include structured errors; success output is always JSON")
 	return cmd

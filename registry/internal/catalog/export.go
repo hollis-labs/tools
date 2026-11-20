@@ -1,13 +1,15 @@
 package catalog
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io/fs"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,9 +17,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hollis-labs/libs/agent/agentdir"
 	"github.com/hollis-labs/libs/core/store"
 	"github.com/hollis-labs/libs/harness/core/workspace/materialize"
 	"github.com/hollis-labs/libs/harness/core/workspace/materialize/artifact"
+	"github.com/hollis-labs/libs/mesh/core/agentdef"
 	libauth "github.com/hollis-labs/libs/security/auth"
 	"github.com/hollis-labs/tools/registry/contracts"
 	"gopkg.in/yaml.v3"
@@ -36,6 +40,7 @@ type ExportSource struct {
 	Digest          string `json:"digest"`
 }
 type ExportBundle struct {
+	BaselineManifest   string               `json:"baseline_manifest"`
 	IDs                []string             `json:"ids"`
 	Subjects           []PublicationSubject `json:"subjects"`
 	Generation         string               `json:"generation"`
@@ -47,16 +52,15 @@ type ExportBundle struct {
 	Digest             string               `json:"digest"`
 }
 type ExportReceipt struct {
-	OutputManifestDigest string       `json:"output_manifest_digest"`
-	AuthorizedAt         string       `json:"authorized_at"`
-	PolicyRevision       string       `json:"policy_revision"`
-	Deadline             string       `json:"deadline"`
-	DestinationDigest    string       `json:"destination_digest"`
-	ID                   string       `json:"receipt_id"`
-	Caller               string       `json:"caller"`
-	Authority            string       `json:"authority"`
-	Action               string       `json:"action"`
-	Bundle               ExportBundle `json:"bundle"`
+	AuthorizedAt      string       `json:"authorized_at"`
+	PolicyRevision    string       `json:"policy_revision"`
+	Deadline          string       `json:"deadline"`
+	DestinationDigest string       `json:"destination_digest"`
+	ID                string       `json:"receipt_id"`
+	Caller            string       `json:"caller"`
+	Authority         string       `json:"authority"`
+	Action            string       `json:"action"`
+	Bundle            ExportBundle `json:"bundle"`
 }
 
 // ConfigureExportTargets binds logical names to operator-owned isolated output
@@ -168,6 +172,9 @@ func renderExportFiles(r Record) ([]renderedExportFile, error) {
 		return files, nil
 	}
 	if r.Metadata[field] == nil {
+		if r.Kind == "agent" {
+			return nil, failure("non_materializable", "metadata.agent_files", "native agent bundle required")
+		}
 		return files, nil
 	}
 	encoded, err := json.Marshal(r.Metadata[field])
@@ -182,6 +189,9 @@ func renderExportFiles(r Record) ([]renderedExportFile, error) {
 		return nil, failure("validation_error", "metadata."+field, "at most 200 source files allowed")
 	}
 	seen := map[string]bool{strings.ToLower(reserved): true}
+	var definition *agentdef.Definition
+	var hostContent string
+	nativeAgent, nativeHost := false, false
 	prefix := strings.TrimSuffix(path, reserved)
 	for _, file := range attachments {
 		if err = artifact.ValidateRelPath(file.Path); err != nil {
@@ -192,10 +202,30 @@ func renderExportFiles(r Record) ([]renderedExportFile, error) {
 			return nil, failure("validation_error", "metadata."+field, "duplicate or reserved auxiliary path")
 		}
 		seen[key] = true
+		if r.Kind == "agent" && file.Path == "agent.md" {
+			definition, err = agentdef.Parse([]byte(file.Content))
+			if err != nil {
+				return nil, failure("non_materializable", "metadata.agent_files", "invalid native agent definition")
+			}
+			nativeAgent = true
+		}
+		if r.Kind == "agent" && file.Path == "host.yaml" {
+			nativeHost = true
+			hostContent = file.Content
+		}
 		files = append(files, renderedExportFile{Path: prefix + file.Path, Content: []byte(file.Content)})
 	}
-	if r.Kind == "agent" && (!seen["agent.md"] || !seen["host.yaml"]) {
+	if r.Kind == "agent" && (!nativeAgent || !nativeHost) {
 		return nil, failure("validation_error", "metadata.agent_files", "native agent bundles require agent.md and host.yaml")
+	}
+	if r.Kind == "agent" {
+		decoder := yaml.NewDecoder(bytes.NewBufferString(hostContent))
+		decoder.KnownFields(true)
+		var profile agentdir.Profile
+		var extra any
+		if decoder.Decode(&profile) != nil || !errors.Is(decoder.Decode(&extra), io.EOF) || profile.Validate(definition) != nil {
+			return nil, failure("non_materializable", "metadata.agent_files", "invalid native host profile")
+		}
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	return files, nil
@@ -231,6 +261,14 @@ func (s *Service) planExport(ctx context.Context, q store.Querier, request Expor
 	if s.exportTargets[request.Target] == "" {
 		return bundle, failure("forbidden", "export.target", "configured isolated output binding required")
 	}
+	_, baseline, err := exportBaseline(s.exportTargets[request.Target])
+	if err != nil {
+		return bundle, materializerError(err)
+	}
+	bundle.BaselineManifest = baseline
+	if len(bundle.IDs) > 200 {
+		return bundle, failure("validation_error", "export.ids", "at most 200 roots allowed")
+	}
 	sort.Strings(bundle.IDs)
 	ids := append([]string(nil), bundle.IDs...)
 	if len(ids) == 0 {
@@ -253,13 +291,18 @@ func (s *Service) planExport(ctx context.Context, q store.Querier, request Expor
 		}
 	}
 	pinned := map[string]bool{}
+	revisions := map[string]string{}
 	var addPins func(Record) error
 	addPins = func(r Record) error {
 		key := r.ID + "\x00" + r.RevisionID
+		if prior := revisions[r.ID]; prior != "" && prior != r.RevisionID {
+			return failure("version_conflict", "export.ids", "scope requires conflicting revisions of one identity")
+		}
+		revisions[r.ID] = r.RevisionID
 		if pinned[key] {
 			return nil
 		}
-		if len(pinned) >= 10000 {
+		if len(pinned) >= 200 {
 			return failure("validation_error", "edges", "export dependency closure exceeds bound")
 		}
 		pinned[key] = true
@@ -351,9 +394,17 @@ func (s *Service) planExport(ctx context.Context, q store.Querier, request Expor
 	sort.Slice(bundle.Artifacts.Entries, func(i, j int) bool { return bundle.Artifacts.Entries[i].Path < bundle.Artifacts.Entries[j].Path })
 	generationInput := bundle
 	generationInput.ExpectedGeneration = ""
+	generationInput.BaselineManifest = ""
 	bundle.Generation, err = bundleDigest(generationInput)
 	if err != nil {
 		return bundle, err
+	}
+	total := 0
+	for _, entry := range bundle.Artifacts.Entries {
+		total += len(entry.Bytes)
+	}
+	if total > MaxRequestBytes {
+		return bundle, failure("validation_error", "export.ids", "export exceeds 2 MiB")
 	}
 	bundle.Digest, err = bundleDigest(bundle)
 	return bundle, err
@@ -378,77 +429,124 @@ func (s *Service) verifyCurrentExport(ctx context.Context, q store.Querier, b Ex
 func exportEngine() *materialize.DefaultEngine {
 	return materialize.NewEngine(materialize.EngineOptions{Now: func() time.Time { return time.Unix(0, 0).UTC() }})
 }
-
-// inspectExportOutput is a preflight, not a filesystem race fence. The configured
-// root requires one cooperative writer until Cairn provides conditional writes.
-func inspectExportOutput(root string) (string, error) {
-	for path := root; ; path = filepath.Dir(path) {
-		info, err := os.Lstat(path)
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return "", err
+func safeExportPath(root, rel string) error {
+	if rel != "" && artifact.ValidateRelPath(rel) != nil {
+		return materialize.ErrUnsafeTarget
+	}
+	full := root
+	if rel != "" {
+		full = filepath.Join(root, filepath.FromSlash(rel))
+	}
+	for p := full; ; p = filepath.Dir(p) {
+		info, err := os.Lstat(p)
+		if err != nil && !os.IsNotExist(err) {
+			return materialize.ErrUnsafeTarget
 		}
-		if err == nil && info.Mode()&os.ModeSymlink != 0 {
-			return "", failure("version_conflict", "target", "symlink destination refused")
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return materialize.ErrUnsafeTarget
+			}
+			if p != full && !info.IsDir() {
+				return materialize.ErrUnsafeTarget
+			}
+			if p == full && !info.IsDir() && !info.Mode().IsRegular() {
+				return materialize.ErrUnsafeTarget
+			}
 		}
-		if path == filepath.Dir(path) {
+		if filepath.Dir(p) == p {
 			break
 		}
 	}
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if errors.Is(err, fs.ErrNotExist) && path == root {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if entry.Type()&os.ModeSymlink != 0 || (!entry.IsDir() && !entry.Type().IsRegular()) {
-			return failure("version_conflict", "target", "symlink or special output refused")
-		}
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	raw, err := os.ReadFile(materialize.ManifestPath(root))
-	if errors.Is(err, fs.ErrNotExist) {
-		return "absent", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:]), nil
+	return nil
 }
-
-func materializeRequest(root string, b ExportBundle) (materialize.Request, error) {
-	if _, err := inspectExportOutput(root); err != nil {
-		return materialize.Request{}, err
+func exportBaseline(root string) (*materialize.Manifest, string, error) {
+	if err := safeExportPath(root, materialize.ManifestRelPath); err != nil {
+		return nil, "", err
 	}
-	// Shared artifact JSON omits zero-length byte slices. Restore only a file
-	// whose authorized SHA-256 proves the absent bytes represent empty content.
+	info, err := os.Lstat(root)
+	if os.IsNotExist(err) {
+		parent, parentErr := os.Lstat(filepath.Dir(root))
+		if parentErr != nil || !parent.IsDir() || materialize.InstalledIdentity(parent) == "" {
+			return nil, "", materialize.ErrUnsafeTarget
+		}
+		return nil, digest(struct{ ParentIdentity string }{materialize.InstalledIdentity(parent)}), nil
+	}
+	if err != nil || !info.IsDir() {
+		return nil, "", materialize.ErrUnsafeTarget
+	}
+	identity := materialize.InstalledIdentity(info)
+	if identity == "" {
+		return nil, "", materialize.ErrUnsupportedOperation
+	}
+	info, err = os.Lstat(materialize.ManifestPath(root))
+	if err != nil || !info.Mode().IsRegular() || info.Size() > MaxRequestBytes {
+		return nil, "", materialize.ErrMissingManifest
+	}
+	anchor, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, "", err
+	}
+	defer func() { _ = anchor.Close() }()
+	file, err := anchor.Open(filepath.FromSlash(materialize.ManifestRelPath))
+	if err != nil {
+		return nil, "", err
+	}
+	defer func() { _ = file.Close() }()
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return nil, "", materialize.ErrUnsafeTarget
+	}
+	raw, err := io.ReadAll(io.LimitReader(file, MaxRequestBytes+1))
+	if err != nil || len(raw) > MaxRequestBytes {
+		return nil, "", materialize.ErrMalformedDocument
+	}
+	var m materialize.Manifest
+	if err = json.Unmarshal(raw, &m); err != nil {
+		return nil, "", materialize.ErrMalformedDocument
+	}
+	seen := map[string]bool{}
+	for _, e := range m.Entries {
+		if seen[e.Path] || safeExportPath(root, e.Path) != nil {
+			return nil, "", materialize.ErrUnsafeTarget
+		}
+		seen[e.Path] = true
+	}
+	return &m, digest(struct {
+		RootIdentity   string
+		ManifestDigest string
+	}{identity, artifactDigest(raw).Hex}), nil
+}
+func materializeRequest(root string, b ExportBundle) (materialize.Request, error) {
 	b.Artifacts.Entries = append([]artifact.Entry(nil), b.Artifacts.Entries...)
 	empty := artifactDigest([]byte{})
 	for i := range b.Artifacts.Entries {
-		entry := &b.Artifacts.Entries[i]
-		if entry.Kind == artifact.EntryFile && entry.Bytes == nil && entry.ContentRef == nil && entry.Digest == empty {
-			entry.Bytes = []byte{}
+		e := &b.Artifacts.Entries[i]
+		if e.Kind == artifact.EntryFile && e.Bytes == nil && e.ContentRef == nil && e.Digest == empty {
+			e.Bytes = []byte{}
 		}
 	}
 	req := materialize.Request{Operation: materialize.OperationCreate, TargetRoot: root, Artifacts: b.Artifacts, Generation: b.Generation, ExistingTarget: materialize.ExistingTargetRefuse, Reconcile: materialize.ReconcilePolicy{Conflict: materialize.ConflictReport, RemoveOwned: true}}
-	current, err := materialize.LoadManifest(root)
-	if err == nil && current.Generation == b.Generation {
-		req.Operation = materialize.OperationReconcile
-		req.CurrentManifest = &current
-		req.ExpectedGeneration = b.Generation
-		return req, nil
+	m, base, err := exportBaseline(root)
+	if err != nil {
+		return req, err
 	}
-	if b.ExpectedGeneration != "" {
-		if err != nil || current.Generation != b.ExpectedGeneration {
-			return req, failure("version_conflict", "expected_generation", "current output generation unavailable or changed")
+	if base != b.BaselineManifest {
+		return req, materialize.ErrStaleGeneration
+	}
+	for _, e := range b.Artifacts.Entries {
+		if err = safeExportPath(root, e.Path); err != nil {
+			return req, err
+		}
+	}
+	if m != nil {
+		if m.Generation != b.Generation && (b.ExpectedGeneration == "" || m.Generation != b.ExpectedGeneration) {
+			return req, materialize.ErrStaleGeneration
 		}
 		req.Operation = materialize.OperationReconcile
-		req.CurrentManifest = &current
-		req.ExpectedGeneration = b.ExpectedGeneration
+		req.CurrentManifest = m
+		req.ExpectedGeneration = m.Generation
+	} else if b.ExpectedGeneration != "" {
+		return req, materialize.ErrStaleGeneration
 	}
 	return req, nil
 }
@@ -493,7 +591,7 @@ func (s *Service) exportCall(ctx context.Context, p libauth.Principal, op string
 		if err != nil {
 			return nil, err
 		}
-		plan, err := s.materializer.Plan(ctx, req)
+		plan, err := exportEngine().Plan(ctx, req)
 		if err != nil {
 			return nil, materializerError(err)
 		}
@@ -523,6 +621,8 @@ func (s *Service) exportCall(ctx context.Context, p libauth.Principal, op string
 	}
 }
 func (s *Service) authorizeExport(ctx context.Context, p libauth.Principal, a Args) (ExportReceipt, error) {
+	exportMu.Lock()
+	defer exportMu.Unlock()
 	var out ExportReceipt
 	authority := s.authorities[p.ID]
 	if authority == "" {
@@ -571,11 +671,7 @@ func (s *Service) authorizeExport(ctx context.Context, p libauth.Principal, a Ar
 		if err != nil {
 			return err
 		}
-		manifestDigest, err := inspectExportOutput(s.exportTargets[b.Target])
-		if err != nil {
-			return err
-		}
-		out = ExportReceipt{OutputManifestDigest: manifestDigest, ID: "export:" + newID(), Caller: p.ID, Authority: authority, Action: "export_apply", Bundle: b, AuthorizedAt: now.Format(time.RFC3339Nano), PolicyRevision: policy.Revision, Deadline: deadline.UTC().Format(time.RFC3339Nano), DestinationDigest: destination}
+		out = ExportReceipt{ID: "export:" + newID(), Caller: p.ID, Authority: authority, Action: "export_apply", Bundle: b, AuthorizedAt: now.Format(time.RFC3339Nano), PolicyRevision: policy.Revision, Deadline: deadline.UTC().Format(time.RFC3339Nano), DestinationDigest: destination}
 		raw, err := json.Marshal(out)
 		if err != nil {
 			return err
@@ -653,15 +749,7 @@ func (s *Service) applyExport(ctx context.Context, p libauth.Principal, a Args) 
 	req, applyErr := materializeRequest(s.exportTargets[receipt.Bundle.Target], receipt.Bundle)
 	var handle materialize.Handle
 	if applyErr == nil {
-		digest, err := inspectExportOutput(s.exportTargets[receipt.Bundle.Target])
-		if err != nil {
-			applyErr = err
-		} else if digest != receipt.OutputManifestDigest {
-			applyErr = failure("version_conflict", "output_manifest_digest", "output manifest changed after authorization")
-		}
-	}
-	if applyErr == nil {
-		handle, applyErr = s.materializer.Apply(ctx, req)
+		handle, applyErr = guardedExportApply(ctx, req, receipt.Bundle.BaselineManifest, s.materializerOptions)
 	}
 	outcome.Handle = &handle
 	outcome.FinishedAt = s.now().UTC().Format(time.RFC3339Nano)
@@ -689,4 +777,144 @@ func (s *Service) applyExport(ctx context.Context, p libauth.Principal, a Args) 
 		return outcome, &e
 	}
 	return outcome, nil
+}
+
+// The shared engine owns all file writes. Recheck regular leaves and the control
+// manifest after its plan and immediately before each write. These checks detect
+// observed external drift; they do not claim an OS-wide lock on external writers.
+func guardedExportApply(ctx context.Context, req materialize.Request, baseline string, hooks ...materialize.EngineOptions) (materialize.Handle, error) {
+	var hook materialize.EngineOptions
+	if len(hooks) > 0 {
+		hook = hooks[0]
+	}
+	before := map[string]string{}
+	removals := []string{}
+	for _, e := range req.Artifacts.Entries {
+		v, err := exportLeaf(req.TargetRoot, e.Path)
+		if err != nil {
+			return materialize.Handle{}, err
+		}
+		before[e.Path] = v
+	}
+	if req.CurrentManifest != nil {
+		for _, prior := range req.CurrentManifest.Entries {
+			if _, desired := before[prior.Path]; desired || prior.Path == materialize.ManifestRelPath {
+				continue
+			}
+			v, err := exportLeaf(req.TargetRoot, prior.Path)
+			if err != nil {
+				return materialize.Handle{}, err
+			}
+			before[prior.Path] = v
+			removals = append(removals, prior.Path)
+		}
+	}
+	engine := materialize.NewEngine(materialize.EngineOptions{Now: func() time.Time { return time.Unix(0, 0).UTC() },
+		BeforeManifest: func(target string) error {
+			_, actual, err := exportBaseline(target)
+			if err != nil {
+				return err
+			}
+			if actual != baseline {
+				return materialize.ErrStaleGeneration
+			}
+			return nil
+		}, BeforeWrite: func(stage string, e artifact.Entry) error {
+			if hook.BeforeWrite != nil {
+				if err := hook.BeforeWrite(stage, e); err != nil {
+					return err
+				}
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			_, actual, err := exportBaseline(req.TargetRoot)
+			if err != nil {
+				return err
+			}
+			if actual != baseline {
+				return materialize.ErrStaleGeneration
+			}
+			if e.Path != "" {
+				v, err := exportLeaf(req.TargetRoot, e.Path)
+				if err != nil {
+					return err
+				}
+				if v != before[e.Path] {
+					return materialize.ErrConflict
+				}
+			} else {
+				// Cairn's removal callback has no Entry. Recheck still-present
+				// removals; earlier removals from this attempt are now absent.
+				for _, path := range removals {
+					v, err := exportLeaf(req.TargetRoot, path)
+					if err != nil {
+						return err
+					}
+					if v != "absent" && v != before[path] {
+						return materialize.ErrConflict
+					}
+				}
+			}
+			return nil
+		}, BeforeRename: func(stage, target string) error {
+			if hook.BeforeRename != nil {
+				if err := hook.BeforeRename(stage, target); err != nil {
+					return err
+				}
+			}
+			if err := safeExportPath(target, ""); err != nil {
+				return err
+			}
+			if _, err := os.Lstat(target); !os.IsNotExist(err) {
+				return materialize.ErrTargetExists
+			}
+			_, actual, err := exportBaseline(target)
+			if err != nil {
+				return err
+			}
+			if actual != baseline {
+				return materialize.ErrStaleGeneration
+			}
+			return nil
+		}})
+	return engine.Apply(ctx, req)
+}
+func exportLeaf(root, rel string) (string, error) {
+	if err := safeExportPath(root, rel); err != nil {
+		return "", err
+	}
+	p := filepath.Join(root, filepath.FromSlash(rel))
+	info, err := os.Lstat(p)
+	if os.IsNotExist(err) {
+		return "absent", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir() {
+		return fmt.Sprint("directory:", info.Mode().Perm()), nil
+	}
+	if !info.Mode().IsRegular() || info.Size() > MaxRequestBytes {
+		return "", materialize.ErrUnsafeTarget
+	}
+	anchor, err := os.OpenRoot(root)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = anchor.Close() }()
+	f, err := anchor.Open(filepath.FromSlash(rel))
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	opened, err := f.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return "", materialize.ErrUnsafeTarget
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, MaxRequestBytes+1))
+	if err != nil || len(raw) > MaxRequestBytes {
+		return "", materialize.ErrUnsafeTarget
+	}
+	return fmt.Sprint(info.Mode().Perm(), ":", artifactDigest(raw).Hex), nil
 }

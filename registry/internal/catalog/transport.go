@@ -22,6 +22,7 @@ type Route struct{ Operation, Method, Path string }
 var Routes = []Route{
 	{"export_authorize", "POST", "/v1/export/authorize"}, {"export_attempt_get", "GET", "/v1/export/attempt"},
 	{"export_plan", "POST", "/v1/export/plan"}, {"export_diff", "POST", "/v1/export/diff"}, {"export_apply", "POST", "/v1/export/apply"},
+	{"import_preparation_get", "POST", "/v1/import/preparation"},
 	{"changes_list", "GET", "/v1/changes"}, {"import_prepare", "POST", "/v1/import/prepare"}, {"import_commit", "POST", "/v1/import/commit"}, {"import_checkpoint", "GET", "/v1/import/checkpoint"},
 	{"references_report", "GET", "/v1/references"}, {"migration_list", "GET", "/v1/migrations"}, {"record_migrate", "POST", "/v1/record/migrate"}, {"relation_decide", "POST", "/v1/relations/decide"}, {"retention_run", "POST", "/v1/maintenance/retention"}, {"backup_create", "POST", "/v1/maintenance/backup"},
 	{"publication_approval_prepare", "POST", "/v1/publication/prepare"}, {"publication_approval_get", "GET", "/v1/publication/approval"}, {"publication_approval_decide", "POST", "/v1/publication/decide"}, {"publication_publish", "POST", "/v1/publication/publish"}, {"publication_policy_get", "GET", "/v1/publication/policy"}, {"publication_policy_set", "PUT", "/v1/publication/policy"},
@@ -287,6 +288,8 @@ func argumentSchema(op string) any {
 		add("hash", "string", "Exact deterministic bundle digest", true)
 	case "changes_list":
 		add("query", "object", "Publication changes cursor and limit", false)
+	case "import_preparation_get":
+		add("idempotency_key", "string", "Caller-owned stable run preparation key", true)
 	case "import_checkpoint":
 		add("id", "string", "Connector identity", true)
 	case "import_prepare":

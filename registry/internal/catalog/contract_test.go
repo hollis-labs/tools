@@ -288,7 +288,7 @@ func TestExportDeadlineBoundsStartAndNoDatabaseLockDuringFilesystemWork(t *testi
 	}
 	receipt := exportPlan(t, s, ExportRequest{Target: "fixture"})
 	called := false
-	s.materializer = materialize.NewEngine(materialize.EngineOptions{BeforeWrite: func(_ string, _ artifact.Entry) error {
+	s.materializerOptions = materialize.EngineOptions{BeforeWrite: func(_ string, _ artifact.Entry) error {
 		if called {
 			return nil
 		}
@@ -299,7 +299,7 @@ func TestExportDeadlineBoundsStartAndNoDatabaseLockDuringFilesystemWork(t *testi
 		defer cancel()
 		_, err := s.Call(ctx, "record_archive", Args{ID: a.ID, Version: a.VersionToken})
 		return err
-	}})
+	}}
 	v, e := s.Call(writer, "export_apply", exportArgs(receipt))
 	if e != nil || !called || v.(ExportOutcome).State != "completed" {
 		t.Fatal("filesystem held Registry DB lock or deadline became a fence", v, e)
@@ -314,7 +314,7 @@ func TestExportFailedAttemptIsRecordedAndCannotRestart(t *testing.T) {
 	a := create(t, s, input("a"))
 	publish(t, s, approvePublication(t, s, preparePublication(t, s, Candidate{ID: a.ID, Revision: a.RevisionID})), "publish")
 	receipt := exportPlan(t, s, ExportRequest{Target: "fixture"})
-	s.materializer = materialize.NewEngine(materialize.EngineOptions{BeforeRename: func(_, _ string) error { return errors.New("fixture publication failure") }})
+	s.materializerOptions = materialize.EngineOptions{BeforeRename: func(_, _ string) error { return errors.New("fixture publication failure") }}
 	v, e := s.Call(writer, "export_apply", exportArgs(receipt))
 	code(t, e, "unavailable")
 	if v.(ExportOutcome).State != "failed" {
@@ -326,7 +326,7 @@ func TestExportFailedAttemptIsRecordedAndCannotRestart(t *testing.T) {
 	}
 	_, e = s.Call(writer, "export_apply", exportArgs(receipt))
 	code(t, e, "version_conflict")
-	s.materializer = exportEngine()
+	s.materializerOptions = materialize.EngineOptions{}
 	fresh := exportPlan(t, s, ExportRequest{Target: "fixture"})
 	if _, e = s.Call(writer, "export_apply", exportArgs(fresh)); e != nil {
 		t.Fatal("fresh recovery authorization could not run", e)
@@ -417,18 +417,11 @@ func TestConnectorExpiredPreparationNeedsExplicitNewKey(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	digest, e := canonicalDigest(struct {
-		Snapshot ImportRequest      `json:"snapshot"`
-		Sources  []SourceCheckpoint `json:"source_positions"`
-	}{request, []SourceCheckpoint{}})
-	if e != nil {
-		t.Fatal(e)
-	}
-	if _, e = s.Call(writer, "import_prepare", Args{Import: &request, IdempotencyKey: "connector:" + digest}); e != nil {
+	if _, e = s.Call(writer, "import_prepare", Args{Import: &request, IdempotencyKey: "expired-run"}); e != nil {
 		t.Fatal(e)
 	}
 	now = now.Add(25 * time.Hour)
-	_, e = RunConnector(writer, s.Call, c)
+	_, e = RunConnector(writer, s.Call, c, "expired-run")
 	code(t, e, "version_conflict")
 	if rowCount(t, s, "import_plans") != 1 {
 		t.Fatal("connector silently reallocated expired preparation")
@@ -445,7 +438,7 @@ func TestConnectorNewRerunDoesNotHideLocalDriftBehindOldReplay(t *testing.T) {
 	s := openTest(t, filepath.Join(t.TempDir(), "db"))
 	c := &fixtureConnector{request: batch("one", "", "a")}
 	for i := 0; i < 3; i++ {
-		result, e := RunConnector(writer, s.Call, c)
+		result, e := RunConnector(writer, s.Call, c, newID())
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -457,7 +450,7 @@ func TestConnectorNewRerunDoesNotHideLocalDriftBehindOldReplay(t *testing.T) {
 	changed := input("a")
 	changed.Summary = "later local edit"
 	callRecord(t, s, writer, "record_update", Args{ID: r.ID, Version: r.VersionToken, Record: changed})
-	_, e := RunConnector(writer, s.Call, c)
+	_, e := RunConnector(writer, s.Call, c, newID())
 	code(t, e, "validation_error")
 	var wire *Error
 	if !errors.As(e, &wire) || wire.Details.(ImportFailure).Counts.Rejected != 1 {

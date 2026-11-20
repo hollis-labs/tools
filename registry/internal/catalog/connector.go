@@ -3,7 +3,9 @@ package catalog
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sort"
+	"strings"
 )
 
 // Connector only reads a source. Implementations supply stable keys and immutable
@@ -17,7 +19,10 @@ type Connector interface {
 func connectorSnapshot(ctx context.Context, c Connector, checkpoint string) (ImportRequest, error) {
 	r, err := c.Snapshot(ctx, checkpoint)
 	if err != nil {
-		return r, err
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return ImportRequest{}, err
+		}
+		return ImportRequest{}, failure("unavailable", "source", "source snapshot unavailable")
 	}
 	r.Connector = c.ID()
 	r.ExpectedCheckpoint = checkpoint
@@ -33,60 +38,69 @@ func decodeResult(v any, dst any) error {
 	return json.Unmarshal(raw, dst)
 }
 
-// RunConnector prepares, rereads the source to detect source-side edits, then
-// commits with Registry-side CAS. It cannot lock a remote source: connectors must
-// provide an immutable snapshot/checkpoint or hold a source lease through commit.
-func RunConnector(ctx context.Context, call CallFunc, c Connector) (ImportResult, error) {
-	return RunConnectorWithPreparationKey(ctx, call, c, "")
+// RunConnector requires an explicit stable run identity. Retry the same run ID
+// after response loss; use a new one only for an intended new synchronization.
+func RunConnector(ctx context.Context, call CallFunc, c Connector, runID string) (ImportResult, error) {
+	return RunConnectorWithPreparationKey(ctx, call, c, runID)
 }
 
-// RunConnectorWithPreparationKey permits an explicit new preparation after
-// expiry. Empty key retains deterministic source-snapshot retry identity.
+// RunConnectorWithPreparationKey recovers frozen staging before reading current
+// baselines. A completed run replays its original receipt even after source edits.
 func RunConnectorWithPreparationKey(ctx context.Context, call CallFunc, c Connector, key string) (ImportResult, error) {
 	var result ImportResult
-	v, err := call(ctx, "import_checkpoint", Args{ID: c.ID()})
-	if err != nil {
-		return result, err
+	if strings.TrimSpace(key) == "" {
+		return result, failure("validation_error", "run_id", "explicit stable run identity required")
 	}
-	var cp struct {
-		Checkpoint string             `json:"checkpoint"`
-		Sources    []SourceCheckpoint `json:"sources"`
+	var state ImportPreparationState
+	v, err := call(ctx, "import_preparation_get", Args{IdempotencyKey: key})
+	if err == nil {
+		if err = decodeResult(v, &state); err != nil {
+			return result, err
+		}
+		if state.Plan.Request.Connector != c.ID() {
+			return result, failure("version_conflict", "run_id", "run belongs to another connector")
+		}
+	} else {
+		var ce *Error
+		if !errors.As(err, &ce) || ce.Code != "not_found" {
+			return result, err
+		}
+		v, err = call(ctx, "import_checkpoint", Args{ID: c.ID()})
+		if err != nil {
+			return result, err
+		}
+		var cp struct {
+			Checkpoint string `json:"checkpoint"`
+		}
+		if err = decodeResult(v, &cp); err != nil {
+			return result, err
+		}
+		request, readErr := connectorSnapshot(ctx, c, cp.Checkpoint)
+		if readErr != nil {
+			return result, readErr
+		}
+		v, err = call(ctx, "import_prepare", Args{Import: &request, IdempotencyKey: key})
+		if err != nil {
+			return result, err
+		}
+		if err = decodeResult(v, &state.Plan); err != nil {
+			return result, err
+		}
 	}
-	if err = decodeResult(v, &cp); err != nil {
-		return result, err
-	}
-	request, err := connectorSnapshot(ctx, c, cp.Checkpoint)
-	if err != nil {
-		return result, err
-	}
-	prepareKey, keyErr := canonicalDigest(struct {
-		Snapshot ImportRequest      `json:"snapshot"`
-		Sources  []SourceCheckpoint `json:"source_positions"`
-	}{request, cp.Sources})
-	if keyErr != nil {
-		return result, keyErr
-	}
-	if key == "" {
-		key = "connector:" + prepareKey
-	}
-	v, err = call(ctx, "import_prepare", Args{Import: &request, IdempotencyKey: key})
-	if err != nil {
-		return result, err
-	}
-	var plan ImportPlan
-	if err = decodeResult(v, &plan); err != nil {
-		return result, err
-	}
-	confirm, err := connectorSnapshot(ctx, c, cp.Checkpoint)
-	if err != nil {
-		return result, err
-	}
-	sourceDigest, err := canonicalDigest(confirm)
-	if err != nil {
-		return result, err
-	}
-	if sourceDigest != plan.SourceDigest {
-		return result, failure("version_conflict", "source_digest", "source changed after prepare")
+	plan := state.Plan
+	sourceDigest := plan.SourceDigest
+	if !state.Committed {
+		confirm, readErr := connectorSnapshot(ctx, c, plan.Request.ExpectedCheckpoint)
+		if readErr != nil {
+			return result, readErr
+		}
+		sourceDigest, err = canonicalDigest(confirm)
+		if err != nil {
+			return result, err
+		}
+		if sourceDigest != plan.SourceDigest {
+			return result, failure("version_conflict", "source_digest", "source changed after prepare")
+		}
 	}
 	v, err = call(ctx, "import_commit", Args{PlanID: plan.ID, Hash: plan.Digest, SourceDigest: sourceDigest, IdempotencyKey: plan.ID})
 	if err != nil {

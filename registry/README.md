@@ -15,6 +15,9 @@ Definitions are drafts until explicitly published. Default reads select the
 published revision; use `--publication draft` to inspect edits. See
 [publication and approval](docs/publication.md) for the receipt protocol, pinned
 dependencies and the fail-closed elevated-publication boundary.
+Deterministic export planning, snapshot authorization, drift detection, changes
+feeds, and atomic temporary imports are documented in
+[materialization and import](docs/materialization.md).
 
 ## Build and run
 

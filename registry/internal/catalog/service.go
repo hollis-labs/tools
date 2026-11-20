@@ -16,14 +16,14 @@ import (
 )
 
 type Service struct {
-	Maintenance   MaintenanceConfig
-	DB            *store.Store
-	materializer  materialize.Engine
-	exportTargets map[string]string
-	importLimits  ImportLimits
-	now           func() time.Time
-	authorities   map[string]string
-	reviewers     map[string]string
+	Maintenance         MaintenanceConfig
+	DB                  *store.Store
+	materializerOptions materialize.EngineOptions
+	exportTargets       map[string]string
+	importLimits        ImportLimits
+	now                 func() time.Time
+	authorities         map[string]string
+	reviewers           map[string]string
 }
 
 func New(db *store.Store, authorities map[string]string, reviewers map[string]string) *Service {
@@ -35,10 +35,10 @@ func New(db *store.Store, authorities map[string]string, reviewers map[string]st
 	for k, v := range reviewers {
 		roles[k] = v
 	}
-	return &Service{DB: db, authorities: bindings, reviewers: roles, importLimits: DefaultImportLimits(), now: time.Now, materializer: exportEngine()}
+	return &Service{DB: db, authorities: bindings, reviewers: roles, importLimits: DefaultImportLimits(), now: time.Now}
 }
 
-var Operations = []string{"export_authorize", "export_attempt_get", "export_plan", "export_diff", "export_apply", "changes_list", "import_prepare", "import_commit", "import_checkpoint", "publication_approval_prepare", "publication_approval_get", "publication_approval_decide", "publication_publish", "publication_policy_get", "publication_policy_set", "kinds_list", "schema_get", "record_create", "record_get", "record_list", "record_search", "record_update", "record_archive", "record_delete", "record_verify", "revision_list", "revision_get", "relation_create", "relation_list", "relation_remove", "tool_resolve", "tool_classify", "tool_propose", "review_list", "review_decide", "snapshot_get", "diagnostics", "references_report", "migration_list", "record_migrate", "relation_decide", "retention_run", "backup_create"}
+var Operations = []string{"import_preparation_get", "export_authorize", "export_attempt_get", "export_plan", "export_diff", "export_apply", "changes_list", "import_prepare", "import_commit", "import_checkpoint", "publication_approval_prepare", "publication_approval_get", "publication_approval_decide", "publication_publish", "publication_policy_get", "publication_policy_set", "kinds_list", "schema_get", "record_create", "record_get", "record_list", "record_search", "record_update", "record_archive", "record_delete", "record_verify", "revision_list", "revision_get", "relation_create", "relation_list", "relation_remove", "tool_resolve", "tool_classify", "tool_propose", "review_list", "review_decide", "snapshot_get", "diagnostics", "references_report", "migration_list", "record_migrate", "relation_decide", "retention_run", "backup_create"}
 
 func (s *Service) Call(ctx context.Context, op string, a Args) (any, error) {
 	p, ok := libauth.FromContext(ctx)
@@ -70,6 +70,9 @@ func (s *Service) Call(ctx context.Context, op string, a Args) (any, error) {
 	}
 	if strings.HasPrefix(op, "export_") {
 		return s.exportCall(ctx, p, op, a)
+	}
+	if op == "import_preparation_get" {
+		return s.importPreparation(ctx, p, a)
 	}
 	if strings.HasPrefix(op, "import_") {
 		return s.importCall(ctx, p, op, a)
