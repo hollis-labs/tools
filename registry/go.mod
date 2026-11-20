@@ -8,7 +8,7 @@ require (
 	github.com/hollis-labs/libs/mcp/plugin-mcp v0.6.0
 	github.com/hollis-labs/libs/security/auth v0.3.1
 	github.com/hollis-labs/substrate v0.1.1-0.20261120023626-babfaed3c70d
-	github.com/hollis-labs/tools/registry/contracts v0.0.0-20261120025733-4199eedcd2f4
+	github.com/hollis-labs/tools/registry/contracts v0.0.0-20261120141854-b2aad2f62667
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sys v0.49.0

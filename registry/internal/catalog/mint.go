@@ -85,12 +85,6 @@ func factsMap(f *LaunchFacts) map[string]any {
 	raw, _ := json.Marshal(f)
 	var m map[string]any
 	_ = json.Unmarshal(raw, &m)
-	// JTI is a token identifier, not credential material. Use the descriptive
-	// metadata name jti so shared sensitive-setting admission remains intact.
-	if v, ok := m["token_jti"]; ok {
-		m["jti"] = v
-		delete(m, "token_jti")
-	}
 	return m
 }
 func validateMintArgs(a Args) error {
@@ -318,9 +312,6 @@ func protectMinted(ctx context.Context, tx store.Tx, old, next Record) error {
 			return e
 		}
 		for _, field := range launchFields {
-			if field == "token_jti" {
-				field = "jti"
-			}
 			if v, ok := before.Metadata[field]; ok && after.Metadata[field] != v {
 				return failure("version_conflict", "metadata."+field, "registered launch fact immutable")
 			}
