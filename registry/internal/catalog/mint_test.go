@@ -494,3 +494,70 @@ func TestMintFixedRetentionIndependentOfMaintenance(t *testing.T) {
 		t.Fatal("receipt expiry reminted or lost permanent mapping")
 	}
 }
+
+func TestCorrelationDuplicatedLaunchFacts(t *testing.T) {
+	const a = "00-00000000000000000000000000000001-0000000000000001-01"
+	const b = "00-00000000000000000000000000000002-0000000000000002-01"
+	for _, registered := range []bool{false, true} {
+		for _, change := range []string{"trace-change", "trace-remove", "trace-typed-only", "workstream-change", "workstream-remove", "workstream-link-only", "workstream-authority", "workstream-kind", "consistent"} {
+			t.Run(fmt.Sprintf("registered=%v/%s", registered, change), func(t *testing.T) {
+				s := openTest(t, filepath.Join(t.TempDir(), "db"))
+				args := launchArgs("session", "run", "retry")
+				if registered {
+					args.Traceparent = a
+					args.WorkstreamID = "workstream:one"
+				}
+				minted := ensured(t, s, launcher, "correlation_register", args)
+				r := callRecord(t, s, writer, "record_get", Args{ID: minted.ID, Publication: "draft"})
+				var c kinds.Correlation
+				if err := json.Unmarshal(r.Payload, &c); err != nil {
+					t.Fatal(err)
+				}
+				c.Metadata["traceparent"] = a
+				c.Trace = &kinds.TraceReference{Traceparent: a}
+				c.Metadata["workstream_id"] = "workstream:one"
+				c.Links["workstream"] = kinds.Reference{Authority: "registry", Kind: "workstream", ID: "workstream:one"}
+				switch change {
+				case "trace-change":
+					c.Trace.Traceparent = b
+				case "trace-remove":
+					c.Trace = nil
+				case "trace-typed-only":
+					delete(c.Metadata, "traceparent")
+				case "workstream-change":
+					l := c.Links["workstream"]
+					l.ID = "workstream:two"
+					c.Links["workstream"] = l
+				case "workstream-remove":
+					delete(c.Links, "workstream")
+				case "workstream-link-only":
+					delete(c.Metadata, "workstream_id")
+				case "workstream-authority":
+					l := c.Links["workstream"]
+					l.Authority = "other"
+					c.Links["workstream"] = l
+				case "workstream-kind":
+					l := c.Links["workstream"]
+					l.Kind = "session"
+					c.Links["workstream"] = l
+				}
+				raw, err := json.Marshal(c)
+				if err != nil {
+					t.Fatal(err)
+				}
+				result, err := s.Call(writer, "record_update", Args{ID: r.ID, Version: r.VersionToken, Record: &Input{Schema: r.Schema, Key: r.Key, Payload: raw}})
+				if change != "consistent" {
+					code(t, err, "version_conflict")
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				next := result.(Record)
+				if next.ID != minted.ID || next.VersionToken == r.VersionToken {
+					t.Fatal("enrichment identity/version")
+				}
+			})
+		}
+	}
+}

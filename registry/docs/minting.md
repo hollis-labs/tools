@@ -110,3 +110,9 @@ Tether clients should queue registration after their own local launch commit
 and keep remote retries outside their startup critical path. This server
 change does not alter Torque or Tether clients, deploy the service, or establish
 live kind/catalog availability.
+
+Conditional enrichment must supply matching representations: `metadata.traceparent`
+and `trace.traceparent` together, and `metadata.workstream_id` with
+`links.workstream` (authority `registry`, kind `workstream`, matching id).
+Contradictory or missing paired facts return `version_conflict`; registered facts
+and their paired representations cannot be changed or removed.

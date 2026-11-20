@@ -330,6 +330,20 @@ func protectMinted(ctx context.Context, tx store.Tx, old, next Record) error {
 				}
 			}
 		}
+		// Require matching representations during first enrichment and later writes.
+		traceparent, _ := after.Metadata["traceparent"].(string)
+		typedTraceparent := ""
+		if after.Trace != nil {
+			typedTraceparent = after.Trace.Traceparent
+		}
+		if traceparent != typedTraceparent {
+			return failure("version_conflict", "trace.traceparent", "launch trace representations must agree")
+		}
+		workstream, _ := after.Metadata["workstream_id"].(string)
+		link, hasLink := after.Links["workstream"]
+		if (workstream != "") != hasLink || (hasLink && link != (kinds.Reference{Authority: "registry", Kind: "workstream", ID: workstream})) {
+			return failure("version_conflict", "links.workstream", "launch workstream representations must agree")
+		}
 		for k, v := range before.Links {
 			if after.Links[k] != v {
 				return failure("version_conflict", "links", "registered launch links immutable")
