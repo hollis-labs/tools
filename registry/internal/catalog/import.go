@@ -279,6 +279,11 @@ func (s *Service) prepareImport(ctx context.Context, caller, authority string, a
 		for _, entry := range request.Entries {
 			item := ImportItem{SourceKey: entry.SourceKey, SourceRevision: entry.SourceRevision, Action: "rejected"}
 			candidate, admissionErr := prepare(entry.Record, authority)
+			// Generated proposals belong to the authenticated importer. Retained
+			// non-payload edges keep their original independent review evidence.
+			for i := range candidate.Edges {
+				candidate.Edges[i].ProposedBy = caller
+			}
 			if admissionErr != nil {
 				item.Reason = "invalid_record"
 			} else if entry.SourceKey == "" || entry.SourceRevision == "" || seenKeys[entry.SourceKey] || seenIDs[candidate.ID] {
@@ -357,6 +362,7 @@ func (s *Service) prepareImport(ctx context.Context, caller, authority string, a
 					candidate.Publication = "draft"
 					for i := range candidate.Edges {
 						candidate.Edges[i].SourceRevision = candidate.RevisionID
+						candidate.Edges[i].Hash = digest(candidate.Edges[i].Relation)
 					}
 				}
 				item.ProposedRevision = candidate.RevisionID

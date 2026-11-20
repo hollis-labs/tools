@@ -113,3 +113,28 @@ func TestRetentionKeepsImportEvidenceAndPublicationReplayKeys(t *testing.T) {
 		t.Fatal(replay)
 	}
 }
+
+func TestImportedRelationsRetainIndependentReviewerBoundary(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	request := cyclicBatch("consumes")
+	p := importPlan(t, s, request)
+	if p.Counts.Rejected != 0 {
+		t.Fatal(p)
+	}
+	if _, err := s.Call(writer, "import_commit", commitArgs(p, "import")); err != nil {
+		t.Fatal(err)
+	}
+	r := callRecord(t, s, writer, "record_get", Args{ID: p.Items[0].ID, Publication: "draft"})
+	edge := r.Edges[0]
+	if edge.ProposedBy != "writer" || edge.Hash == "" || edge.Hash != p.Candidates[0].Edges[0].Hash {
+		t.Fatal("import changed or omitted proposal binding")
+	}
+	args := Args{ID: r.ID, Version: r.VersionToken, EdgeID: edge.ID, Hash: edge.Hash, Decision: "reviewed", Reason: "Independent fixture review"}
+	s.reviewers["writer"] = "ground"
+	_, err := s.Call(caller("writer", "registry.review"), "relation_decide", args)
+	code(t, err, "forbidden")
+	reviewed := callRecord(t, s, ground, "relation_decide", args)
+	if reviewed.Edges[0].ReviewedBy != "ground" {
+		t.Fatal(reviewed)
+	}
+}
