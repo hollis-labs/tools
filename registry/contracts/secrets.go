@@ -32,11 +32,22 @@ func ValidateNoSecretsJSON(data []byte) error {
 
 func refuseSecrets(value any) error {
 	slots := map[string]bool{}
+	correlationJTIPath := ""
 	if root, ok := value.(map[string]any); ok {
 		schema, _ := root["schema"].(string)
 		prefix := ""
 		if _, envelope := root["payload"]; envelope {
 			prefix = "/payload"
+		}
+		// Only a direct correlation payload or its matching Registry Input
+		// envelope has this typed identifier slot. An outer schema label must
+		// not lend an exception to a different or untyped payload kind.
+		if schema == CorrelationSchema {
+			if prefix == "" {
+				correlationJTIPath = "/metadata/token_jti"
+			} else if payload, ok := root["payload"].(map[string]any); ok && payload["schema"] == CorrelationSchema {
+				correlationJTIPath = "/payload/metadata/token_jti"
+			}
 		}
 		switch schema {
 		case ConfigSchema:
@@ -49,14 +60,14 @@ func refuseSecrets(value any) error {
 			slots[prefix+"/output_schema"] = true
 		}
 	}
-	return refuseInstance(value, "", slots)
+	return refuseInstance(value, "", slots, correlationJTIPath)
 }
 
 func pointerKey(key string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(key, "~", "~0"), "/", "~1")
 }
 
-func refuseInstance(value any, path string, schemaSlots map[string]bool) error {
+func refuseInstance(value any, path string, schemaSlots map[string]bool, correlationJTIPath string) error {
 	if schemaSlots[path] {
 		return refuseSchema(value, false)
 	}
@@ -68,7 +79,7 @@ func refuseInstance(value any, path string, schemaSlots map[string]bool) error {
 		}
 	case []any:
 		for _, item := range v {
-			if err := refuseInstance(item, path+"/[]", schemaSlots); err != nil {
+			if err := refuseInstance(item, path+"/[]", schemaSlots, correlationJTIPath); err != nil {
 				return err
 			}
 		}
@@ -76,13 +87,22 @@ func refuseInstance(value any, path string, schemaSlots map[string]bool) error {
 		for key, item := range v {
 			// Sensitive settings must use a typed reference, rather than a literal,
 			// placeholder or nested value that could be mistaken for a credential.
-			if redact.SensitiveName(key) && !secretReference(item) {
+			itemPath := path + "/" + pointerKey(key)
+			if itemPath == correlationJTIPath {
+				// A JTI is an identifier, not token material. Only this exact
+				// schema-qualified path admits a nonempty string. Recursion
+				// below still scans the actual value for credentials.
+				jti, ok := item.(string)
+				if !ok || strings.TrimSpace(jti) == "" {
+					return ErrSecretValue
+				}
+			} else if redact.SensitiveName(key) && !secretReference(item) {
 				return ErrSecretValue
 			}
 			if len(redact.Default().Scan(key)) > 0 {
 				return ErrSecretValue
 			}
-			if err := refuseInstance(item, path+"/"+pointerKey(key), schemaSlots); err != nil {
+			if err := refuseInstance(item, itemPath, schemaSlots, correlationJTIPath); err != nil {
 				return err
 			}
 		}
@@ -96,7 +116,7 @@ func refuseInstance(value any, path string, schemaSlots map[string]bool) error {
 func refuseSchema(value any, sensitive bool) error {
 	object, ok := value.(map[string]any)
 	if !ok {
-		return refuseInstance(value, "", nil)
+		return refuseInstance(value, "", nil, "")
 	}
 	for key, item := range object {
 		if len(redact.Default().Scan(key)) > 0 {
@@ -134,7 +154,7 @@ func refuseSchema(value any, sensitive bool) error {
 			if sensitive && !secretReference(item) {
 				return ErrSecretValue
 			}
-			if err := refuseInstance(item, "", nil); err != nil {
+			if err := refuseInstance(item, "", nil, ""); err != nil {
 				return err
 			}
 		case "enum", "examples":
@@ -146,7 +166,7 @@ func refuseSchema(value any, sensitive bool) error {
 				if sensitive && !secretReference(member) {
 					return ErrSecretValue
 				}
-				if err := refuseInstance(member, "", nil); err != nil {
+				if err := refuseInstance(member, "", nil, ""); err != nil {
 					return err
 				}
 			}
@@ -155,7 +175,7 @@ func refuseSchema(value any, sensitive bool) error {
 			if redact.SensitiveName(key) && !secretReference(item) {
 				return ErrSecretValue
 			}
-			if err := refuseInstance(item, "", nil); err != nil {
+			if err := refuseInstance(item, "", nil, ""); err != nil {
 				return err
 			}
 		}

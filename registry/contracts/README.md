@@ -251,3 +251,10 @@ properties through schema combinators. Decoded schema documentation strings
 are screened too. A similarly named field under metadata or instance settings
 does not gain a schema exemption. This checks credentials without resolving
 schemas or applying their defaults.
+
+Correlation `metadata.token_jti` is a schema-qualified opaque token identifier:
+only a nonempty string is admitted at that exact `correlation/1` payload path
+(or the matching Registry Input payload path). Its value still runs through
+credential scanning. Empty/non-string values, actual credential material,
+other paths or kinds, and generic token/password settings remain refused;
+this does not change general sensitive-name detection or the schema version.
