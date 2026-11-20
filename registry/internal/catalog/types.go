@@ -40,6 +40,8 @@ func failure(code, field, message string) *Error {
 		remedy = "Use a credential with the required scope and owning authority binding."
 	case "not_found":
 		remedy = "Check the exact identifier and authority."
+	case "workstream_closed":
+		remedy = "Closed identities cannot be ensured; reopening requires a separate explicit operation."
 	case "deleted":
 		remedy = "Read history; tombstoned identities cannot be reused."
 	case "unavailable":
@@ -156,6 +158,11 @@ type Page struct {
 // Args is the common operation envelope. Unknown keys are errors, including
 // spoofed authority, verification and review identity fields.
 type Args struct {
+	Key         string   `json:"key,omitempty"`
+	Name        string   `json:"name,omitempty"`
+	ProjectURNs []string `json:"project_urns,omitempty"`
+	*LaunchFacts
+
 	Bundle           *ExportBundle         `json:"bundle,omitempty"`
 	Export           *ExportRequest        `json:"export,omitempty"`
 	ReceiptID        string                `json:"receipt_id,omitempty"`
@@ -253,6 +260,10 @@ func digest(v any) string {
 }
 func scope(op string) string {
 	switch op {
+	case "workstream_ensure":
+		return "registry.workstream.ensure"
+	case "correlation_register":
+		return "registry.correlation.register"
 	case "import_preparation_get", "record_migrate", "export_authorize", "export_apply", "import_prepare", "import_commit", "publication_approval_prepare", "publication_publish", "record_create", "record_update", "record_archive", "record_delete", "record_verify", "relation_create", "relation_remove", "tool_propose":
 		return "registry.write"
 	case "relation_decide", "retention_run", "backup_create", "review_decide", "publication_approval_decide", "publication_policy_set":

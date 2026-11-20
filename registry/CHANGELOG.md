@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Add Registry-owned workstream ensure and launch correlation registration with
+  narrow capabilities, permanent identity maps, atomic 30-day replay receipts,
+  sticky workstream closure and conditional launch enrichment.
+
 - Add an offline project draft rewriter that promotes metadata into project/2
   fields, preserves source files and requires shared project/2 schema support.
 
