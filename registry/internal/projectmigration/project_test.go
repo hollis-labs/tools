@@ -64,6 +64,20 @@ func assertNoAliases(t *testing.T, raw []byte) {
 }
 
 func TestRewriteLibraryAndConflicts(t *testing.T) {
+	for _, typ := range []string{"framework", "monorepo", "lib"} {
+		raw := `{"schema":"project/1","class":"lib","metadata":{"disposition":"continue","type":"` + typ + `"}}`
+		got, err := Rewrite([]byte(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(got, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if _, exists := payload["class"]; exists || payload["type"] != typ {
+			t.Fatalf("explicit no-tier type lost: %s", got)
+		}
+	}
 	got, err := Rewrite([]byte(`{"schema":"project/1","class":"lib","metadata":{"disposition":"harvested"}}`))
 	if err != nil {
 		t.Fatal(err)

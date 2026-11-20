@@ -41,8 +41,9 @@ The rewriter:
 2. Promotes metadata.disposition and metadata.type from the descriptor or Input
    into the descriptor's first-class fields, deleting both metadata entries.
    Conflicting values fail the batch. Unrelated metadata is preserved.
-3. Replaces class `"lib"` with type `"lib"` and removes class. An explicitly
-   different type is a conflict that needs an authored correction.
+3. Removes class `"lib"`, preserving an explicit framework, monorepo or lib
+   type. If no type is authored, class `"lib"` supplies type `"lib"`. Other
+   explicit types conflict and need an authored tier correction.
 4. Requires an authored disposition and type. It supplies no defaults and does
    not map lifecycle to disposition. It updates both schema fields to `project/2`.
 5. Validates every destination payload with Substrate/kinds and refuses
