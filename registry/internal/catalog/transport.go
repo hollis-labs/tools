@@ -20,6 +20,10 @@ func (e *Error) ToolErrorContent() any { return e }
 type Route struct{ Operation, Method, Path string }
 
 var Routes = []Route{
+	{"export_authorize", "POST", "/v1/export/authorize"}, {"export_attempt_get", "GET", "/v1/export/attempt"},
+	{"export_plan", "POST", "/v1/export/plan"}, {"export_diff", "POST", "/v1/export/diff"}, {"export_apply", "POST", "/v1/export/apply"},
+	{"import_preparation_get", "POST", "/v1/import/preparation"},
+	{"changes_list", "GET", "/v1/changes"}, {"import_prepare", "POST", "/v1/import/prepare"}, {"import_commit", "POST", "/v1/import/commit"}, {"import_checkpoint", "GET", "/v1/import/checkpoint"},
 	{"references_report", "GET", "/v1/references"}, {"migration_list", "GET", "/v1/migrations"}, {"record_migrate", "POST", "/v1/record/migrate"}, {"relation_decide", "POST", "/v1/relations/decide"}, {"retention_run", "POST", "/v1/maintenance/retention"}, {"backup_create", "POST", "/v1/maintenance/backup"},
 	{"publication_approval_prepare", "POST", "/v1/publication/prepare"}, {"publication_approval_get", "GET", "/v1/publication/approval"}, {"publication_approval_decide", "POST", "/v1/publication/decide"}, {"publication_publish", "POST", "/v1/publication/publish"}, {"publication_policy_get", "GET", "/v1/publication/policy"}, {"publication_policy_set", "PUT", "/v1/publication/policy"},
 	{"kinds_list", "GET", "/v1/kinds"}, {"schema_get", "GET", "/v1/schema"},
@@ -117,6 +121,8 @@ func Handler(call CallFunc) http.Handler {
 }
 func Status(code string) int {
 	switch code {
+	case "quota_exceeded":
+		return 429
 	case "forbidden":
 		return 403
 	case "not_found":
@@ -267,6 +273,33 @@ func argumentSchema(op string) any {
 		}
 	}
 	switch op {
+	case "export_plan":
+		add("export", "object", "Target binding, optional exact ids and expected_generation; published records only", true)
+	case "export_diff":
+		add("bundle", "object", "Exact published export bundle from read-only plan", true)
+		add("hash", "string", "Exact bundle digest", true)
+	case "export_authorize":
+		add("bundle", "object", "Exact pinned export bundle", true)
+		add("hash", "string", "Exact bundle digest", true)
+		add("expires_at", "string", "Optional apply-start deadline (default 15 minutes, maximum 24 hours)", false)
+		add("idempotency_key", "string", "Scoped authorization replay key", true)
+	case "export_attempt_get", "export_apply":
+		add("receipt_id", "string", "Caller-owned export authorization receipt", true)
+		add("hash", "string", "Exact deterministic bundle digest", true)
+	case "changes_list":
+		add("query", "object", "Publication changes cursor and limit", false)
+	case "import_preparation_get":
+		add("idempotency_key", "string", "Caller-owned stable run preparation key", true)
+	case "import_checkpoint":
+		add("id", "string", "Connector identity", true)
+	case "import_prepare":
+		add("idempotency_key", "string", "Scoped durable preparation replay key", true)
+		add("import", "object", "Temporary connector snapshot: connector, checkpoint, expected_checkpoint, entries with source_key/source_revision/record", true)
+	case "import_commit":
+		add("plan_id", "string", "Prepared immutable plan", true)
+		add("hash", "string", "Exact prepared plan digest", true)
+		add("source_digest", "string", "Confirmed current source snapshot digest", true)
+		add("idempotency_key", "string", "Caller-scoped retry key", true)
 	case "backup_create":
 	case "retention_run":
 		add("apply", "boolean", "False previews and rolls back; true applies protected server retention policy", false)

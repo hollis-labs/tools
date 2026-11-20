@@ -51,11 +51,12 @@ select a filesystem path or confer a role. No new credential is created here.
 | `registry retention --apply --json` | Commit expiration and a maintenance audit entry |
 | `registry backup --json` | Consistent online SQLite copy, integrity check, SHA-256 manifest |
 
-Retention first expires cursors and both creation/publication replay receipts.
-Existing rows get a fresh clock when migration 004 is installed; expiry never
-uses the snapshot's `as_of` content timestamp. Expired cursors return a validation
-error and require a fresh query. Expired replay keys no longer guarantee replay;
-retain the receipt horizon longer than the longest client retry window.
+Retention expires cursors and creation receipts at their configured horizons.
+Publication receipts remain durable idempotency tombstones: an old committed key
+must never become a fresh publication. Import preparations, replay receipts,
+checkpoints and their referenced record histories are retained; expiry limits
+commit eligibility rather than deleting evidence. Keep the creation-receipt
+horizon longer than the longest client retry window.
 
 Draft history pruning is conservative:
 

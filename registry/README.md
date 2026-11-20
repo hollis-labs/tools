@@ -15,6 +15,9 @@ Definitions are drafts until explicitly published. Default reads select the
 published revision; use `--publication draft` to inspect edits. See
 [publication and approval](docs/publication.md) for the receipt protocol, pinned
 dependencies and the fail-closed elevated-publication boundary.
+Deterministic export planning, snapshot authorization, drift detection, changes
+feeds, and atomic temporary imports are documented in
+[materialization and import](docs/materialization.md).
 
 ## Build and run
 
@@ -285,5 +288,7 @@ write scope, decisions/policy changes require review scope, and inspection requi
 read scope. Publication additionally requires read scope for historical replay.
 The same operation schemas are exposed through HTTP and stdio MCP.
 
+Published export plan/diff/apply, publication changes cursors and temporary batch
+import contracts are described in [materialization](docs/materialization.md).
 The [agent guide skill](skills/use-registry/SKILL.md) covers lookup, authoring,
 reference reporting and the separate review/publication boundaries.

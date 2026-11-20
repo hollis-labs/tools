@@ -10,15 +10,20 @@ import (
 	"time"
 
 	"github.com/hollis-labs/libs/core/store"
+	"github.com/hollis-labs/libs/harness/core/workspace/materialize"
 	libauth "github.com/hollis-labs/libs/security/auth"
 	"github.com/hollis-labs/tools/registry/contracts"
 )
 
 type Service struct {
-	Maintenance MaintenanceConfig
-	DB          *store.Store
-	authorities map[string]string
-	reviewers   map[string]string
+	Maintenance         MaintenanceConfig
+	DB                  *store.Store
+	materializerOptions materialize.EngineOptions
+	exportTargets       map[string]string
+	importLimits        ImportLimits
+	now                 func() time.Time
+	authorities         map[string]string
+	reviewers           map[string]string
 }
 
 func New(db *store.Store, authorities map[string]string, reviewers map[string]string) *Service {
@@ -30,10 +35,10 @@ func New(db *store.Store, authorities map[string]string, reviewers map[string]st
 	for k, v := range reviewers {
 		roles[k] = v
 	}
-	return &Service{DB: db, authorities: bindings, reviewers: roles}
+	return &Service{DB: db, authorities: bindings, reviewers: roles, importLimits: DefaultImportLimits(), now: time.Now}
 }
 
-var Operations = []string{"references_report", "migration_list", "record_migrate", "relation_decide", "retention_run", "backup_create", "publication_approval_prepare", "publication_approval_get", "publication_approval_decide", "publication_publish", "publication_policy_get", "publication_policy_set", "kinds_list", "schema_get", "record_create", "record_get", "record_list", "record_search", "record_update", "record_archive", "record_delete", "record_verify", "revision_list", "revision_get", "relation_create", "relation_list", "relation_remove", "tool_resolve", "tool_classify", "tool_propose", "review_list", "review_decide", "snapshot_get", "diagnostics"}
+var Operations = []string{"import_preparation_get", "export_authorize", "export_attempt_get", "export_plan", "export_diff", "export_apply", "changes_list", "import_prepare", "import_commit", "import_checkpoint", "publication_approval_prepare", "publication_approval_get", "publication_approval_decide", "publication_publish", "publication_policy_get", "publication_policy_set", "kinds_list", "schema_get", "record_create", "record_get", "record_list", "record_search", "record_update", "record_archive", "record_delete", "record_verify", "revision_list", "revision_get", "relation_create", "relation_list", "relation_remove", "tool_resolve", "tool_classify", "tool_propose", "review_list", "review_decide", "snapshot_get", "diagnostics", "references_report", "migration_list", "record_migrate", "relation_decide", "retention_run", "backup_create"}
 
 func (s *Service) Call(ctx context.Context, op string, a Args) (any, error) {
 	p, ok := libauth.FromContext(ctx)
@@ -62,6 +67,18 @@ func (s *Service) Call(ctx context.Context, op string, a Args) (any, error) {
 	}
 	if !known {
 		return nil, failure("not_found", "operation", "unknown operation")
+	}
+	if strings.HasPrefix(op, "export_") {
+		return s.exportCall(ctx, p, op, a)
+	}
+	if op == "import_preparation_get" {
+		return s.importPreparation(ctx, p, a)
+	}
+	if strings.HasPrefix(op, "import_") {
+		return s.importCall(ctx, p, op, a)
+	}
+	if op == "changes_list" {
+		return s.changes(ctx, p.ID, a.Query)
 	}
 	if strings.HasPrefix(op, "publication_") {
 		return s.publicationCall(ctx, p, op, a)
@@ -344,6 +361,7 @@ func (s *Service) mutate(ctx context.Context, p libauth.Principal, op string, a 
 				for i := range next.Edges {
 					next.Edges[i].ProposedBy = p.ID
 				}
+				next.MappingVersion = "native/1"
 				if r.Kind != "project" {
 					for _, e := range r.Edges {
 						if !isPayloadEdge(e) {
@@ -623,7 +641,11 @@ func prepare(in *Input, authority string) (Record, error) {
 	r.Edges = append(r.Edges, generated...)
 	return r, nil
 }
-func save(ctx context.Context, tx store.Tx, r *Record) error {
+func save(ctx context.Context, tx store.Tx, r *Record) error { return saveRecord(ctx, tx, r, false) }
+func savePrepared(ctx context.Context, tx store.Tx, r *Record) error {
+	return saveRecord(ctx, tx, r, true)
+}
+func saveRecord(ctx context.Context, tx store.Tx, r *Record, allocated bool) error {
 	var other string
 	err := tx.QueryRowContext(ctx, `SELECT r.id FROM records c JOIN revisions r ON r.seq=c.seq WHERE r.kind=? AND r.authority=? AND json_extract(r.body,'$.key')=? AND r.id<>?`, r.Kind, r.Authority, r.Key, r.ID).Scan(&other)
 	if err == nil {
@@ -636,9 +658,13 @@ func save(ctx context.Context, tx store.Tx, r *Record) error {
 	r.PublishedBy = ""
 	r.PublishedAt = ""
 	r.TargetPins = nil
-	r.VersionToken = newID()
-	r.RevisionID = r.VersionToken
-	r.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	if !allocated {
+		r.VersionToken = newID()
+		r.RevisionID = r.VersionToken
+		r.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	} else if r.RevisionID == "" || r.VersionToken != r.RevisionID {
+		return failure("validation_error", "revision", "frozen prepared revision required")
+	}
 	res, err := tx.ExecContext(ctx, `INSERT INTO revisions(id,token,kind,authority,lifecycle,name,search_text,body) VALUES(?,?,?,?,?,?,?,?)`, r.ID, r.VersionToken, r.Kind, r.Authority, r.Lifecycle, r.Name, strings.ToLower(r.Name+" "+r.Summary+" "+string(r.Payload)), []byte("{}"))
 	if err != nil {
 		return err

@@ -37,6 +37,7 @@ func registryClient(endpoint, tokenFile string) *catalog.Client {
 	}}
 }
 func addClientCommands(root *cobra.Command) {
+	root.AddCommand(connectorCommand())
 	root.SilenceErrors = true
 	root.SilenceUsage = true
 	// Human commands and the discoverable exact operation names share one path.

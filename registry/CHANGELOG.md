@@ -21,6 +21,18 @@
   authority, consistent pagination, history and archive/tombstone semantics.
 - Add Folio-generated build/deployment descriptors and a staged activation plan.
 
+## Unreleased
+
+- Add published-only deterministic export plans, caller-bound authorization
+  receipts, source manifests and shared materializer diff/apply for configured
+  isolated output targets.
+- Separate read-only export planning from snapshot authorization and one-attempt
+  materializer receipts with start deadlines and recorded outcomes.
+- Freeze allocated candidate revisions in durable, expiring and quota-bound
+  import preparation with scoped replay keys and sanitized failure reports.
+- Add immutable publication changes cursors and atomic prepare/commit imports
+  with source bindings, checkpoints, idempotent receipts and drift conflicts.
+- Add temporary connector runner contracts; scheduling remains disabled.
 ## Unreleased: phase 4 hardening
 
 - Index immutable draft/publication name, summary and body text with FTS5.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -129,6 +130,31 @@ func catalogService(app *module.App) (*catalog.Service, error) {
 		reviewers[id] = role
 	}
 	svc := catalog.New(db, bindings, reviewers)
+	targets := map[string]string{}
+	configuredTargets, _ := cfg["export_targets"].(map[string]any)
+	for name, value := range configuredTargets {
+		root, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("registry.export_targets requires directory strings")
+		}
+		targets[name] = root
+	}
+	if configuredLimits, ok := cfg["import_limits"]; ok {
+		raw, err := json.Marshal(configuredLimits)
+		if err != nil {
+			return nil, err
+		}
+		limits := catalog.DefaultImportLimits()
+		if err = catalog.Decode(raw, &limits); err != nil {
+			return nil, err
+		}
+		if err = svc.ConfigureImportLimits(limits); err != nil {
+			return nil, err
+		}
+	}
+	if err := svc.ConfigureExportTargets(targets); err != nil {
+		return nil, err
+	}
 	maintenance, _ := cfg["maintenance"].(map[string]any)
 	for key, dest := range map[string]*time.Duration{"cursor_ttl": &svc.Maintenance.CursorTTL, "receipt_ttl": &svc.Maintenance.ReceiptTTL, "draft_history_ttl": &svc.Maintenance.DraftHistoryTTL} {
 		if raw, exists := maintenance[key]; exists {

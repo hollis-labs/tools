@@ -7,7 +7,7 @@ require (
 	github.com/hollis-labs/libs/core/store v0.1.0
 	github.com/hollis-labs/libs/mcp/plugin-mcp v0.6.0
 	github.com/hollis-labs/libs/security/auth v0.3.1
-	github.com/hollis-labs/substrate v0.1.1-0.20261119200612-112799f6da86
+	github.com/hollis-labs/substrate v0.1.1-0.20261120023626-babfaed3c70d
 	github.com/hollis-labs/tools/registry/contracts v0.0.0-20261120025733-4199eedcd2f4
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/spf13/cobra v1.10.2
@@ -15,15 +15,20 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
+require github.com/pelletier/go-toml/v2 v2.2.4 // indirect
+
 require (
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/hollis-labs/libs/agent/agentdir v0.2.0
 	github.com/hollis-labs/libs/app/app-host v0.1.0 // indirect
 	github.com/hollis-labs/libs/core/panics v0.1.0 // indirect
 	github.com/hollis-labs/libs/core/util v0.11.1 // indirect
+	github.com/hollis-labs/libs/harness/core v0.17.1-0.20261119210534-e787671699c2
+	github.com/hollis-labs/libs/mesh/core v0.11.0
 	github.com/hollis-labs/libs/security/redact v0.2.0 // indirect
 	github.com/hollis-labs/libs/security/secrets v0.1.0 // indirect
 	github.com/hollis-labs/libs/ui/ui-go v0.4.0 // indirect

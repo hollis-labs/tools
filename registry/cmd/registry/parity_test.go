@@ -24,6 +24,7 @@ func testService(t *testing.T) string {
 	t.Setenv("REGISTRY_WRITE_TOKEN", "test-write-credential")
 	t.Setenv("REGISTRY_REVIEW_TOKEN", "test-review-credential")
 	app := mcpApp(t)
+	app.Config["registry"] = map[string]any{"export_targets": map[string]any{"fixture": filepath.Join(t.TempDir(), "export")}}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	ready := make(chan net.Addr, 1)
 	done := make(chan error, 1)
@@ -173,6 +174,117 @@ func TestAPIClientCLIMCPShareDataAndErrors(t *testing.T) {
 		if _, callErr = client.Call(ctx, "record_create", args); callErr == nil {
 			t.Fatalf("HTTP envelope metadata admitted %s", number)
 		}
+	}
+
+	// Import prepares over MCP, commits through the CLI HTTP client and is read
+	// through the API. No transport can inject publication or source authority.
+	snapshot := `{"idempotency_key":"parity-prepare","import":{"source_authority":"fixture","mapping_version":"fixture/1","connector":"fixture-parity","checkpoint":"snapshot-1","expected_checkpoint":"","entries":[{"source_key":"fixture-project","source_revision":"revision-1","record":{"schema":"project/1","key":"fixture-project","payload":{"schema":"project/1","id":"fixture-project","name":"Fixture","class":2,"lifecycle":"active","visibility":"public","owner":"user:test","interfaces":[{"type":"cli","auth":"none"}]}}}]}}`
+	result, err = cs.CallTool(ctx, &mcpsdk.CallToolParams{Name: "registry_import_prepare", Arguments: json.RawMessage(snapshot)})
+	if err != nil || result.IsError {
+		t.Fatalf("MCP import prepare: %v %v", result, err)
+	}
+	planRaw, _ := json.Marshal(result.StructuredContent)
+	var plan catalog.ImportPlan
+	if err = json.Unmarshal(planRaw, &plan); err != nil || plan.Counts.Created != 1 {
+		t.Fatalf("bad import plan: %s %v", planRaw, err)
+	}
+	commitRaw, _ := json.Marshal(catalog.Args{PlanID: plan.ID, Hash: plan.Digest, SourceDigest: plan.SourceDigest, IdempotencyKey: "parity-import"})
+	importRoot := &cobra.Command{Use: "registry"}
+	addClientCommands(importRoot)
+	var importOutput bytes.Buffer
+	importRoot.SetIn(bytes.NewReader(commitRaw))
+	importRoot.SetOut(&importOutput)
+	importRoot.SetArgs([]string{"import-commit", "--file", "-", "--url", endpoint, "--token-file", file, "--json"})
+	if err = importRoot.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var imported catalog.ImportResult
+	if err = json.Unmarshal(importOutput.Bytes(), &imported); err != nil || imported.Counts.Created != 1 {
+		t.Fatal(importOutput.String(), err)
+	}
+	out, err = client.Call(ctx, "record_get", catalog.Args{ID: "project:fixture-project", Publication: "draft"})
+	if err != nil || responseRecord(t, out).Publication != "draft" {
+		t.Fatal("import not visible as draft", out, err)
+	}
+	result, err = cs.CallTool(ctx, &mcpsdk.CallToolParams{Name: "registry_changes_list", Arguments: map[string]any{}})
+	if err != nil || result.IsError {
+		t.Fatal("MCP publication feed", result, err)
+	}
+	changesRaw, _ := json.Marshal(result.StructuredContent)
+	var changes catalog.Changes
+	if err = json.Unmarshal(changesRaw, &changes); err != nil || len(changes.Changes) != 0 || changes.Cursor == "" {
+		t.Fatal("draft import leaked", string(changesRaw), err)
+	}
+
+	// Read-only CLI plan -> separate MCP authorization -> HTTP apply. The receipt
+	// is consumed once; reading it again cannot start another filesystem attempt.
+	decode := func(value any, dst any) {
+		t.Helper()
+		encoded, encodeErr := json.Marshal(value)
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		if decodeErr := json.Unmarshal(encoded, dst); decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+	}
+	v, callErr := client.Call(ctx, "publication_approval_prepare", catalog.Args{Candidates: []catalog.Candidate{{ID: document.ID, Revision: document.RevisionID}}})
+	if callErr != nil {
+		t.Fatal(callErr)
+	}
+	var approval catalog.Approval
+	decode(v, &approval)
+	reviewClient := *client
+	reviewClient.Token = func() (string, error) { return "test-review-credential", nil }
+	v, callErr = reviewClient.Call(ctx, "publication_approval_decide", catalog.Args{ApprovalID: approval.ID, ApprovalRevision: approval.Revision, Hash: approval.ManifestDigest, Decision: "approved"})
+	if callErr != nil {
+		t.Fatal(callErr)
+	}
+	decode(v, &approval)
+	if _, callErr = client.Call(ctx, "publication_publish", catalog.Args{ApprovalID: approval.ID, ApprovalRevision: approval.Revision, Hash: approval.ManifestDigest, Candidates: approval.Candidates, IdempotencyKey: "publish-export-fixture"}); callErr != nil {
+		t.Fatal(callErr)
+	}
+	exportRoot := &cobra.Command{Use: "registry"}
+	addClientCommands(exportRoot)
+	planInput, _ := json.Marshal(catalog.Args{Export: &catalog.ExportRequest{Target: "fixture", IDs: []string{document.ID}}})
+	var exportOutput bytes.Buffer
+	exportRoot.SetIn(bytes.NewReader(planInput))
+	exportRoot.SetOut(&exportOutput)
+	exportRoot.SetArgs([]string{"export-plan", "--file", "-", "--url", endpoint, "--token-file", file, "--json"})
+	if callErr = exportRoot.Execute(); callErr != nil {
+		t.Fatal(callErr)
+	}
+	var planned catalog.ExportPlan
+	if callErr = json.Unmarshal(exportOutput.Bytes(), &planned); callErr != nil {
+		t.Fatal(callErr)
+	}
+	authorizeRaw, _ := json.Marshal(catalog.Args{Bundle: &planned.Bundle, Hash: planned.Bundle.Digest, IdempotencyKey: "export-authorize-fixture"})
+	result, callErr = cs.CallTool(ctx, &mcpsdk.CallToolParams{Name: "registry_export_authorize", Arguments: json.RawMessage(authorizeRaw)})
+	if callErr != nil || result.IsError {
+		t.Fatal("MCP export authorization", result, callErr)
+	}
+	var exportReceipt catalog.ExportReceipt
+	decode(result.StructuredContent, &exportReceipt)
+	v, callErr = client.Call(ctx, "export_apply", catalog.Args{ReceiptID: exportReceipt.ID, Hash: exportReceipt.Bundle.Digest})
+	if callErr != nil {
+		t.Fatal(callErr)
+	}
+	var outcome catalog.ExportOutcome
+	decode(v, &outcome)
+	if outcome.State != "completed" || outcome.Handle == nil || !outcome.Handle.Report.Complete {
+		t.Fatal(outcome)
+	}
+	result, callErr = cs.CallTool(ctx, &mcpsdk.CallToolParams{Name: "registry_export_apply", Arguments: map[string]any{"receipt_id": exportReceipt.ID, "hash": exportReceipt.Bundle.Digest}})
+	if callErr != nil || !result.IsError {
+		t.Fatal("consumed receipt restarted over MCP", result, callErr)
+	}
+	result, callErr = cs.CallTool(ctx, &mcpsdk.CallToolParams{Name: "registry_export_attempt_get", Arguments: map[string]any{"receipt_id": exportReceipt.ID}})
+	if callErr != nil || result.IsError {
+		t.Fatal("MCP export outcome", result, callErr)
+	}
+	decode(result.StructuredContent, &outcome)
+	if outcome.State != "completed" {
+		t.Fatal(outcome)
 	}
 
 }
