@@ -61,11 +61,10 @@ turns and compaction reuse it. A new retry key with matching facts returns that
 identity; conflicting supplied facts return `version_conflict`. Registration
 never silently merges changed launch facts.
 
-All facts use their exact request names as string values in the existing
-`correlation/1` payload `metadata` object. The contracts validator admits a
-nonempty opaque identifier only at `metadata.token_jti` (and the matching typed
-Input payload path), while retaining credential-value scanning and refusal of
-other sensitive names, kinds and paths. The session also populates `links.session` (kind `session`), qualified by the
+Facts use their request names as string values in the existing `correlation/1`
+payload `metadata` object, except `token_jti`, which maps to `metadata.jti`.
+The latter names an opaque identifier and preserves existing shared
+sensitive-setting refusal for `token_*` settings; no secret policy is relaxed. The session also populates `links.session` (kind `session`), qualified by the
 bound launch-service authority. Optional `workstream_id` populates
 `links.workstream` (kind `workstream`) under Registry. Other facts remain typed
 metadata: no foreign authority mapping or team-run identity is inferred.
