@@ -85,6 +85,12 @@ func factsMap(f *LaunchFacts) map[string]any {
 	raw, _ := json.Marshal(f)
 	var m map[string]any
 	_ = json.Unmarshal(raw, &m)
+	// JTI is a token identifier, not credential material. Use the descriptive
+	// metadata name jti so shared sensitive-setting admission remains intact.
+	if v, ok := m["token_jti"]; ok {
+		m["jti"] = v
+		delete(m, "token_jti")
+	}
 	return m
 }
 func validateMintArgs(a Args) error {
@@ -106,7 +112,8 @@ func (s *Service) mint(ctx context.Context, p libauth.Principal, op string, a Ar
 	if err := validateMintArgs(a); err != nil {
 		return nil, err
 	}
-	domain, key, kind := "", "", ""
+	domains := []string{}
+	key, kind := "", ""
 	var request any
 	if op == "workstream_ensure" {
 		if a.LaunchFacts != nil || strings.TrimSpace(a.Key) == "" {
@@ -120,7 +127,10 @@ func (s *Service) mint(ctx context.Context, p libauth.Principal, op string, a Ar
 			}
 		}
 		a.ProjectURNs = projects
-		domain = digest(projects)
+		domains = projects
+		if len(domains) == 0 {
+			domains = []string{""}
+		}
 		key = a.Key
 		kind = "workstream"
 		request = ensureRequest{a.Key, a.Name, projects}
@@ -132,7 +142,7 @@ func (s *Service) mint(ctx context.Context, p libauth.Principal, op string, a Ar
 		if strings.TrimSpace(f.URN) == "" || strings.TrimSpace(f.Session) == "" || strings.TrimSpace(f.RunID) == "" {
 			return nil, failure("validation_error", "launch", "urn, session and run_id required")
 		}
-		domain = f.Session
+		domains = []string{f.Session}
 		key = f.RunID
 		kind = "correlation"
 		request = f
@@ -145,18 +155,35 @@ func (s *Service) mint(ctx context.Context, p libauth.Principal, op string, a Ar
 			return e
 		}
 		var id string
-		var closed int
-		e := tx.QueryRowContext(ctx, `SELECT id,closed FROM minted_identities WHERE operation=? AND authority=? AND domain=? AND logical_key=?`, op, authority, domain, key).Scan(&id, &closed)
-		exists := e == nil
-		if e != nil && !errors.Is(e, sql.ErrNoRows) {
-			return e
+		found := 0
+		for _, domain := range domains {
+			var candidate string
+			var closed int
+			e := tx.QueryRowContext(ctx, `SELECT id,closed FROM minted_identities WHERE operation=? AND authority=? AND domain=? AND logical_key=?`, op, authority, domain, key).Scan(&candidate, &closed)
+			if errors.Is(e, sql.ErrNoRows) {
+				continue
+			}
+			if e != nil {
+				return e
+			}
+			if kind == "workstream" && closed != 0 {
+				return failure("workstream_closed", "key", "closed key cannot be reminted")
+			}
+			if id != "" && id != candidate {
+				return failure("version_conflict", "project_urns", "project keys already name distinct identities")
+			}
+			id = candidate
+			found++
 		}
-		if exists && kind == "workstream" && closed != 0 {
-			return failure("workstream_closed", "key", "closed key cannot be reminted")
+		exists := found > 0
+		// A request may select existing project bindings but cannot silently
+		// attach a new project to authored content or merge identities.
+		if exists && found != len(domains) {
+			return failure("version_conflict", "project_urns", "ensure cannot extend an existing identity's project domain")
 		}
 		var oldHash string
 		var receipt []byte
-		e = tx.QueryRowContext(ctx, `SELECT digest,body FROM mint_receipts WHERE operation=? AND caller=? AND authority=? AND key=?`, op, p.ID, authority, a.IdempotencyKey).Scan(&oldHash, &receipt)
+		e := tx.QueryRowContext(ctx, `SELECT digest,body FROM mint_receipts WHERE operation=? AND caller=? AND authority=? AND key=?`, op, p.ID, authority, a.IdempotencyKey).Scan(&oldHash, &receipt)
 		if e == nil {
 			if oldHash != hash {
 				return failure("version_conflict", "idempotency_key", "key reused with changed request")
@@ -228,7 +255,7 @@ func (s *Service) mint(ctx context.Context, p libauth.Principal, op string, a Ar
 			if e != nil {
 				return e
 			}
-			r, e = prepare(&Input{Schema: kind + "/1", Key: "mint:" + digest([]string{authority, domain, key}), Payload: raw}, authority)
+			r, e = prepare(&Input{Schema: kind + "/1", Key: "mint:" + digest([]string{authority, digest(domains), key}), Payload: raw}, authority)
 			if e != nil {
 				return e
 			}
@@ -239,8 +266,10 @@ func (s *Service) mint(ctx context.Context, p libauth.Principal, op string, a Ar
 			if e = save(ctx, tx, &r); e != nil {
 				return e
 			}
-			if _, e = tx.ExecContext(ctx, `INSERT INTO minted_identities(operation,authority,domain,logical_key,id) VALUES(?,?,?,?,?)`, op, authority, domain, key, r.ID); e != nil {
-				return e
+			for _, domain := range domains {
+				if _, e = tx.ExecContext(ctx, `INSERT INTO minted_identities(operation,authority,domain,logical_key,id) VALUES(?,?,?,?,?)`, op, authority, domain, key, r.ID); e != nil {
+					return e
+				}
 			}
 		}
 		result = MintResult{r.ID, !exists, r.VersionToken}
@@ -289,6 +318,9 @@ func protectMinted(ctx context.Context, tx store.Tx, old, next Record) error {
 			return e
 		}
 		for _, field := range launchFields {
+			if field == "token_jti" {
+				field = "jti"
+			}
 			if v, ok := before.Metadata[field]; ok && after.Metadata[field] != v {
 				return failure("version_conflict", "metadata."+field, "registered launch fact immutable")
 			}

@@ -403,3 +403,48 @@ func TestMintLostHTTPResponseRetry(t *testing.T) {
 		t.Fatalf("lost response did not replay original result: %#v %#v", original, retry)
 	}
 }
+
+func TestMintProjectDomainsOverlapConverge(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	a := ensureArgs("same-key", "multi")
+	a.ProjectURNs = []string{"project:two", "project:one"}
+	original := ensured(t, s, dispatcher, "workstream_ensure", a)
+	a.ProjectURNs = []string{"project:one", "project:two"}
+	if ensured(t, s, dispatcher, "workstream_ensure", a) != original {
+		t.Fatal("project order changed replay")
+	}
+	for _, project := range a.ProjectURNs {
+		one := ensureArgs("same-key", project)
+		one.ProjectURNs = []string{project}
+		v := ensured(t, s, dispatcher, "workstream_ensure", one)
+		if v.ID != original.ID || v.Created {
+			t.Fatal("per-project domain minted duplicate identity")
+		}
+	}
+	separate := ensureArgs("same-key", "three")
+	separate.ProjectURNs = []string{"project:three"}
+	v := ensured(t, s, dispatcher, "workstream_ensure", separate)
+	if v.ID == original.ID {
+		t.Fatal("unrelated project not isolated")
+	}
+	overlap := ensureArgs("same-key", "overlap")
+	overlap.ProjectURNs = []string{"project:two", "project:three"}
+	_, err := s.Call(dispatcher, "workstream_ensure", overlap)
+	code(t, err, "version_conflict")
+	overlap.ProjectURNs = []string{"project:one", "project:new"}
+	_, err = s.Call(dispatcher, "workstream_ensure", overlap)
+	code(t, err, "version_conflict")
+	record := callRecord(t, s, writer, "record_get", Args{ID: original.ID, Publication: "draft"})
+	var w kinds.Workstream
+	_ = json.Unmarshal(record.Payload, &w)
+	if len(w.ProjectURNs) != 2 {
+		t.Fatal("ensure changed authored projects")
+	}
+	record = callRecord(t, s, writer, "record_archive", Args{ID: record.ID, Version: record.VersionToken})
+	for _, project := range w.ProjectURNs {
+		a := ensureArgs("same-key", "closed-"+project)
+		a.ProjectURNs = []string{project}
+		_, err = s.Call(dispatcher, "workstream_ensure", a)
+		code(t, err, "workstream_closed")
+	}
+}

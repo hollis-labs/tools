@@ -29,7 +29,13 @@ Request: `{"key":"stable-application-reference","name":"Optional name","project_
 are optional. Ensuring an existing identity does not overwrite authored fields;
 a supplied different name returns `version_conflict`.
 
-The logical-key domain is the bound authority, project domain and stable key.
+The logical-key domain is `(bound authority, project_urn, key)`. A request
+with multiple distinct projects claims each project binding atomically for the
+same identity; a later request selecting any of those projects returns that id.
+Project order is irrelevant. Omitting projects uses an authority-wide empty
+project domain, isolated from every named project. Ensuring cannot add new
+project bindings to an existing identity or merge bindings that already name
+different identities: those requests return `version_conflict`.
 The durable map is independent of receipt lifetime. Concurrent requests using
 different retry keys converge to the same id. Authored closed status, archive or
 delete permanently closes the mapping: every subsequent ensure returns
@@ -50,8 +56,10 @@ turns and compaction reuse it. A new retry key with matching facts returns that
 identity; conflicting supplied facts return `version_conflict`. Registration
 never silently merges changed launch facts.
 
-All facts use their exact request names as string values in the existing
-`correlation/1` payload `metadata` object. The session also populates `links.session` (kind `session`), qualified by the
+Facts use their request names as string values in the existing `correlation/1`
+payload `metadata` object, except `token_jti`, which maps to `metadata.jti`.
+The latter names an opaque identifier and preserves existing shared
+sensitive-setting refusal for `token_*` settings; no secret policy is relaxed. The session also populates `links.session` (kind `session`), qualified by the
 bound launch-service authority. Optional `workstream_id` populates
 `links.workstream` (kind `workstream`) under Registry. Other facts remain typed
 metadata: no foreign authority mapping or team-run identity is inferred.

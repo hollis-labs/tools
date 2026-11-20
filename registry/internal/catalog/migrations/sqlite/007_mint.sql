@@ -1,9 +1,10 @@
 -- +goose Up
 CREATE TABLE minted_identities (
  operation TEXT NOT NULL, authority TEXT NOT NULL, domain TEXT NOT NULL,
- logical_key TEXT NOT NULL, id TEXT NOT NULL UNIQUE, closed INTEGER NOT NULL DEFAULT 0,
+ logical_key TEXT NOT NULL, id TEXT NOT NULL, closed INTEGER NOT NULL DEFAULT 0,
  PRIMARY KEY(operation,authority,domain,logical_key)
 );
+CREATE INDEX minted_identities_id ON minted_identities(id);
 CREATE TABLE mint_receipts (
  operation TEXT NOT NULL, caller TEXT NOT NULL, authority TEXT NOT NULL, key TEXT NOT NULL,
  digest TEXT NOT NULL, body BLOB NOT NULL, expires_at TEXT NOT NULL,
