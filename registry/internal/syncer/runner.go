@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 )
 
 var ErrInvalid = errors.New("syncer: invalid connector invocation")
@@ -100,7 +100,7 @@ func Run(ctx context.Context, connector Connector, runID string, source Source, 
 	if err != nil || len(canonical) == 0 || canonical[0] != '{' {
 		return out, ErrInvalid
 	}
-	if err := ctx.Err(); err != nil {
+	if err = ctx.Err(); err != nil {
 		return out, err
 	}
 	prepared, err := importer.Prepare(ctx, Request{Connector: connector, RunID: runID, IdempotencyKey: key, Batch: canonical})
@@ -118,7 +118,7 @@ func Run(ctx context.Context, connector Connector, runID string, source Source, 
 	if prepared.ID == "" || prepared.ManifestDigest == "" {
 		return out, ErrInvalid
 	}
-	if err := ctx.Err(); err != nil {
+	if err = ctx.Err(); err != nil {
 		return out, err
 	}
 	out.Report, err = importer.Commit(ctx, prepared)
