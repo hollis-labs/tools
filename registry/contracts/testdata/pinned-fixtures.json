@@ -1,0 +1,541 @@
+[
+  {
+    "name": "project/1 accepted",
+    "schema": "project/1",
+    "valid": true,
+    "data": {
+      "schema": "project/1",
+      "id": "sample",
+      "name": "Sample",
+      "class": 2,
+      "lifecycle": "active",
+      "visibility": "public",
+      "owner": "user:owner",
+      "interfaces": [
+        {
+          "type": "cli"
+        }
+      ]
+    }
+  },
+  {
+    "name": "project/1 unknown property",
+    "schema": "project/1",
+    "valid": false,
+    "data": {
+      "schema": "project/1",
+      "id": "sample",
+      "name": "Sample",
+      "class": 2,
+      "lifecycle": "active",
+      "visibility": "public",
+      "owner": "user:owner",
+      "interfaces": [
+        {
+          "type": "cli"
+        }
+      ],
+      "unexpected": "refuse"
+    }
+  },
+  {
+    "name": "tool/1 accepted",
+    "schema": "tool/1",
+    "valid": true,
+    "data": {
+      "schema": "tool/1",
+      "id": "tool:mcp/example/lookup",
+      "source": "mcp",
+      "origin": "example",
+      "lifecycle": "active",
+      "definition": {
+        "name": "lookup",
+        "input_schema": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  {
+    "name": "tool/1 unknown property",
+    "schema": "tool/1",
+    "valid": false,
+    "data": {
+      "schema": "tool/1",
+      "id": "tool:mcp/example/lookup",
+      "source": "mcp",
+      "origin": "example",
+      "lifecycle": "active",
+      "definition": {
+        "name": "lookup",
+        "input_schema": {
+          "type": "object"
+        }
+      },
+      "unexpected": "refuse"
+    }
+  },
+  {
+    "name": "agent/1 accepted",
+    "schema": "agent/1",
+    "valid": true,
+    "data": {
+      "schema": "agent/1",
+      "id": "sample",
+      "name": "Sample",
+      "charter": "Read the brief.",
+      "roles": [
+        "reviewer"
+      ]
+    }
+  },
+  {
+    "name": "agent/1 unknown property",
+    "schema": "agent/1",
+    "valid": false,
+    "data": {
+      "schema": "agent/1",
+      "id": "sample",
+      "name": "Sample",
+      "charter": "Read the brief.",
+      "roles": [
+        "reviewer"
+      ],
+      "unexpected": "refuse"
+    }
+  },
+  {
+    "name": "agency/1 accepted",
+    "schema": "agency/1",
+    "valid": true,
+    "data": {
+      "schema": "agency/1",
+      "id": "sample",
+      "name": "Sample",
+      "framework": "citadel",
+      "charter": "Review",
+      "cells": [
+        {
+          "name": "reader",
+          "definition": {
+            "charter": "Read",
+            "roles": [
+              "reviewer"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "agency/1 unknown property",
+    "schema": "agency/1",
+    "valid": false,
+    "data": {
+      "schema": "agency/1",
+      "id": "sample",
+      "name": "Sample",
+      "framework": "citadel",
+      "charter": "Review",
+      "cells": [
+        {
+          "name": "reader",
+          "definition": {
+            "charter": "Read",
+            "roles": [
+              "reviewer"
+            ]
+          }
+        }
+      ],
+      "unexpected": "refuse"
+    }
+  },
+  {
+    "name": "skill/1 accepted",
+    "schema": "skill/1",
+    "valid": true,
+    "data": {
+      "schema": "skill/1",
+      "id": "sample",
+      "name": "Sample",
+      "instructions": "Inspect the diff."
+    }
+  },
+  {
+    "name": "skill/1 unknown property",
+    "schema": "skill/1",
+    "valid": false,
+    "data": {
+      "schema": "skill/1",
+      "id": "sample",
+      "name": "Sample",
+      "instructions": "Inspect the diff.",
+      "unexpected": "refuse"
+    }
+  },
+  {
+    "name": "document/1 accepted",
+    "schema": "document/1",
+    "valid": true,
+    "data": {
+      "schema": "document/1",
+      "id": "sample",
+      "name": "Sample",
+      "subtype": "sop",
+      "format": "markdown",
+      "body": "# Procedure"
+    }
+  },
+  {
+    "name": "document/1 unknown property",
+    "schema": "document/1",
+    "valid": false,
+    "data": {
+      "schema": "document/1",
+      "id": "sample",
+      "name": "Sample",
+      "subtype": "sop",
+      "format": "markdown",
+      "body": "# Procedure",
+      "unexpected": "refuse"
+    }
+  },
+  {
+    "name": "workstream/1 accepted",
+    "schema": "workstream/1",
+    "valid": true,
+    "data": {
+      "schema": "workstream/1",
+      "id": "sample",
+      "name": "Sample",
+      "status": "active"
+    }
+  },
+  {
+    "name": "workstream/1 unknown property",
+    "schema": "workstream/1",
+    "valid": false,
+    "data": {
+      "schema": "workstream/1",
+      "id": "sample",
+      "name": "Sample",
+      "status": "active",
+      "unexpected": "refuse"
+    }
+  },
+  {
+    "name": "correlation/1 accepted",
+    "schema": "correlation/1",
+    "valid": true,
+    "data": {
+      "schema": "correlation/1",
+      "id": "sample",
+      "name": "Sample",
+      "links": {
+        "task": {
+          "authority": "torque",
+          "kind": "task",
+          "id": "native/1"
+        }
+      }
+    }
+  },
+  {
+    "name": "correlation/1 unknown property",
+    "schema": "correlation/1",
+    "valid": false,
+    "data": {
+      "schema": "correlation/1",
+      "id": "sample",
+      "name": "Sample",
+      "links": {
+        "task": {
+          "authority": "torque",
+          "kind": "task",
+          "id": "native/1"
+        }
+      },
+      "unexpected": "refuse"
+    }
+  },
+  {
+    "name": "service/1 accepted",
+    "schema": "service/1",
+    "valid": true,
+    "data": {
+      "schema": "service/1",
+      "id": "sample",
+      "name": "Sample",
+      "owner": "example-owner",
+      "operator": "example-operator",
+      "host": "example-host",
+      "cerberus_resource_id": "catalog",
+      "deploy_method": "cerberus",
+      "description": "Catalog",
+      "project": {
+        "authority": "registry",
+        "kind": "project",
+        "id": "project:sample"
+      },
+      "interfaces": [
+        {
+          "type": "mcp",
+          "name": "catalog"
+        }
+      ]
+    }
+  },
+  {
+    "name": "service/1 unknown property",
+    "schema": "service/1",
+    "valid": false,
+    "data": {
+      "schema": "service/1",
+      "id": "sample",
+      "name": "Sample",
+      "owner": "example-owner",
+      "operator": "example-operator",
+      "host": "example-host",
+      "cerberus_resource_id": "catalog",
+      "deploy_method": "cerberus",
+      "description": "Catalog",
+      "project": {
+        "authority": "registry",
+        "kind": "project",
+        "id": "project:sample"
+      },
+      "interfaces": [
+        {
+          "type": "mcp",
+          "name": "catalog"
+        }
+      ],
+      "unexpected": "refuse"
+    }
+  },
+  {
+    "name": "config/1 accepted",
+    "schema": "config/1",
+    "valid": true,
+    "data": {
+      "schema": "config/1",
+      "id": "sample",
+      "name": "Sample",
+      "scope": "service",
+      "target": {
+        "authority": "registry",
+        "kind": "service",
+        "id": "service:sample"
+      },
+      "settings_schema": {
+        "type": "object"
+      },
+      "settings": {
+        "limit": 5
+      }
+    }
+  },
+  {
+    "name": "config/1 unknown property",
+    "schema": "config/1",
+    "valid": false,
+    "data": {
+      "schema": "config/1",
+      "id": "sample",
+      "name": "Sample",
+      "scope": "service",
+      "target": {
+        "authority": "registry",
+        "kind": "service",
+        "id": "service:sample"
+      },
+      "settings_schema": {
+        "type": "object"
+      },
+      "settings": {
+        "limit": 5
+      },
+      "unexpected": "refuse"
+    }
+  },
+  {
+    "name": "knowledge/1 accepted",
+    "schema": "knowledge/1",
+    "valid": true,
+    "data": {
+      "schema": "knowledge/1",
+      "id": "sample",
+      "name": "Sample",
+      "format": "markdown",
+      "body": "# Guide",
+      "provenance": [
+        {
+          "authority": "author",
+          "kind": "document",
+          "id": "guide"
+        }
+      ]
+    }
+  },
+  {
+    "name": "knowledge/1 unknown property",
+    "schema": "knowledge/1",
+    "valid": false,
+    "data": {
+      "schema": "knowledge/1",
+      "id": "sample",
+      "name": "Sample",
+      "format": "markdown",
+      "body": "# Guide",
+      "provenance": [
+        {
+          "authority": "author",
+          "kind": "document",
+          "id": "guide"
+        }
+      ],
+      "unexpected": "refuse"
+    }
+  },
+  {
+    "name": "mcp_server/1 accepted",
+    "schema": "mcp_server/1",
+    "valid": true,
+    "data": {
+      "schema": "mcp_server/1",
+      "id": "sample",
+      "name": "Sample",
+      "transport": "stdio",
+      "source": {
+        "reference": {
+          "authority": "tether",
+          "kind": "mcp_server",
+          "id": "server/native"
+        },
+        "revision": "v/1"
+      }
+    }
+  },
+  {
+    "name": "mcp_server/1 unknown property",
+    "schema": "mcp_server/1",
+    "valid": false,
+    "data": {
+      "schema": "mcp_server/1",
+      "id": "sample",
+      "name": "Sample",
+      "transport": "stdio",
+      "source": {
+        "reference": {
+          "authority": "tether",
+          "kind": "mcp_server",
+          "id": "server/native"
+        },
+        "revision": "v/1"
+      },
+      "unexpected": "refuse"
+    }
+  },
+  {
+    "name": "launch_profile/1 accepted",
+    "schema": "launch_profile/1",
+    "valid": true,
+    "data": {
+      "schema": "launch_profile/1",
+      "id": "sample",
+      "name": "Sample",
+      "source": {
+        "reference": {
+          "authority": "tether",
+          "kind": "launch_profile",
+          "id": "profile/native"
+        },
+        "revision": "v/1"
+      }
+    }
+  },
+  {
+    "name": "launch_profile/1 unknown property",
+    "schema": "launch_profile/1",
+    "valid": false,
+    "data": {
+      "schema": "launch_profile/1",
+      "id": "sample",
+      "name": "Sample",
+      "source": {
+        "reference": {
+          "authority": "tether",
+          "kind": "launch_profile",
+          "id": "profile/native"
+        },
+        "revision": "v/1"
+      },
+      "unexpected": "refuse"
+    }
+  },
+  {
+    "name": "relation/1 accepted",
+    "schema": "relation/1",
+    "valid": true,
+    "data": {
+      "schema": "relation/1",
+      "type": "consumes",
+      "from": {
+        "authority": "registry",
+        "kind": "project",
+        "id": "project:sample"
+      },
+      "to": {
+        "authority": "registry",
+        "kind": "project",
+        "id": "project:other"
+      },
+      "source": "authored",
+      "status": "proposed"
+    }
+  },
+  {
+    "name": "relation/1 unknown property",
+    "schema": "relation/1",
+    "valid": false,
+    "data": {
+      "schema": "relation/1",
+      "type": "consumes",
+      "from": {
+        "authority": "registry",
+        "kind": "project",
+        "id": "project:sample"
+      },
+      "to": {
+        "authority": "registry",
+        "kind": "project",
+        "id": "project:other"
+      },
+      "source": "authored",
+      "status": "proposed",
+      "unexpected": "refuse"
+    }
+  },
+  {
+    "name": "classification/1 accepted",
+    "schema": "classification/1",
+    "valid": true,
+    "data": {
+      "side_effect": [
+        "read"
+      ]
+    }
+  },
+  {
+    "name": "classification/1 unknown property",
+    "schema": "classification/1",
+    "valid": false,
+    "data": {
+      "side_effect": [
+        "read"
+      ],
+      "unexpected": "refuse"
+    }
+  }
+]

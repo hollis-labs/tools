@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/libs/core/store"
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 )
 
 func (s *Service) list(ctx context.Context, caller string, query Query) (Page, error) {

@@ -251,9 +251,17 @@ is included.
 
 ## Verification and deployment
 
+The offline [project draft migration](docs/project2-migration.md) promotes
+authored metadata into `project/2` fields once, with agency-owned `registry/contracts` validation.
+The contracts module preserves each supported version independently, including
+`project/1`; `project/2` requires authored type and disposition. Applications keep
+their own object schemas and sync from Registry explicitly.
+See [contracts provenance](contracts/PROVENANCE.md).
+
 ```sh
 go test -race ./...
 go vet ./...
+(cd contracts && go test -race ./... && go vet ./...)
 go build ./...
 go run github.com/hollis-labs/substrate/cmd/substrate pins check --app .
 ```

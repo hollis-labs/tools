@@ -1,10 +1,10 @@
-// Package descriptor delegates project structure to the shared FC-8 contract.
+// Package descriptor delegates project structure to the agency-owned versioned project contract.
 // Service deployment/auth conformance remains in the local descriptor/runtime
 // checks; parsing alone does not certify a project's operational class bar.
 package descriptor
 
 import (
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 	"os"
 )
 

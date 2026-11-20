@@ -11,7 +11,7 @@ import (
 
 	"github.com/hollis-labs/libs/core/store"
 	libauth "github.com/hollis-labs/libs/security/auth"
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 )
 
 type Service struct {
@@ -776,7 +776,7 @@ func projectEdges(r *Record) error {
 	if err != nil {
 		return err
 	}
-	return kinds.ValidateJSON(kinds.ProjectSchema, r.Payload)
+	return kinds.ValidateJSON(r.Schema, r.Payload)
 }
 func internalError(err error) *Error {
 	var e *Error

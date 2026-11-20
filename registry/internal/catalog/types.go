@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 )
 
 //go:embed migrations/*/*.sql

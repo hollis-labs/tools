@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 	"github.com/hollis-labs/tools/registry/internal/authmode"
 )
 

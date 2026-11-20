@@ -1,0 +1,22 @@
+{
+  "source_module": "github.com/hollis-labs/substrate",
+  "source_version": "v0.1.1-0.20261119200612-112799f6da86",
+  "source_commit": "112799f6da86",
+  "sha256": {
+    "agency-1.json": "bf49d734e746eac4746a53b3f94fc4ca234a4602edf55bb006dea59c4cbcd183",
+    "agent-1.json": "cc1a0137ef16c02a02eddd2258ab57eabec48c33a489838688b1af944f553b10",
+    "classification-1.json": "82577c45ccdce86fb29174f65e28ad1632a7215fc09ceecbac1fd1d41b27aec8",
+    "config-1.json": "f6e99a9022010c40db17aeda336b34edaba8fbb80b14e38ff29a108264a6a2a1",
+    "correlation-1.json": "e5a1f07d55b0941923dcaf3beafc75c1aeea14630d7d46f0be3cbf61f92cf14c",
+    "document-1.json": "9b7193b7c94794ce3591dc3235598e54c69f10c5a3b6bd8df644398347472fbb",
+    "knowledge-1.json": "91423e43ce4c2832adfb35f6ae2f63e88f2f16ae32421211450a6bfdd6f941cc",
+    "launch-profile-1.json": "20f365e04dd8b6d32e5d7436d19ed1ca36515a91762564e45a1e09f0de9be75c",
+    "mcp-server-1.json": "1519d45abb03e0c788197c889f79b115680f0657ec9b70eef3b5d18c328084be",
+    "project-1.json": "2cf00c820c9653ba5dc45f1cbf9dfc72091ab0207fb261807c2edf1945eee074",
+    "relation-1.json": "950724d11bb9021e71febe7912af3815f4899eded9686c6cbb02cf9e40208502",
+    "service-1.json": "4b6fa4596ef37f821fed8c249ce15a0758e45049db110ff5f947a56a6686699b",
+    "skill-1.json": "c5685fc175292800121723171d1e72d92866034ad5c85e223685b0f112cfb81f",
+    "tool-1.json": "c575cd37637beb7e9b8e4413c95323b15d3e7ce7b1dbbfe6616efc832176c584",
+    "workstream-1.json": "9b653436dfbc91fa959fbd188e912d798c6bc288cd41535d1fd3d21ac9dfaf2e"
+  }
+}

@@ -13,7 +13,7 @@ import (
 	"github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/hollis-labs/libs/core/store"
 	libauth "github.com/hollis-labs/libs/security/auth"
-	"github.com/hollis-labs/substrate/kinds"
+	"github.com/hollis-labs/tools/registry/contracts"
 )
 
 // Candidate binds both the draft and the pointer that publication may replace.

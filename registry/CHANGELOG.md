@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Add an offline project draft rewriter that promotes metadata into project/2
+  fields, preserves source files and requires shared project/2 schema support.
+
 - Explicit draft/published revisions, published graph snapshots and pinned target
   references across default reads, with draft selectors for authoring.
 - Hash-bound local approval receipts, revisioned role policy, transactional batch
