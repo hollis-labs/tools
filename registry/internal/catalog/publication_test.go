@@ -471,7 +471,7 @@ func TestPublicationReceiptsSurviveReopen(t *testing.T) {
 	}
 }
 
-// Admission hashes include the complete schema bundle, including the document/1 agency extension.
+// Admission hashes include the complete schema bundle, including host/1.
 func TestPublicationGoldenVectors(t *testing.T) {
 	s := openTest(t, filepath.Join(t.TempDir(), "db"))
 	target := create(t, s, input("target"))
@@ -485,8 +485,8 @@ func TestPublicationGoldenVectors(t *testing.T) {
 		edges []Edge
 		want  string
 	}{
-		{"empty", nil, "sha256:24179c8007c293171fddf74496ee34d9758c6e6ba7bd6af743f2b595d7021cb2"},
-		{"edge", []Edge{{ID: "edge-1", SourceRevision: "revision-1", Relation: kinds.Relation{Schema: kinds.RelationSchema, Type: kinds.Consumes, From: kinds.Reference{Authority: "registry", Kind: "project", ID: r.ID}, To: kinds.Reference{Authority: "registry", Kind: "project", ID: target.ID}, Source: "authored", Status: "proposed"}}}, "sha256:5ce926c36a4062745cbcd842d3127ad3b60f076c978b36d4b0ddaeaa8afea814"},
+		{"empty", nil, "sha256:e646dfdb935fbe8b91255429c4500218280a7bf7f596c303bc1255cb8ce4ad56"},
+		{"edge", []Edge{{ID: "edge-1", SourceRevision: "revision-1", Relation: kinds.Relation{Schema: kinds.RelationSchema, Type: kinds.Consumes, From: kinds.Reference{Authority: "registry", Kind: "project", ID: r.ID}, To: kinds.Reference{Authority: "registry", Kind: "project", ID: target.ID}, Source: "authored", Status: "proposed"}}}, "sha256:36cd14b1d0146f74e29b2bfccdf829294df4f35883598f4c8a550360970985e1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -560,6 +560,7 @@ func TestPublicationDigestRejectsUnsafeNumbersAndDuplicateEdges(t *testing.T) {
 
 func newKindInput(schema string) *Input {
 	tails := map[string]string{
+		"host/1":           `"roles":["worker"],"os":"Example Linux","tailnet":{"hostname":"host.example.test"},"services":[],"owner":"user:example","operator":{"authority":"registry","kind":"project","id":"project:parent"},"project":{"authority":"registry","kind":"project","id":"project:parent"}`,
 		"service/1":        `"owner":"example-owner","operator":"example-operator","host":"example-host","cerberus_resource_id":"catalog","deploy_method":"cerberus","description":"Catalog","project":{"authority":"registry","kind":"project","id":"project:parent"},"interfaces":[{"type":"mcp","name":"catalog"}]`,
 		"config/1":         `"scope":"project","target":{"authority":"registry","kind":"project","id":"project:parent"},"settings_schema":{"type":"object","properties":{"limit":{"type":"integer"}},"additionalProperties":false},"settings":{"limit":5},"secret_refs":{"API_KEY":{"authority":"vault","kind":"secret","id":"catalog/api-key"}}`,
 		"knowledge/1":      `"format":"markdown","body":"# Guide","provenance":[{"authority":"author","kind":"document","id":"guide"}]`,
@@ -569,7 +570,7 @@ func newKindInput(schema string) *Input {
 	return &Input{Schema: schema, Key: "example", Payload: json.RawMessage(`{"schema":"` + schema + `","id":"example","name":"Example",` + tails[schema] + `}`)}
 }
 func TestPublicationBehaviorForNewKinds(t *testing.T) {
-	for _, schema := range []string{"service/1", "config/1", "knowledge/1", "mcp_server/1", "launch_profile/1"} {
+	for _, schema := range []string{"host/1", "service/1", "config/1", "knowledge/1", "mcp_server/1", "launch_profile/1"} {
 		t.Run(schema, func(t *testing.T) {
 			s := openTest(t, filepath.Join(t.TempDir(), "db"))
 			parent := create(t, s, input("parent"))
@@ -797,4 +798,12 @@ func TestReviewApprovalReferenceCannotPersistCredentials(t *testing.T) {
 	if got.RevisionID != r.RevisionID || got.Review.Approval != nil {
 		t.Fatal("rejected approval changed record")
 	}
+}
+
+func TestHostKeyMustMatchHostname(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "db"))
+	in := newKindInput("host/1")
+	in.Key = "other"
+	_, err := s.Call(writer, "record_create", Args{Publication: "draft", Record: in})
+	code(t, err, "validation_error")
 }

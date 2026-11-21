@@ -34,7 +34,7 @@ func payloadEdges(r Record) ([]Edge, error) {
 		}
 	}
 	switch r.Kind {
-	case "service", "config", "knowledge", "mcp_server", "launch_profile":
+	case "host", "service", "config", "knowledge", "mcp_server", "launch_profile":
 		refs, err := kinds.SemanticReferences(r.Schema, r.Payload)
 		if err != nil {
 			return nil, err
