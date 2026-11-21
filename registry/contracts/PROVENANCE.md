@@ -34,3 +34,13 @@ Agency-authored for CW-20261120-0220. Unlike the staged upstream schemas listed
 in schema-provenance.json, tool-package/1 originates here. Its strict wire shape,
 identity checks and secret admission are covered by tool_package_test.go.
 Registry owns immutable version mapping; consumers own archive verification.
+
+## document/1 agency extension
+
+CW-20261121-0046 adds the architecture, template and communication subtypes to
+`document/1`. `schemas/document-1-registry.json` is the authoritative agency
+extension exposed by `Schema`; the staged `schemas/document-1.json` remains
+unchanged and checked against the original manifest. The frozen source fixtures
+still pass; original document payloads require no migration. The extension adds
+subtype-specific required objects without changing existing subtype admission.
+See the README for fields and the pointer/edge-over-copy content guide.

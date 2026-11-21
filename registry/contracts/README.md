@@ -256,3 +256,46 @@ schemas or applying their defaults.
 support agency-authored `tool-package/1`. See the [transport and immutability
 contract](../docs/tool-packages.md). This schema is independent of `tool/1`,
 which describes a tool definition rather than a downloadable package.
+
+### Document subtypes and source pointers
+
+`document/1` supports `sop`, `workflow`, `procedure`, `engineering_bible`,
+`document`, `architecture`, `template` and `communication`. All retain required
+`schema`, `id`, `name`, `subtype`, `format` (`markdown` or `plain_text`) and
+nonempty `body`. The three specialized subtypes require exactly these details:
+
+| Subtype | Required object | Fields |
+| --- | --- | --- |
+| `architecture` | `architecture` | `state`: `current` or `target`; `scope`: nonempty description of the system or boundary |
+| `template` | `template` | `templates`: nonempty description of what it templates, e.g. `task`, `plan`, `report` |
+| `communication` | `communication` | `channel`: nonempty medium; `audience`: nonempty intended recipients |
+
+Detail objects reject unknown fields and may appear only on their matching
+subtype. Template targets, channels and audiences are open text vocabularies.
+The existing subtypes require no new fields.
+
+Prefer pointers and edges over copies. Keep the source in its owning repo path,
+Tesseract key, Caster reference or URL; use `references` with the source's native
+`authority`, `kind`, `id` and optional `uri`. These are opaque pointers, not a
+promise that the target exists. Use graph relations for catalog relationships
+rather than pasting related documents into a body. A short body explaining the
+pointer satisfies the body requirement without duplicating source content.
+For example:
+
+```json
+{
+  "schema": "document/1",
+  "id": "architecture/service-target",
+  "name": "Target service architecture",
+  "subtype": "architecture",
+  "architecture": {"state": "target", "scope": "Service boundaries"},
+  "format": "markdown",
+  "body": "See the maintained source in the repository.",
+  "references": [{
+    "authority": "repo",
+    "kind": "document",
+    "id": "docs/architecture.md",
+    "uri": "https://example.com/project/docs/architecture.md"
+  }]
+}
+```
