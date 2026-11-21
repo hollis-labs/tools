@@ -11,7 +11,7 @@ import (
 
 // Headers the Tether proxy sets only for agent-session callers; operator-token
 // callers get neither and the proxy strips client-sent copies.
-var forwardedAgentHeaders = []string{"X-Tether-Session-Id", "X-Forwarded-User-Id"}
+var forwardedAgentHeaders = []string{"X-Tether-Session-Id", "X-Forwarded-User-Id", "X-Tether-Agent-Urn"}
 
 type forwardedAgentKey struct{}
 

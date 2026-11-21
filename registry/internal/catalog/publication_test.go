@@ -194,6 +194,11 @@ func TestPublicationElevatedOperatorSwitch(t *testing.T) {
 		return WithForwardedCaller(c, h)
 	}
 	operator := caller("registry-gateway", "registry.read", "registry.review")
+	withHeader := func(name string) context.Context {
+		h := http.Header{}
+		h.Set(name, "x")
+		return WithForwardedCaller(operator, h)
+	}
 	decide := func(s *Service, c context.Context, ap Approval) (any, error) {
 		return s.Call(c, "publication_approval_decide", Args{ApprovalID: ap.ID, ApprovalRevision: ap.Revision, Hash: ap.ManifestDigest, Decision: "approved"})
 	}
@@ -215,7 +220,7 @@ func TestPublicationElevatedOperatorSwitch(t *testing.T) {
 	code(t, err, "forbidden")
 	// Switch on.
 	s, ap := setup("on", true)
-	for _, c := range []context.Context{via(operator, true), operator, via(ground, false), via(reviewer, false), via(caller("owner", "registry.read", "registry.review"), false)} {
+	for _, c := range []context.Context{via(operator, true), withHeader("X-Forwarded-User-Id"), withHeader("X-Tether-Agent-Urn"), operator, via(ground, false), via(reviewer, false), via(caller("owner", "registry.read", "registry.review"), false)} {
 		_, err = decide(s, c, ap)
 		code(t, err, "forbidden")
 	}

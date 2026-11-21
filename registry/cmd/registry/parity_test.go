@@ -446,8 +446,8 @@ func TestElevatedOperatorDecisionOverHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	decide := catalog.Args{ApprovalID: ap.ID, ApprovalRevision: ap.Revision, Hash: ap.ManifestDigest, Decision: "approved"}
-	for _, h := range []string{"X-Tether-Session-Id", "X-Forwarded-User-Id"} {
-		if _, err = reviewerWith(headerTransport{h: "session:abc"}).Call(ctx, "publication_approval_decide", decide); err == nil {
+	for _, h := range []string{"X-Tether-Session-Id", "X-Forwarded-User-Id", "X-Tether-Agent-Urn"} {
+		if _, err = reviewerWith(headerTransport{h: "x:abc"}).Call(ctx, "publication_approval_decide", decide); err == nil {
 			t.Fatalf("elevated decision accepted with %s", h)
 		}
 	}

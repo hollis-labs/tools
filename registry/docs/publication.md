@@ -62,8 +62,8 @@ Dev-window exception: `REGISTRY_ELEVATED_PUBLICATION=operator` (default empty =
 closed; any other value is a startup error) with
 `REGISTRY_ELEVATED_PUBLICATION_PRINCIPALS` (comma list of API-key principal IDs,
 required when on) accepts an approved elevated decision only when the caller's
-principal is listed **and** the request carries neither `X-Tether-Session-Id` nor
-`X-Forwarded-User-Id` (the Tether proxy sets them for agent-session callers and
+principal is listed **and** the request carries none of `X-Tether-Session-Id`,
+`X-Forwarded-User-Id` or `X-Tether-Agent-Urn` (the Tether proxy sets them for agent-session callers and
 strips client-sent copies, so operator-token callers have neither). The receipt
 keeps `principal` and adds `decided_by: "operator"` and
 `human_decision: "operator-token (dev-window)"`; publish of an elevated approval
