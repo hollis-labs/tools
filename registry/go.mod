@@ -10,12 +10,16 @@ require (
 	github.com/hollis-labs/substrate v0.1.1-0.20261120023626-babfaed3c70d
 	github.com/hollis-labs/tools/registry/contracts v0.0.0-20261121031234-f43c9927a15c
 	github.com/modelcontextprotocol/go-sdk v1.8.0
+	github.com/oapi-codegen/runtime v1.9.1
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sys v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require github.com/pelletier/go-toml/v2 v2.2.4 // indirect
+require (
+	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
+	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
+)
 
 require (
 	github.com/danieljoos/wincred v1.2.3 // indirect

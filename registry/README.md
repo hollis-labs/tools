@@ -116,6 +116,8 @@ Represent exact values outside the safe numeric range as strings.
 
 ## HTTP and tool contract
 
+The contract is `openapi.yaml` (hand-written; `internal/catalog/spec_test.go` holds it to the served routes, their scopes and each operation's arguments). The Go client in `client/` is generated from it: `cd client && go generate ./...`.
+
 IDs are JSON or query values, **never path components**. In particular,
 `tool:mcp/example/..`, `tool:cli/git/push` and slash-bearing content IDs survive
 all three transports exactly. Use `GET /v1/record?id=<URL-encoded whole ID>`.

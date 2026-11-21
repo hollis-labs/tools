@@ -1,0 +1,1282 @@
+openapi: 3.0.3
+info:
+  title: Registry HTTP API
+  version: 0.1.0
+  description: |
+    The API served by `registry serve` under `/v1/`. Hand-written and spec-first: the Go client in
+    `client/` is generated from this file, and tests in `internal/catalog/spec_test.go` hold it to the
+    served routes (`catalog.Routes`), their scopes (`catalog.Scope`) and each operation's argument
+    names and required set (the MCP input schemas).
+
+    **Wire convention.** One route per operation. IDs are JSON or query values, never path
+    components. A GET carries its arguments as `?args=<URL-encoded JSON operation envelope>`, plus
+    the convenience selectors `id` and `schema`; every other method takes the envelope as its JSON
+    body. Unknown envelope keys are rejected. Mutations need the record's current `version` (a
+    `version_token`), in the envelope or the `If-Match` header.
+
+    **Errors** are `{"error": {...}}` (the `ErrorEnvelope`), with the status taken from the code:
+    `forbidden` 403, `not_found` 404, `deleted` 410, `version_conflict`/`alias_conflict`/
+    `workstream_closed` 409, `quota_exceeded` 429, `unavailable` 503, anything else 400. This is the
+    nested shape, not the flat `{code, message}` body Substrate's `apierr` writes (Registry mounts
+    `/v1/` raw).
+
+    **Scope of this spec.** Every route is declared with its scope and arguments. Results are typed
+    for the data operations (kinds, schema, records, revisions, relations, tools, snapshot,
+    diagnostics). Results of the export, import, publication, migration, maintenance and mint
+    operations are declared as a generic JSON object until they are specified.
+  license:
+    name: see repository LICENSE
+servers:
+  - url: http://127.0.0.1:8990
+    description: Local `registry serve`; reach a real node through its TLS proxy.
+security:
+  - bearerAuth: []
+tags:
+  - {name: schema, description: Kinds and their versioned schemas}
+  - {name: records, description: Create, read, update, archive, delete and verify records}
+  - {name: revisions, description: Immutable revision history}
+  - {name: relations, description: Typed edges between records}
+  - {name: tools, description: Tool resolution, classification and review}
+  - {name: snapshots, description: Snapshots, diagnostics and reports}
+  - {name: publication, description: Approval and publication of drafts}
+  - {name: export, description: Export of published records}
+  - {name: import, description: Connector imports}
+  - {name: identities, description: Registry-minted workstream and correlation identities}
+  - {name: maintenance, description: Retention and backup}
+
+paths:
+  /v1/workstreams/ensure:
+    post:
+      operationId: workstreamEnsure
+      tags: [identities]
+      summary: Mint or return the stable workstream for an application key
+      x-operation: workstream_ensure
+      x-scope: registry.workstream.ensure
+      parameters: [{$ref: "#/components/parameters/IdempotencyKeyRequired"}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/WorkstreamEnsureRequest"}}}}
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/correlations/register:
+    post:
+      operationId: correlationRegister
+      tags: [identities]
+      summary: Register typed launch facts under a stable correlation identity
+      x-operation: correlation_register
+      x-scope: registry.correlation.register
+      parameters: [{$ref: "#/components/parameters/IdempotencyKeyRequired"}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/LaunchFacts"}}}}
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/export/authorize:
+    post:
+      operationId: exportAuthorize
+      tags: [export]
+      summary: Authorize applying an exact export bundle
+      x-operation: export_authorize
+      x-scope: registry.write
+      requestBody: {$ref: "#/components/requestBodies/ExportAuthorize"}
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/export/attempt:
+    get:
+      operationId: exportAttemptGet
+      tags: [export]
+      summary: Read an export attempt by receipt
+      x-operation: export_attempt_get
+      x-scope: registry.read
+      parameters: [{$ref: "#/components/parameters/ArgsExportReceipt"}]
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/export/plan:
+    post:
+      operationId: exportPlan
+      tags: [export]
+      summary: Plan an export of published records (read-only)
+      x-operation: export_plan
+      x-scope: registry.read
+      requestBody: {$ref: "#/components/requestBodies/ExportPlan"}
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/export/diff:
+    post:
+      operationId: exportDiff
+      tags: [export]
+      summary: Diff an exact export bundle against the destination (read-only)
+      x-operation: export_diff
+      x-scope: registry.read
+      requestBody: {$ref: "#/components/requestBodies/ExportDiff"}
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/export/apply:
+    post:
+      operationId: exportApply
+      tags: [export]
+      summary: Apply an authorized export
+      x-operation: export_apply
+      x-scope: registry.write
+      requestBody: {$ref: "#/components/requestBodies/ExportReceipt"}
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/import/preparation:
+    post:
+      operationId: importPreparationGet
+      tags: [import]
+      summary: Read a prepared import run by its preparation key
+      x-operation: import_preparation_get
+      x-scope: registry.write
+      requestBody: {$ref: "#/components/requestBodies/ImportPreparationGet"}
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/changes:
+    get:
+      operationId: changesList
+      tags: [publication]
+      summary: Publication changes after a cursor
+      x-operation: changes_list
+      x-scope: registry.read
+      parameters: [{$ref: "#/components/parameters/ArgsQuery"}]
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/import/prepare:
+    post:
+      operationId: importPrepare
+      tags: [import]
+      summary: Prepare an immutable import plan from a connector snapshot
+      x-operation: import_prepare
+      x-scope: registry.write
+      requestBody: {$ref: "#/components/requestBodies/ImportPrepare"}
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/import/commit:
+    post:
+      operationId: importCommit
+      tags: [import]
+      summary: Commit a prepared import plan
+      x-operation: import_commit
+      x-scope: registry.write
+      requestBody: {$ref: "#/components/requestBodies/ImportCommit"}
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/import/checkpoint:
+    get:
+      operationId: importCheckpoint
+      tags: [import]
+      summary: A connector's last import checkpoint
+      x-operation: import_checkpoint
+      x-scope: registry.read
+      parameters: [{$ref: "#/components/parameters/IdRequired"}]
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/references:
+    get:
+      operationId: referencesReport
+      tags: [snapshots]
+      summary: Report on references between records
+      x-operation: references_report
+      x-scope: registry.read
+      parameters: [{$ref: "#/components/parameters/ArgsQuery"}]
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/migrations:
+    get:
+      operationId: migrationList
+      tags: [records]
+      summary: Schema migrations recorded for a record
+      x-operation: migration_list
+      x-scope: registry.read
+      parameters:
+        - {$ref: "#/components/parameters/IdRequired"}
+        - {$ref: "#/components/parameters/ArgsQuery"}
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/record/migrate:
+    post:
+      operationId: recordMigrate
+      tags: [records]
+      summary: Replace a record using a different supported shared schema (never publishes)
+      x-operation: record_migrate
+      x-scope: registry.write
+      parameters: [{$ref: "#/components/parameters/IfMatch"}]
+      requestBody: {$ref: "#/components/requestBodies/RecordMigrate"}
+      responses:
+        "200": {$ref: "#/components/responses/Record"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/relations/decide:
+    post:
+      operationId: relationDecide
+      tags: [relations]
+      summary: Independent review decision on a proposed edge
+      x-operation: relation_decide
+      x-scope: registry.review
+      parameters: [{$ref: "#/components/parameters/IfMatch"}]
+      requestBody: {$ref: "#/components/requestBodies/RelationDecide"}
+      responses:
+        "200": {$ref: "#/components/responses/Record"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/maintenance/retention:
+    post:
+      operationId: retentionRun
+      tags: [maintenance]
+      summary: Preview or apply the protected retention policy
+      x-operation: retention_run
+      x-scope: registry.review
+      requestBody: {$ref: "#/components/requestBodies/RetentionRun"}
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/maintenance/backup:
+    post:
+      operationId: backupCreate
+      tags: [maintenance]
+      summary: Create a backup
+      x-operation: backup_create
+      x-scope: registry.review
+      requestBody: {$ref: "#/components/requestBodies/Empty"}
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/publication/prepare:
+    post:
+      operationId: publicationApprovalPrepare
+      tags: [publication]
+      summary: Prepare an approval batch for exact candidate revisions
+      x-operation: publication_approval_prepare
+      x-scope: registry.write
+      requestBody: {$ref: "#/components/requestBodies/PublicationApprovalPrepare"}
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/publication/approval:
+    get:
+      operationId: publicationApprovalGet
+      tags: [publication]
+      summary: Read an approval
+      x-operation: publication_approval_get
+      x-scope: registry.read
+      parameters: [{$ref: "#/components/parameters/ArgsApprovalGet"}]
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/publication/decide:
+    post:
+      operationId: publicationApprovalDecide
+      tags: [publication]
+      summary: Approve, deny or withdraw a prepared approval
+      x-operation: publication_approval_decide
+      x-scope: registry.review
+      requestBody: {$ref: "#/components/requestBodies/PublicationApprovalDecide"}
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/publication/publish:
+    post:
+      operationId: publicationPublish
+      tags: [publication]
+      summary: Publish an approved candidate set
+      x-operation: publication_publish
+      x-scope: registry.write
+      requestBody: {$ref: "#/components/requestBodies/PublicationPublish"}
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/publication/policy:
+    get:
+      operationId: publicationPolicyGet
+      tags: [publication]
+      summary: Read the publication policy
+      x-operation: publication_policy_get
+      x-scope: registry.read
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+    put:
+      operationId: publicationPolicySet
+      tags: [publication]
+      summary: Replace the publication policy
+      x-operation: publication_policy_set
+      x-scope: registry.review
+      parameters: [{$ref: "#/components/parameters/IfMatch"}]
+      requestBody: {$ref: "#/components/requestBodies/PublicationPolicySet"}
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/kinds:
+    get:
+      operationId: kindsList
+      tags: [schema]
+      summary: Supported schemas and edge specifications
+      x-operation: kinds_list
+      x-scope: registry.read
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/KindsResult"}}}}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/schema:
+    get:
+      operationId: schemaGet
+      tags: [schema]
+      summary: A versioned JSON Schema document, such as project/2
+      x-operation: schema_get
+      x-scope: registry.read
+      parameters:
+        - name: schema
+          in: query
+          required: true
+          description: A versioned schema name, such as `project/2`. Unknown is 400 `unknown_schema`.
+          schema: {type: string}
+      responses:
+        "200": {$ref: "#/components/responses/Object"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/records:
+    post:
+      operationId: recordCreate
+      tags: [records]
+      summary: Create a record (a draft; publication is separate)
+      x-operation: record_create
+      x-scope: registry.write
+      requestBody: {$ref: "#/components/requestBodies/RecordCreate"}
+      responses:
+        "200": {$ref: "#/components/responses/Record"}
+        default: {$ref: "#/components/responses/Failure"}
+    get:
+      operationId: recordList
+      tags: [records]
+      summary: List records
+      x-operation: record_list
+      x-scope: registry.read
+      parameters:
+        - {$ref: "#/components/parameters/ArgsQuery"}
+        - {$ref: "#/components/parameters/IfNoneMatch"}
+      responses:
+        "200": {$ref: "#/components/responses/Page"}
+        "304": {$ref: "#/components/responses/NotModified"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/record:
+    get:
+      operationId: recordGet
+      tags: [records]
+      summary: Read a record by exact ID
+      x-operation: record_get
+      x-scope: registry.read
+      parameters:
+        - {$ref: "#/components/parameters/IdRequired"}
+        - {$ref: "#/components/parameters/ArgsPublication"}
+        - {$ref: "#/components/parameters/IfNoneMatch"}
+      responses:
+        "200": {$ref: "#/components/responses/Record"}
+        "304": {$ref: "#/components/responses/NotModified"}
+        default: {$ref: "#/components/responses/Failure"}
+    put:
+      operationId: recordUpdate
+      tags: [records]
+      summary: Replace a record's authored content
+      x-operation: record_update
+      x-scope: registry.write
+      parameters: [{$ref: "#/components/parameters/IfMatch"}]
+      requestBody: {$ref: "#/components/requestBodies/RecordUpdate"}
+      responses:
+        "200": {$ref: "#/components/responses/Record"}
+        default: {$ref: "#/components/responses/Failure"}
+    delete:
+      operationId: recordDelete
+      tags: [records]
+      summary: Delete an archived record (leaves a tombstone)
+      x-operation: record_delete
+      x-scope: registry.write
+      parameters: [{$ref: "#/components/parameters/IfMatch"}]
+      requestBody: {$ref: "#/components/requestBodies/RecordVersioned"}
+      responses:
+        "200": {$ref: "#/components/responses/Record"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/search:
+    get:
+      operationId: recordSearch
+      tags: [records]
+      summary: Search records (the `search` filter of the query)
+      x-operation: record_search
+      x-scope: registry.read
+      parameters:
+        - {$ref: "#/components/parameters/ArgsQuery"}
+        - {$ref: "#/components/parameters/IfNoneMatch"}
+      responses:
+        "200": {$ref: "#/components/responses/Page"}
+        "304": {$ref: "#/components/responses/NotModified"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/record/archive:
+    post:
+      operationId: recordArchive
+      tags: [records]
+      summary: Archive a record (content and history are retained)
+      x-operation: record_archive
+      x-scope: registry.write
+      parameters: [{$ref: "#/components/parameters/IfMatch"}]
+      requestBody: {$ref: "#/components/requestBodies/RecordVersioned"}
+      responses:
+        "200": {$ref: "#/components/responses/Record"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/record/verify:
+    post:
+      operationId: recordVerify
+      tags: [records]
+      summary: Attest that a record still matches its source
+      x-operation: record_verify
+      x-scope: registry.write
+      parameters: [{$ref: "#/components/parameters/IfMatch"}]
+      requestBody: {$ref: "#/components/requestBodies/RecordVersioned"}
+      responses:
+        "200": {$ref: "#/components/responses/Record"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/revisions:
+    get:
+      operationId: revisionList
+      tags: [revisions]
+      summary: A record's revision history, newest first
+      x-operation: revision_list
+      x-scope: registry.read
+      parameters: [{$ref: "#/components/parameters/ArgsRevisionList"}, {$ref: "#/components/parameters/IdRequired"}]
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/RevisionList"}}}}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/revision:
+    get:
+      operationId: revisionGet
+      tags: [revisions]
+      summary: One immutable revision of a record
+      x-operation: revision_get
+      x-scope: registry.read
+      parameters:
+        - {$ref: "#/components/parameters/IdRequired"}
+        - {$ref: "#/components/parameters/ArgsRevisionGet"}
+      responses:
+        "200": {$ref: "#/components/responses/Record"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/relations:
+    post:
+      operationId: relationCreate
+      tags: [relations]
+      summary: Propose a typed relationship from a local record
+      x-operation: relation_create
+      x-scope: registry.write
+      parameters: [{$ref: "#/components/parameters/IfMatch"}]
+      requestBody: {$ref: "#/components/requestBodies/RelationCreate"}
+      responses:
+        "200": {$ref: "#/components/responses/Record"}
+        default: {$ref: "#/components/responses/Failure"}
+    get:
+      operationId: relationList
+      tags: [relations]
+      summary: A record's edges
+      x-operation: relation_list
+      x-scope: registry.read
+      parameters:
+        - {$ref: "#/components/parameters/IdRequired"}
+        - {$ref: "#/components/parameters/ArgsRelationList"}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/RelationList"}}}}
+        default: {$ref: "#/components/responses/Failure"}
+    delete:
+      operationId: relationRemove
+      tags: [relations]
+      summary: Remove an edge that is not derived from the typed payload
+      x-operation: relation_remove
+      x-scope: registry.write
+      parameters: [{$ref: "#/components/parameters/IfMatch"}]
+      requestBody: {$ref: "#/components/requestBodies/RelationRemove"}
+      responses:
+        "200": {$ref: "#/components/responses/Record"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/tools/resolve:
+    get:
+      operationId: toolResolve
+      tags: [tools]
+      summary: Resolve a tool by exact ID, or by alias system and alias
+      x-operation: tool_resolve
+      x-scope: registry.read
+      parameters:
+        - {name: id, in: query, description: Exact tool ID. Use this or the alias selectors., schema: {type: string}}
+        - {$ref: "#/components/parameters/ArgsToolResolve"}
+        - {$ref: "#/components/parameters/IfNoneMatch"}
+      responses:
+        "200": {$ref: "#/components/responses/Record"}
+        "304": {$ref: "#/components/responses/NotModified"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/tools/classification:
+    get:
+      operationId: toolClassify
+      tags: [tools]
+      summary: A tool's declared annotations, review state and defaults
+      x-operation: tool_classify
+      x-scope: registry.read
+      parameters:
+        - {$ref: "#/components/parameters/IdRequired"}
+        - {$ref: "#/components/parameters/ArgsPublication"}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/ToolClassification"}}}}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/tools/proposals:
+    post:
+      operationId: toolPropose
+      tags: [tools]
+      summary: Propose a classification for a tool definition
+      x-operation: tool_propose
+      x-scope: registry.write
+      parameters: [{$ref: "#/components/parameters/IfMatch"}]
+      requestBody: {$ref: "#/components/requestBodies/ToolPropose"}
+      responses:
+        "200": {$ref: "#/components/responses/Record"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/reviews:
+    get:
+      operationId: reviewList
+      tags: [tools]
+      summary: Tool drafts awaiting review (pending by default)
+      x-operation: review_list
+      x-scope: registry.read
+      parameters:
+        - {$ref: "#/components/parameters/ArgsQuery"}
+        - {$ref: "#/components/parameters/IfNoneMatch"}
+      responses:
+        "200": {$ref: "#/components/responses/Page"}
+        "304": {$ref: "#/components/responses/NotModified"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/reviews/decisions:
+    post:
+      operationId: reviewDecide
+      tags: [tools]
+      summary: Decide a tool review
+      x-operation: review_decide
+      x-scope: registry.review
+      parameters: [{$ref: "#/components/parameters/IfMatch"}]
+      requestBody: {$ref: "#/components/requestBodies/ReviewDecide"}
+      responses:
+        "200": {$ref: "#/components/responses/Record"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/snapshot:
+    get:
+      operationId: snapshotGet
+      tags: [snapshots]
+      summary: A full snapshot of records (all lifecycles by default)
+      x-operation: snapshot_get
+      x-scope: registry.read
+      parameters:
+        - {$ref: "#/components/parameters/ArgsQuery"}
+        - {$ref: "#/components/parameters/IfNoneMatch"}
+      responses:
+        "200": {$ref: "#/components/responses/Page"}
+        "304": {$ref: "#/components/responses/NotModified"}
+        default: {$ref: "#/components/responses/Failure"}
+
+  /v1/diagnostics:
+    get:
+      operationId: diagnostics
+      tags: [snapshots]
+      summary: Readiness and the supported schemas
+      x-operation: diagnostics
+      x-scope: registry.read
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/Diagnostics"}}}}
+        default: {$ref: "#/components/responses/Failure"}
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: A Registry credential holding the scope named by the operation's `x-scope`.
+
+  parameters:
+    IdRequired:
+      name: id
+      in: query
+      required: true
+      description: Exact opaque canonical ID, URL-encoded whole (never a path component).
+      schema: {type: string}
+    IfMatch:
+      name: If-Match
+      in: header
+      description: The record's current `version_token` (or its ETag). May be given in the envelope instead; if both are given they must agree.
+      schema: {type: string}
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      description: A previous ETag; an unchanged representation answers 304.
+      schema: {type: string}
+    IdempotencyKeyRequired:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Caller-scoped replay key (30 days).
+      schema: {type: string}
+    ArgsQuery:
+      name: args
+      in: query
+      description: The operation envelope, JSON-encoded.
+      content: {application/json: {schema: {$ref: "#/components/schemas/QueryArgs"}}}
+    ArgsPublication:
+      name: args
+      in: query
+      description: The operation envelope, JSON-encoded.
+      content: {application/json: {schema: {$ref: "#/components/schemas/PublicationArgs"}}}
+    ArgsRevisionList:
+      name: args
+      in: query
+      description: The operation envelope, JSON-encoded.
+      content: {application/json: {schema: {$ref: "#/components/schemas/RevisionListArgs"}}}
+    ArgsRevisionGet:
+      name: args
+      in: query
+      required: true
+      description: The operation envelope, JSON-encoded. `revision` is required.
+      content: {application/json: {schema: {$ref: "#/components/schemas/RevisionGetArgs"}}}
+    ArgsRelationList:
+      name: args
+      in: query
+      description: The operation envelope, JSON-encoded.
+      content: {application/json: {schema: {$ref: "#/components/schemas/RelationListArgs"}}}
+    ArgsToolResolve:
+      name: args
+      in: query
+      description: The operation envelope, JSON-encoded.
+      content: {application/json: {schema: {$ref: "#/components/schemas/ToolResolveArgs"}}}
+    ArgsExportReceipt:
+      name: args
+      in: query
+      required: true
+      description: The operation envelope, JSON-encoded.
+      content: {application/json: {schema: {$ref: "#/components/schemas/ExportReceiptArgs"}}}
+    ArgsApprovalGet:
+      name: args
+      in: query
+      required: true
+      description: The operation envelope, JSON-encoded.
+      content: {application/json: {schema: {$ref: "#/components/schemas/ApprovalGetArgs"}}}
+
+  requestBodies:
+    Empty:
+      required: true
+      content: {application/json: {schema: {type: object, additionalProperties: false}}}
+    RetentionRun:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/RetentionRunArgs"}}}
+    RecordCreate:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/RecordCreateArgs"}}}
+    RecordUpdate:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/RecordUpdateArgs"}}}
+    RecordMigrate:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/RecordMigrateArgs"}}}
+    RecordVersioned:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/RecordVersionedArgs"}}}
+    RelationCreate:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/RelationCreateArgs"}}}
+    RelationRemove:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/RelationRemoveArgs"}}}
+    RelationDecide:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/RelationDecideArgs"}}}
+    ToolPropose:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/ToolProposeArgs"}}}
+    ReviewDecide:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/ReviewDecideArgs"}}}
+    ExportPlan:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/ExportPlanArgs"}}}
+    ExportDiff:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/ExportBundleArgs"}}}
+    ExportAuthorize:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/ExportAuthorizeArgs"}}}
+    ExportReceipt:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/ExportReceiptArgs"}}}
+    ImportPreparationGet:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/ImportPreparationGetArgs"}}}
+    ImportPrepare:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/ImportPrepareArgs"}}}
+    ImportCommit:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/ImportCommitArgs"}}}
+    PublicationApprovalPrepare:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/PublicationApprovalPrepareArgs"}}}
+    PublicationApprovalDecide:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/PublicationApprovalDecideArgs"}}}
+    PublicationPublish:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/PublicationPublishArgs"}}}
+    PublicationPolicySet:
+      required: true
+      content: {application/json: {schema: {$ref: "#/components/schemas/PublicationPolicySetArgs"}}}
+
+  responses:
+    Failure:
+      description: |
+        An error. 403 `forbidden`, 404 `not_found`, 410 `deleted`, 409 `version_conflict` /
+        `alias_conflict` / `workstream_closed`, 429 `quota_exceeded`, 503 `unavailable`, otherwise
+        400 (`validation_error`, `unknown_schema`, ...).
+      content: {application/json: {schema: {$ref: "#/components/schemas/ErrorEnvelope"}}}
+    NotModified:
+      description: The representation is unchanged since the `If-None-Match` ETag.
+    Record:
+      description: A record.
+      headers:
+        ETag: {description: Present when the record has no edges., schema: {type: string}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/Record"}}}
+    Page:
+      description: A page of records.
+      headers:
+        ETag: {schema: {type: string}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/Page"}}}
+    Object:
+      description: A JSON object. The shape of this result is not yet specified.
+      content: {application/json: {schema: {$ref: "#/components/schemas/Object"}}}
+
+  schemas:
+    Object:
+      type: object
+      additionalProperties: true
+
+    Error:
+      type: object
+      required: [code, message, remedy, retryable]
+      properties:
+        code: {type: string, description: "For example validation_error, forbidden, not_found, deleted, version_conflict, unavailable."}
+        message: {type: string}
+        field: {type: string}
+        remedy: {type: string}
+        retryable: {type: boolean}
+        request_id: {type: string}
+        details: {description: Optional structured detail.}
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error: {$ref: "#/components/schemas/Error"}
+
+    Source:
+      type: object
+      properties:
+        uri: {type: string}
+        revision: {type: string}
+        observed_at: {type: string}
+    ToolExample:
+      type: object
+      required: [name, arguments]
+      properties:
+        name: {type: string}
+        description: {type: string}
+        arguments: {description: Authored example arguments (any JSON).}
+        result: {description: Authored example result (any JSON).}
+
+    Reference:
+      type: object
+      required: [authority, kind, id]
+      properties:
+        authority: {type: string}
+        kind: {type: string}
+        id: {type: string}
+        uri: {type: string}
+    SelectionContext:
+      type: object
+      properties:
+        harness: {type: string}
+        role/cell: {type: string}
+        task_class: {type: string}
+        workflow: {type: string}
+        domain: {type: string}
+    Relation:
+      type: object
+      description: A relation/1 typed relationship. Edge types are listed by `kinds_list`.
+      required: [schema, type, from, to, source, status]
+      properties:
+        schema: {type: string, example: relation/1}
+        type: {type: string}
+        from: {$ref: "#/components/schemas/Reference"}
+        to: {$ref: "#/components/schemas/Reference"}
+        weight: {type: number, format: double}
+        context: {$ref: "#/components/schemas/SelectionContext"}
+        source: {type: string}
+        status: {type: string}
+        evidence: {type: array, items: {$ref: "#/components/schemas/Reference"}}
+    FlagPattern:
+      type: object
+      required: [pattern, side_effect, reason]
+      properties:
+        pattern: {type: string}
+        side_effect: {type: array, items: {type: string}}
+        reason: {type: string}
+    Classification:
+      type: object
+      description: A classification/1 value.
+      properties:
+        side_effect: {type: array, items: {type: string}}
+        reversibility: {type: string}
+        idempotent: {type: boolean}
+        data_sensitivity: {type: string}
+        egress: {type: string}
+        secret_access: {type: string}
+        scopes: {type: array, items: {type: string}}
+        approval_tier: {type: string}
+        cost_tier: {type: string}
+        input_dependent: {type: boolean}
+        rule_ref: {type: string}
+        arg_rules: {type: string}
+        flag_patterns: {type: array, items: {$ref: "#/components/schemas/FlagPattern"}}
+
+    Input:
+      type: object
+      description: Authored input for create and update. `payload` is validated against the kind's versioned schema (see `schema_get`).
+      required: [schema, key, payload]
+      properties:
+        schema: {type: string, description: "A versioned schema, such as project/2."}
+        key: {type: string}
+        summary: {type: string}
+        source: {$ref: "#/components/schemas/Source"}
+        payload: {description: The kind-specific payload (any JSON object; validated server-side).}
+        metadata: {type: object, additionalProperties: true}
+        examples: {type: array, items: {$ref: "#/components/schemas/ToolExample"}}
+
+    Edge:
+      type: object
+      required: [id, hash, relation]
+      properties:
+        id: {type: string}
+        hash: {type: string}
+        relation: {$ref: "#/components/schemas/Relation"}
+        proposed_by: {type: string}
+        reviewed_by: {type: string}
+        reviewed_at: {type: string}
+        reason: {type: string}
+        review_hash: {type: string}
+        target_revision: {type: string}
+        source_revision: {type: string}
+        inverse: {type: string}
+        target_state: {type: string}
+        checked_at: {type: string}
+    Review:
+      type: object
+      required: [definition_hash, state, queue_state]
+      properties:
+        approval: {$ref: "#/components/schemas/Reference"}
+        definition_hash: {type: string}
+        state: {type: string}
+        queue_state: {type: string}
+        proposed: {$ref: "#/components/schemas/Classification"}
+        effective: {$ref: "#/components/schemas/Classification"}
+        proposed_by: {type: string}
+        reviewed_by: {type: string}
+        reason: {type: string}
+        reviewed_at: {type: string}
+    Record:
+      type: object
+      required: [id, kind, schema, key, name, publication, lifecycle, authority, revision_id, version_token, sequence, created_at, updated_at, edges]
+      properties:
+        id: {type: string, description: Exact opaque canonical ID.}
+        kind: {type: string}
+        schema: {type: string}
+        key: {type: string}
+        name: {type: string}
+        summary: {type: string}
+        owner: {type: string}
+        subtype: {type: string}
+        publication: {type: string, description: draft or published.}
+        lifecycle: {type: string}
+        authority: {type: string}
+        source: {$ref: "#/components/schemas/Source"}
+        payload: {description: The kind-specific payload.}
+        metadata: {type: object, additionalProperties: true}
+        examples: {type: array, items: {$ref: "#/components/schemas/ToolExample"}}
+        revision_id: {type: string, description: Immutable.}
+        version_token: {type: string, description: Pass back as `version` (or `If-Match`) to mutate.}
+        sequence: {type: integer, format: int64}
+        created_at: {type: string}
+        updated_at: {type: string}
+        published_by: {type: string}
+        published_at: {type: string}
+        mapping_version: {type: string}
+        dependency_pins: {type: object, additionalProperties: {type: string}}
+        target_pins: {type: object, additionalProperties: {type: string}}
+        last_verified: {type: string}
+        verified_by: {type: string}
+        verification_scope: {type: string}
+        edges: {type: array, items: {$ref: "#/components/schemas/Edge"}}
+        review: {$ref: "#/components/schemas/Review"}
+
+    Query:
+      type: object
+      additionalProperties: false
+      properties:
+        publication: {type: string, description: published (default) or draft.}
+        kind: {type: string}
+        subtype: {type: string}
+        lifecycle: {type: string, description: "`*` for every lifecycle."}
+        authority: {type: string}
+        owner: {type: string}
+        key: {type: string}
+        review_state: {type: string}
+        relation: {type: string}
+        search: {type: string}
+        full: {type: boolean}
+        limit: {type: integer, minimum: 1, maximum: 200}
+        cursor: {type: string}
+    Page:
+      type: object
+      required: [records, has_more, boundary, as_of, schemas]
+      properties:
+        records: {type: array, items: {$ref: "#/components/schemas/Record"}}
+        cursor: {type: string, description: Pass as `query.cursor` for the next page.}
+        has_more: {type: boolean}
+        boundary: {type: integer, format: int64}
+        as_of: {type: string}
+        schemas: {type: array, items: {type: string}}
+
+    KindsResult:
+      type: object
+      required: [schemas, edges]
+      properties:
+        schemas: {type: array, items: {type: string}}
+        edges: {type: array, items: {type: object, additionalProperties: true}}
+    Diagnostics:
+      type: object
+      required: [ready, storage, schemas]
+      properties:
+        ready: {type: boolean}
+        storage: {type: string}
+        schemas: {type: array, items: {type: string}}
+    RevisionList:
+      type: object
+      required: [revisions, has_more]
+      properties:
+        revisions: {type: array, items: {$ref: "#/components/schemas/Record"}}
+        has_more: {type: boolean}
+        before_revision: {type: string, description: Pass as `revision` for the next (older) page.}
+    RelationList:
+      type: object
+      required: [id, version_token, edges]
+      properties:
+        id: {type: string}
+        version_token: {type: string}
+        edges: {type: array, items: {$ref: "#/components/schemas/Edge"}}
+    ToolClassification:
+      type: object
+      required: [id, version_token, definition_hash, lifecycle, declared, defaults]
+      properties:
+        id: {type: string}
+        version_token: {type: string}
+        definition_hash: {type: string}
+        lifecycle: {type: string}
+        declared: {type: object, additionalProperties: true, description: The tool definition's own annotations.}
+        review: {$ref: "#/components/schemas/Review"}
+        defaults: {type: object, additionalProperties: true, description: What is assumed when nothing is declared.}
+
+    # ---- operation envelopes. Names and the required set mirror the MCP input schemas. ----
+    QueryArgs:
+      type: object
+      additionalProperties: false
+      properties:
+        query: {$ref: "#/components/schemas/Query"}
+    PublicationArgs:
+      type: object
+      additionalProperties: false
+      properties:
+        publication: {type: string, enum: [published, draft], description: Default published.}
+    RevisionListArgs:
+      type: object
+      additionalProperties: false
+      properties:
+        revision: {type: string, description: Continue before this revision.}
+        query: {$ref: "#/components/schemas/Query"}
+    RevisionGetArgs:
+      type: object
+      additionalProperties: false
+      required: [revision]
+      properties:
+        revision: {type: string, description: Immutable revision ID.}
+    RelationListArgs:
+      type: object
+      additionalProperties: false
+      properties:
+        publication: {type: string, enum: [published, draft]}
+        direction: {type: string, enum: [outgoing, incoming, both], description: Default outgoing.}
+    ToolResolveArgs:
+      type: object
+      additionalProperties: false
+      properties:
+        publication: {type: string, enum: [published, draft]}
+        alias_system: {type: string}
+        alias: {type: string}
+    RecordCreateArgs:
+      type: object
+      additionalProperties: false
+      required: [record]
+      properties:
+        record: {$ref: "#/components/schemas/Input"}
+        idempotency_key: {type: string, description: Caller-scoped creation retry key.}
+        allow_unresolved: {type: boolean, description: Accept missing local relation targets.}
+    RecordUpdateArgs:
+      type: object
+      additionalProperties: false
+      required: [id, version, record]
+      properties:
+        id: {type: string}
+        version: {type: string}
+        record: {$ref: "#/components/schemas/Input"}
+        allow_unresolved: {type: boolean}
+    RecordMigrateArgs:
+      type: object
+      additionalProperties: false
+      required: [id, version, record, reason]
+      properties:
+        id: {type: string}
+        version: {type: string}
+        record: {$ref: "#/components/schemas/Input"}
+        reason: {type: string}
+        allow_unresolved: {type: boolean}
+    RecordVersionedArgs:
+      type: object
+      additionalProperties: false
+      required: [id, version]
+      properties:
+        id: {type: string}
+        version: {type: string}
+    RelationCreateArgs:
+      type: object
+      additionalProperties: false
+      required: [id, version, relation]
+      properties:
+        id: {type: string}
+        version: {type: string}
+        relation: {$ref: "#/components/schemas/Relation"}
+        allow_unresolved: {type: boolean}
+    RelationRemoveArgs:
+      type: object
+      additionalProperties: false
+      required: [id, version, edge_id]
+      properties:
+        id: {type: string}
+        version: {type: string}
+        edge_id: {type: string}
+    RelationDecideArgs:
+      type: object
+      additionalProperties: false
+      required: [id, version, edge_id, hash, decision, reason]
+      properties:
+        id: {type: string}
+        version: {type: string}
+        edge_id: {type: string}
+        hash: {type: string, description: The proposed edge hash returned by reads.}
+        decision: {type: string, enum: [reviewed]}
+        reason: {type: string}
+    ToolProposeArgs:
+      type: object
+      additionalProperties: false
+      required: [id, version, hash, classification, reason]
+      properties:
+        id: {type: string}
+        version: {type: string}
+        hash: {type: string, description: The current definition hash.}
+        classification: {$ref: "#/components/schemas/Classification"}
+        reason: {type: string}
+    ReviewDecideArgs:
+      type: object
+      additionalProperties: false
+      required: [id, version, hash, reason, decision]
+      properties:
+        id: {type: string}
+        version: {type: string}
+        hash: {type: string}
+        classification: {$ref: "#/components/schemas/Classification"}
+        reason: {type: string}
+        decision: {type: string, enum: [reviewed, denied, quarantined, needs_human]}
+        approval: {$ref: "#/components/schemas/Reference"}
+
+    # Long-tail operations: arguments are declared, results are generic objects.
+    WorkstreamEnsureRequest:
+      type: object
+      additionalProperties: false
+      required: [key]
+      properties:
+        key: {type: string, description: Stable application reference, not an ID.}
+        name: {type: string}
+        project_urns: {type: array, items: {type: string}}
+    LaunchFacts:
+      type: object
+      additionalProperties: false
+      description: Typed launch facts; `urn`, `session` and `run_id` are required.
+      required: [urn, session, run_id]
+      properties:
+        urn: {type: string}
+        session: {type: string}
+        run_id: {type: string}
+        task_id: {type: string}
+        workstream_id: {type: string}
+        token_jti: {type: string}
+        manifest_digest: {type: string}
+        export_receipt_id: {type: string}
+        activity_sha256: {type: string}
+        provider_session_id: {type: string}
+        traceparent: {type: string}
+    ExportPlanArgs:
+      type: object
+      additionalProperties: false
+      required: [export]
+      properties:
+        export: {type: object, additionalProperties: true, description: Target binding, optional exact IDs and expected_generation. Published records only.}
+    ExportBundleArgs:
+      type: object
+      additionalProperties: false
+      required: [bundle, hash]
+      properties:
+        bundle: {type: object, additionalProperties: true, description: The exact published export bundle from a read-only plan.}
+        hash: {type: string, description: Exact bundle digest.}
+    ExportAuthorizeArgs:
+      type: object
+      additionalProperties: false
+      required: [bundle, hash, idempotency_key]
+      properties:
+        bundle: {type: object, additionalProperties: true}
+        hash: {type: string}
+        expires_at: {type: string, description: "Apply-start deadline; default 15 minutes, at most 24 hours."}
+        idempotency_key: {type: string}
+    ExportReceiptArgs:
+      type: object
+      additionalProperties: false
+      required: [receipt_id, hash]
+      properties:
+        receipt_id: {type: string, description: The caller-owned export authorization receipt.}
+        hash: {type: string, description: Exact deterministic bundle digest.}
+    ImportPreparationGetArgs:
+      type: object
+      additionalProperties: false
+      required: [idempotency_key]
+      properties:
+        idempotency_key: {type: string}
+    ImportPrepareArgs:
+      type: object
+      additionalProperties: false
+      required: [idempotency_key, import]
+      properties:
+        idempotency_key: {type: string}
+        import: {type: object, additionalProperties: true, description: "A connector snapshot: connector, checkpoint, expected_checkpoint and entries (source_key, source_revision, record)."}
+    ImportCommitArgs:
+      type: object
+      additionalProperties: false
+      required: [plan_id, hash, source_digest, idempotency_key]
+      properties:
+        plan_id: {type: string}
+        hash: {type: string}
+        source_digest: {type: string}
+        idempotency_key: {type: string}
+    RetentionRunArgs:
+      type: object
+      additionalProperties: false
+      properties:
+        apply: {type: boolean, description: False previews and rolls back; true applies the protected retention policy.}
+    Candidate:
+      type: object
+      required: [id, revision, expected_published_revision]
+      properties:
+        id: {type: string}
+        revision: {type: string}
+        expected_published_revision: {type: string}
+    PublicationApprovalPrepareArgs:
+      type: object
+      additionalProperties: false
+      required: [candidates]
+      properties:
+        candidates: {type: array, items: {$ref: "#/components/schemas/Candidate"}}
+        expires_at: {type: string}
+    ApprovalGetArgs:
+      type: object
+      additionalProperties: false
+      required: [approval_id]
+      properties:
+        approval_id: {type: string}
+    PublicationApprovalDecideArgs:
+      type: object
+      additionalProperties: false
+      required: [approval_id, approval_revision, hash, decision]
+      properties:
+        approval_id: {type: string}
+        approval_revision: {type: string}
+        hash: {type: string, description: The reviewed batch_manifest_digest.}
+        decision: {type: string, enum: [approved, denied, withdrawn]}
+    PublicationPublishArgs:
+      type: object
+      additionalProperties: false
+      required: [approval_id, approval_revision, hash, candidates, idempotency_key]
+      properties:
+        approval_id: {type: string}
+        approval_revision: {type: string}
+        hash: {type: string}
+        candidates: {type: array, items: {$ref: "#/components/schemas/Candidate"}}
+        idempotency_key: {type: string}
+    PublicationPolicySetArgs:
+      type: object
+      additionalProperties: false
+      required: [version, roles]
+      properties:
+        version: {type: string, description: The current policy revision.}
+        roles: {type: object, additionalProperties: {type: string}, description: Principal to publication role.}
