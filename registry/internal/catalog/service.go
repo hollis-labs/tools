@@ -588,9 +588,12 @@ func prepare(in *Input, authority string) (Record, error) {
 	}
 	kind, _, _ := strings.Cut(in.Schema, "/")
 	switch kind {
-	case "tool-package", "project", "tool", "agent", "agency", "skill", "document", "workstream", "correlation", "service", "config", "knowledge", "mcp_server", "launch_profile":
+	case "tool-package", "project", "tool", "agent", "agency", "skill", "document", "workstream", "correlation", "host", "service", "config", "knowledge", "mcp_server", "launch_profile":
 	default:
 		return Record{}, failure("unknown_schema", "record.schema", "not a record schema")
+	}
+	if kind == "host" && in.Key != common.ID {
+		return Record{}, failure("validation_error", "record.key", "host key must equal payload hostname id")
 	}
 	id := kind + ":" + common.ID
 	if kind == "tool" {

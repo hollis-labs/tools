@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "host/1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253,
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1
+    },
+    "roles": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "hub",
+          "worker",
+          "build",
+          "util",
+          "lab",
+          "laptop"
+        ]
+      }
+    },
+    "os": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tailnet": {
+      "type": "object",
+      "properties": {
+        "hostname": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 253,
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+        },
+        "address": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "minProperties": 1,
+      "additionalProperties": false
+    },
+    "services": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "properties": {
+          "authority": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "const": "service"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uri": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "authority",
+          "kind",
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "operator": {
+      "type": "object",
+      "properties": {
+        "authority": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "authority",
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "project": {
+      "type": "object",
+      "properties": {
+        "authority": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "project"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "authority",
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "config": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "properties": {
+          "authority": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "const": "config"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uri": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "authority",
+          "kind",
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "runbook": {
+      "type": "object",
+      "properties": {
+        "authority": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "document"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "authority",
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "name",
+    "roles",
+    "os",
+    "tailnet",
+    "services",
+    "owner",
+    "operator",
+    "project"
+  ],
+  "additionalProperties": false
+}

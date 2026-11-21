@@ -116,7 +116,7 @@ type TraceReference struct {
 // transport adapters must encode the whole value rather than path-clean it.
 func CanonicalContentID(schema, id string) (string, error) {
 	switch schema {
-	case ToolPackageSchema, AgentSchema, AgencySchema, SkillSchema, DocumentSchema, WorkstreamSchema, CorrelationSchema, ServiceSchema, ConfigSchema, KnowledgeSchema, MCPServerSchema, LaunchProfileSchema:
+	case ToolPackageSchema, AgentSchema, AgencySchema, SkillSchema, DocumentSchema, WorkstreamSchema, CorrelationSchema, HostSchema, ServiceSchema, ConfigSchema, KnowledgeSchema, MCPServerSchema, LaunchProfileSchema:
 	default:
 		return "", fmt.Errorf("%w: %s", ErrUnknownSchema, schema)
 	}
@@ -135,6 +135,8 @@ func ParseContentJSON(schema string, data []byte) (any, error) {
 	switch schema {
 	case ToolPackageSchema:
 		out = &ToolPackage{}
+	case HostSchema:
+		out = &Host{}
 	case ServiceSchema:
 		out = &Service{}
 	case ConfigSchema:
@@ -183,6 +185,9 @@ func validateContent(data []byte, schema string) error {
 	}
 	if _, err := CanonicalContentID(schema, identity.ID); err != nil {
 		return err
+	}
+	if schema == HostSchema {
+		return validateHost(data)
 	}
 	if schema == ConfigSchema {
 		return validateConfig(data)

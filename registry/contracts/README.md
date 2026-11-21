@@ -327,3 +327,12 @@ Resolution, source availability and supported host/provider combinations remain
 materializer responsibilities. These authored fields convey no execution or
 permission authority. Environment, permission and credential fields are not
 part of this contract; secrets must never enter the Registry.
+
+### Host inventory
+
+`host/1` adds current host inventory with hostname identity, bounded roles,
+operating system, non-secret tailnet discovery addresses and typed pointers.
+`Host.Validate` and the shared content APIs validate it; semantic references
+produce `operated_by` and project `part_of` edges. See the
+[host contract and example](../docs/hosts.md). No history or credentials belong
+in this payload.

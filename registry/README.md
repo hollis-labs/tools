@@ -300,3 +300,8 @@ The [agent guide skill](skills/use-registry/SKILL.md) covers lookup, authoring,
 reference reporting and the separate review/publication boundaries.
 
 Tool package publication and installation metadata: [tool-package/1](docs/tool-packages.md).
+
+### Host inventory
+
+The [`host/1` contract](docs/hosts.md) describes current machines and their
+service/config/runbook pointers, with operator and project graph edges.

@@ -24,6 +24,7 @@ const (
 	DocumentSchema       = "document/1"
 	WorkstreamSchema     = "workstream/1"
 	CorrelationSchema    = "correlation/1"
+	HostSchema           = "host/1"
 	ServiceSchema        = "service/1"
 	ConfigSchema         = "config/1"
 	KnowledgeSchema      = "knowledge/1"
@@ -54,6 +55,7 @@ var schemas embed.FS
 
 var schemaFiles = map[string]string{
 	ToolPackageSchema:   "schemas/tool-package-1.json",
+	HostSchema:          "schemas/host-1.json",
 	ServiceSchema:       "schemas/service-1.json",
 	ConfigSchema:        "schemas/config-1.json",
 	KnowledgeSchema:     "schemas/knowledge-1.json",
@@ -75,7 +77,7 @@ var schemaFiles = map[string]string{
 
 // Schemas returns the supported versions in deterministic order.
 func Schemas() []string {
-	return []string{ToolPackageSchema, ProjectSchema, Project2Schema, ToolSchema, RelationSchema, ClassificationSchema, AgentSchema, AgencySchema, SkillSchema, DocumentSchema, WorkstreamSchema, CorrelationSchema, ServiceSchema, ConfigSchema, KnowledgeSchema, MCPServerSchema, LaunchProfileSchema}
+	return []string{ToolPackageSchema, ProjectSchema, Project2Schema, ToolSchema, RelationSchema, ClassificationSchema, AgentSchema, AgencySchema, SkillSchema, DocumentSchema, WorkstreamSchema, CorrelationSchema, HostSchema, ServiceSchema, ConfigSchema, KnowledgeSchema, MCPServerSchema, LaunchProfileSchema}
 }
 
 // Schema returns an independent copy of the JSON Schema document.
@@ -95,7 +97,7 @@ type compiledSchema struct {
 
 var compiled = map[string]*compiledSchema{
 	ToolPackageSchema: {},
-	ServiceSchema:     {}, ConfigSchema: {}, KnowledgeSchema: {}, MCPServerSchema: {}, LaunchProfileSchema: {},
+	HostSchema:        {}, ServiceSchema: {}, ConfigSchema: {}, KnowledgeSchema: {}, MCPServerSchema: {}, LaunchProfileSchema: {},
 	ProjectSchema: {}, Project2Schema: {}, ToolSchema: {}, RelationSchema: {}, ClassificationSchema: {},
 	AgentSchema:       {},
 	AgencySchema:      {},
@@ -157,7 +159,7 @@ func ValidateJSON(version string, data []byte) error {
 		return t.validateIdentity()
 	}
 	switch version {
-	case AgentSchema, AgencySchema, SkillSchema, DocumentSchema, WorkstreamSchema, CorrelationSchema, ServiceSchema, ConfigSchema, KnowledgeSchema, MCPServerSchema, LaunchProfileSchema:
+	case AgentSchema, AgencySchema, SkillSchema, DocumentSchema, WorkstreamSchema, CorrelationSchema, HostSchema, ServiceSchema, ConfigSchema, KnowledgeSchema, MCPServerSchema, LaunchProfileSchema:
 		return validateContent(data, version)
 	}
 	return nil
