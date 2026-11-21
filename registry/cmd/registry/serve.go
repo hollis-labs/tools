@@ -107,7 +107,7 @@ func serveWith(ctx context.Context, app *module.App, ready func(net.Addr), dev, 
 			inner.ServeHTTP(w, r)
 			return
 		}
-		guarded.ServeHTTP(w, r)
+		guarded.ServeHTTP(w, r.WithContext(catalog.WithForwardedCaller(r.Context(), r.Header)))
 	})
 	return httphost.Serve(ctx, app, handler, httphost.ServeOptions{
 		Addr: addr,

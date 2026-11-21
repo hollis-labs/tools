@@ -24,6 +24,7 @@ type Service struct {
 	now                 func() time.Time
 	authorities         map[string]string
 	reviewers           map[string]string
+	operators           map[string]bool
 }
 
 func New(db *store.Store, authorities map[string]string, reviewers map[string]string) *Service {

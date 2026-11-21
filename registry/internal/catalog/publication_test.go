@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -181,6 +182,67 @@ func TestPublicationElevatedRefusalEvenForOwnerAndForgedEvidence(t *testing.T) {
 		code(t, err, "forbidden")
 	}
 	_, err := s.Call(writer, "publication_publish", publicationArgs(ap, "blocked"))
+	code(t, err, "forbidden")
+}
+func TestPublicationElevatedOperatorSwitch(t *testing.T) {
+	raw := json.RawMessage(`{"schema":"agent/1","id":"a","name":"A","charter":"Read","roles":["reader"]}`)
+	via := func(c context.Context, session bool) context.Context {
+		h := http.Header{}
+		if session {
+			h.Set("X-Tether-Session-Id", "s1")
+		}
+		return WithForwardedCaller(c, h)
+	}
+	operator := caller("registry-gateway", "registry.read", "registry.review")
+	decide := func(s *Service, c context.Context, ap Approval) (any, error) {
+		return s.Call(c, "publication_approval_decide", Args{ApprovalID: ap.ID, ApprovalRevision: ap.Revision, Hash: ap.ManifestDigest, Decision: "approved"})
+	}
+	setup := func(name string, on bool) (*Service, Approval) {
+		s := openTest(t, filepath.Join(t.TempDir(), name))
+		s.reviewers["registry-gateway"] = "elevated"
+		s.reviewers["owner"] = "owner"
+		if on {
+			if err := s.ConfigureElevatedPublication([]string{"registry-gateway"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		r := create(t, s, &Input{Schema: "agent/1", Key: "a", Payload: raw})
+		return s, preparePublication(t, s, Candidate{ID: r.ID, Revision: r.RevisionID})
+	}
+	// Switch off: even the operator principal without session headers is refused.
+	off, ap := setup("off", false)
+	_, err := decide(off, via(operator, false), ap)
+	code(t, err, "forbidden")
+	// Switch on.
+	s, ap := setup("on", true)
+	for _, c := range []context.Context{via(operator, true), operator, via(ground, false), via(reviewer, false), via(caller("owner", "registry.read", "registry.review"), false)} {
+		_, err = decide(s, c, ap)
+		code(t, err, "forbidden")
+	}
+	_, err = s.Call(writer, "publication_publish", publicationArgs(ap, "undecided"))
+	code(t, err, "forbidden")
+	v, err := decide(s, via(operator, false), ap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := v.(Approval)
+	if got.Principal != "registry-gateway" || got.Decision != "approved" || got.DecidedBy != "operator" || got.HumanDecision != operatorDecisionMarker {
+		t.Fatalf("receipt: %+v", got)
+	}
+	res := publish(t, s, got, "operator")
+	if len(res.Records) != 1 {
+		t.Fatalf("published: %+v", res)
+	}
+	// Turning the switch off closes publish of an already-marked approval.
+	s2, ap2 := setup("flip", true)
+	v, err = decide(s2, via(operator, false), ap2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s2.ConfigureElevatedPublication(nil); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s2.Call(writer, "publication_publish", publicationArgs(v.(Approval), "closed"))
 	code(t, err, "forbidden")
 }
 func TestPublicationPolicyAndWithdrawalOrdering(t *testing.T) {

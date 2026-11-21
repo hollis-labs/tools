@@ -408,3 +408,85 @@ func TestPublicationHTTPCLIAndMCPParity(t *testing.T) {
 		t.Fatal("MCP read wrong revision")
 	}
 }
+
+type headerTransport map[string]string
+
+func (h headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	for k, v := range h {
+		r.Header.Set(k, v)
+	}
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+func TestElevatedOperatorDecisionOverHTTP(t *testing.T) {
+	t.Setenv("REGISTRY_ELEVATED_PUBLICATION", "operator")
+	t.Setenv("REGISTRY_ELEVATED_PUBLICATION_PRINCIPALS", "reviewer")
+	endpoint := testService(t)
+	ctx := context.Background()
+	writer := registryClient(endpoint, "")
+	writer.Token = func() (string, error) { return "test-write-credential", nil }
+	reviewerWith := func(headers headerTransport) *catalog.Client {
+		c := registryClient(endpoint, "")
+		c.HTTP = &http.Client{Transport: headers}
+		c.Token = func() (string, error) { return "test-review-credential", nil }
+		return c
+	}
+	v, err := writer.Call(ctx, "record_create", catalog.Args{Record: &catalog.Input{Schema: "agent/1", Key: "a", Payload: json.RawMessage(`{"schema":"agent/1","id":"a","name":"A","charter":"Read","roles":["reader"]}`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := responseRecord(t, v)
+	v, err = writer.Call(ctx, "publication_approval_prepare", catalog.Args{Candidates: []catalog.Candidate{{ID: r.ID, Revision: r.RevisionID}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ap catalog.Approval
+	if err = json.Unmarshal(v.(json.RawMessage), &ap); err != nil {
+		t.Fatal(err)
+	}
+	decide := catalog.Args{ApprovalID: ap.ID, ApprovalRevision: ap.Revision, Hash: ap.ManifestDigest, Decision: "approved"}
+	for _, h := range []string{"X-Tether-Session-Id", "X-Forwarded-User-Id"} {
+		if _, err = reviewerWith(headerTransport{h: "session:abc"}).Call(ctx, "publication_approval_decide", decide); err == nil {
+			t.Fatalf("elevated decision accepted with %s", h)
+		}
+	}
+	v, err = reviewerWith(nil).Call(ctx, "publication_approval_decide", decide)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(v.(json.RawMessage), &ap); err != nil {
+		t.Fatal(err)
+	}
+	if ap.Principal != "reviewer" || ap.DecidedBy != "operator" || ap.HumanDecision != "operator-token (dev-window)" {
+		t.Fatalf("receipt: %+v", ap)
+	}
+	v, err = writer.Call(ctx, "publication_publish", catalog.Args{ApprovalID: ap.ID, ApprovalRevision: ap.Revision, Hash: ap.ManifestDigest, Candidates: ap.Candidates, IdempotencyKey: "elevated"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receipt catalog.PublicationResult
+	if err = json.Unmarshal(v.(json.RawMessage), &receipt); err != nil || len(receipt.Records) != 1 {
+		t.Fatalf("publish: %v %+v", err, receipt)
+	}
+}
+
+func TestElevatedPublicationEnvValidation(t *testing.T) {
+	for _, c := range []struct {
+		mode, list string
+		want       []string
+		fail       bool
+	}{
+		{"", "", nil, false},
+		{"", "reviewer", nil, false},
+		{"operator", "registry-gateway, other", []string{"registry-gateway", "other"}, false},
+		{"operator", "", nil, true},
+		{"operator", " , ", nil, true},
+		{"yes", "reviewer", nil, true},
+	} {
+		got, err := elevatedPublicationPrincipals(c.mode, c.list)
+		if (err != nil) != c.fail || strings.Join(got, ",") != strings.Join(c.want, ",") {
+			t.Fatalf("%+v: got %v %v", c, got, err)
+		}
+	}
+}

@@ -22,7 +22,9 @@ HTTP, HTTP-client CLI and MCP share these operations. MCP prefixes names with
 
 Writes/import checkpoints also require the configured owning authority. Only the
 existing explicit publication approval path can publish imported drafts. Reserved
-elevated publication remains closed without its verified human integration.
+elevated publication remains closed without its verified human integration,
+except under the dev-window operator switch (`REGISTRY_ELEVATED_PUBLICATION=operator`
+with `REGISTRY_ELEVATED_PUBLICATION_PRINCIPALS`; see `publication.md`).
 
 ## Published export plan and authorization
 
