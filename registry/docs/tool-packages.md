@@ -46,14 +46,20 @@ SemVer build metadata is part of the exact version identity.
 ## Transport draft
 
 1. Store the deterministic package archive in Caster and retain its content ref.
-2. Publish metadata with `registry_record_create`, `publication: "draft"`, via
-   the mcp-gateway **`registry-write`** upstream. Set `record.schema` and
-   `record.payload.schema` to `tool-package/1`, and use the package identity as
-   `record.key`. A draft write is not shared-namespace promotion.
-3. Resolve with `registry_record_get` or `registry_record_search` through the
-   **`registry`** upstream. Supply the whole canonical ID as a JSON/query value,
-   with `publication: "draft"` when resolving drafts; published reads use the
-   existing Registry publication contract.
+2. Publish metadata with `registry_record_create` via the mcp-gateway
+   **`registry-write`** upstream. Pass `{record: {schema: "tool-package/1",
+   key: "<publisher>/<name>@<version>", payload: <complete package payload>}}`.
+   Set `record.payload.schema` to `tool-package/1` too. Creation implicitly
+   produces a draft; `registry_record_create` does not accept a `publication`
+   argument. A draft write is not shared-namespace promotion.
+3. Resolve through the **`registry`** upstream. For an initial draft lookup,
+   call `registry_record_get` with
+   `{id: "tool-package:<publisher>/<name>@<version>", publication: "draft"}`.
+   For draft search, call `registry_record_search` with
+   `{query: {publication: "draft", kind: "tool-package"}}`. The get selector is
+   a top-level argument; search filters belong inside `query`. Preserve the
+   whole canonical ID as a JSON value. Reads default to published records when
+   draft selection is omitted; creation alone does not publish the package.
 4. Fetch the resolved `artifact` content ref with **`caster_get`** via Tether MCP,
    then perform both install-time hash checks and safe archive validation.
 
