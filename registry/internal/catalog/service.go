@@ -24,6 +24,19 @@ type Service struct {
 	now                 func() time.Time
 	authorities         map[string]string
 	reviewers           map[string]string
+	operators           map[string]bool
+}
+
+// SetElevatedOperators enables the dev-window path where an approved decision
+// on an elevated publication is accepted only from these principal IDs. Empty
+// (the default) keeps elevated publication closed.
+func (s *Service) SetElevatedOperators(ids []string) {
+	s.operators = map[string]bool{}
+	for _, id := range ids {
+		if id != "" {
+			s.operators[id] = true
+		}
+	}
 }
 
 func New(db *store.Store, authorities map[string]string, reviewers map[string]string) *Service {

@@ -130,6 +130,21 @@ func catalogService(app *module.App) (*catalog.Service, error) {
 		reviewers[id] = role
 	}
 	svc := catalog.New(db, bindings, reviewers)
+	// Dev-window switch: default keeps elevated publication closed.
+	if mode := os.Getenv("REGISTRY_ELEVATED_PUBLICATION"); mode != "" {
+		if mode != "operator" {
+			return nil, fmt.Errorf("REGISTRY_ELEVATED_PUBLICATION must be empty or operator")
+		}
+		operators := "registry-gateway"
+		if v := os.Getenv("REGISTRY_OPERATOR_PRINCIPALS"); v != "" {
+			operators = v
+		}
+		var ids []string
+		for _, id := range strings.Split(operators, ",") {
+			ids = append(ids, strings.TrimSpace(id))
+		}
+		svc.SetElevatedOperators(ids)
+	}
 	targets := map[string]string{}
 	configuredTargets, _ := cfg["export_targets"].(map[string]any)
 	for name, value := range configuredTargets {

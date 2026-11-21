@@ -183,6 +183,44 @@ func TestPublicationElevatedRefusalEvenForOwnerAndForgedEvidence(t *testing.T) {
 	_, err := s.Call(writer, "publication_publish", publicationArgs(ap, "blocked"))
 	code(t, err, "forbidden")
 }
+func TestPublicationElevatedOperatorSwitch(t *testing.T) {
+	raw := json.RawMessage(`{"schema":"agent/1","id":"a","name":"A","charter":"Read","roles":["reader"]}`)
+	operator := caller("registry-gateway", "registry.read", "registry.review")
+	decide := func(s *Service, c context.Context, ap Approval) (any, error) {
+		return s.Call(c, "publication_approval_decide", Args{ApprovalID: ap.ID, ApprovalRevision: ap.Revision, Hash: ap.ManifestDigest, Decision: "approved"})
+	}
+	// Switch off: even the operator principal is refused.
+	off := openTest(t, filepath.Join(t.TempDir(), "off"))
+	off.reviewers["registry-gateway"] = "elevated"
+	r := create(t, off, &Input{Schema: "agent/1", Key: "a", Payload: raw})
+	_, err := decide(off, operator, preparePublication(t, off, Candidate{ID: r.ID, Revision: r.RevisionID}))
+	code(t, err, "forbidden")
+	// Switch on: operator accepted and recorded; non-operator still refused.
+	s := openTest(t, filepath.Join(t.TempDir(), "on"))
+	s.reviewers["registry-gateway"] = "elevated"
+	s.reviewers["owner"] = "owner"
+	s.SetElevatedOperators([]string{"registry-gateway"})
+	r = create(t, s, &Input{Schema: "agent/1", Key: "a", Payload: raw})
+	ap := preparePublication(t, s, Candidate{ID: r.ID, Revision: r.RevisionID})
+	for _, c := range []context.Context{ground, reviewer, caller("owner", "registry.read", "registry.review")} {
+		_, err = decide(s, c, ap)
+		code(t, err, "forbidden")
+	}
+	_, err = s.Call(writer, "publication_publish", publicationArgs(ap, "undecided"))
+	code(t, err, "forbidden")
+	v, err := decide(s, operator, ap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := v.(Approval)
+	if got.Principal != "registry-gateway" || got.Decision != "approved" || got.HumanDecision != operatorDecisionMarker {
+		t.Fatalf("receipt: %+v", got)
+	}
+	res := publish(t, s, got, "operator")
+	if len(res.Records) != 1 {
+		t.Fatalf("published: %+v", res)
+	}
+}
 func TestPublicationPolicyAndWithdrawalOrdering(t *testing.T) {
 	s := openTest(t, filepath.Join(t.TempDir(), "db"))
 	s.reviewers["owner"] = "owner"

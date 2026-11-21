@@ -58,6 +58,14 @@ agencies, config, MCP servers, launch profiles, and tools without a reviewed
 conservative ground classification require verified human approval. **That human
 integration is unavailable in this version: approval and publication of these
 records fail closed for every credential, including owner-role credentials.**
+Dev-window exception: with `REGISTRY_ELEVATED_PUBLICATION=operator` (default unset,
+closed) an approved decision on an elevated approval is accepted only from the
+principal IDs in `REGISTRY_OPERATOR_PRINCIPALS` (comma list, default
+`registry-gateway`; use a dedicated ID if the gateway credential is shared). The
+principal must still hold a publication role. The receipt records the operator as
+`principal` and `human_decision: "operator-token (dev-window)"`. Other callers
+remain refused.
+
 An external approval reference, shared operator token, role label or source
 attestation is not evidence that a human decided. This change creates no human
 session binding, new grant, external issuer integration or live elevated record.
