@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	kinds "github.com/hollis-labs/tools/registry/contracts"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -80,6 +81,7 @@ func TestHostRejectsInvalidInventory(t *testing.T) {
 	for _, field := range []string{"id", "name", "roles", "os", "tailnet", "services", "owner", "operator", "project"} {
 		t.Run("missing/"+field, func(t *testing.T) { check(t, field, "") })
 	}
+	check(t, "id", `"`+strings.Repeat("a", 64)+`"`)
 	for _, value := range []string{`[]`, `["hub","hub"]`} {
 		check(t, "roles", value)
 	}
