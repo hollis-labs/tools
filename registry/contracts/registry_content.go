@@ -65,12 +65,15 @@ type MCPServer struct {
 	References []Reference        `json:"references,omitempty"`
 }
 
-// LaunchProfile references Tether-owned launch semantics. Permissions, cascade
-// resolution, provider overrides and launch execution remain with Tether.
+// LaunchProfile retains its versioned source and optional materialization hints.
+// It grants no permissions and performs no launch execution.
 type LaunchProfile struct {
 	ContentIdentity
 	Source     VersionedReference `json:"source"`
 	References []Reference        `json:"references,omitempty"`
+	Launcher   *string            `json:"launcher,omitempty"`
+	Host       *string            `json:"host,omitempty"`
+	Runtime    *LaunchRuntime     `json:"runtime,omitempty"`
 }
 
 func (v Service) Validate() error       { return validateValue(ServiceSchema, v) }
@@ -109,4 +112,26 @@ func validateConfig(data []byte) error {
 		return fmt.Errorf("config/1: settings do not match settings_schema")
 	}
 	return nil
+}
+
+// LaunchRuntime contains only bounded, non-secret authored runtime preferences.
+type LaunchRuntime struct {
+	Provider *string                `json:"provider,omitempty"`
+	Model    *string                `json:"model,omitempty"`
+	Settings *LaunchRuntimeSettings `json:"settings,omitempty"`
+}
+
+// LaunchRuntimeSettings preserves explicit zero values without applying defaults.
+type LaunchRuntimeSettings struct {
+	MaxSteps           *int    `json:"max_steps,omitempty"`
+	MaxOutputTokens    *int    `json:"max_output_tokens,omitempty"`
+	ContextWindow      *int    `json:"context_window,omitempty"`
+	CompactAt          *int    `json:"compact_at,omitempty"`
+	CompactKeepTokens  *int    `json:"compact_keep_tokens,omitempty"`
+	CompactInputTokens *int    `json:"compact_input_tokens,omitempty"`
+	TurnTokenBudget    *int    `json:"turn_token_budget,omitempty"`
+	DailyTokenBudget   *int    `json:"daily_token_budget,omitempty"`
+	SubtaskLimit       *int    `json:"subtask_limit,omitempty"`
+	CacheTTL           *string `json:"cache_ttl,omitempty"`
+	IdleTimeout        *string `json:"idle_timeout,omitempty"`
 }

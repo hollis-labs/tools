@@ -39,6 +39,11 @@ func refuseSecrets(value any) error {
 			prefix = "/payload"
 		}
 		switch schema {
+		case LaunchProfileSchema:
+			// Exact numeric token-count slots are not credential fields.
+			for _, key := range []string{"max_output_tokens", "compact_keep_tokens", "compact_input_tokens", "turn_token_budget", "daily_token_budget"} {
+				slots[prefix+"/runtime/settings/"+key] = false
+			}
 		case ConfigSchema:
 			slots[prefix+"/settings_schema"] = true
 		case ToolSchema:
@@ -76,7 +81,10 @@ func refuseInstance(value any, path string, schemaSlots map[string]bool) error {
 		for key, item := range v {
 			// Sensitive settings must use a typed reference, rather than a literal,
 			// placeholder or nested value that could be mistaken for a credential.
-			if redact.SensitiveName(key) && !secretReference(item) {
+			schemaSlot, knownSlot := schemaSlots[path+"/"+pointerKey(key)]
+			count, numeric := item.(float64)
+			safeCount := knownSlot && !schemaSlot && numeric && count >= 0 && count <= 9007199254740991 && count == float64(int64(count))
+			if redact.SensitiveName(key) && !safeCount && !secretReference(item) {
 				return ErrSecretValue
 			}
 			if len(redact.Default().Scan(key)) > 0 {

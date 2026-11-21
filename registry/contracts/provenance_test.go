@@ -38,9 +38,9 @@ func TestPinnedSchemaBytesUnchanged(t *testing.T) {
 		version := strings.TrimSuffix(name, "-1.json") + "/1"
 		version = strings.ReplaceAll(version, "mcp-server", "mcp_server")
 		version = strings.ReplaceAll(version, "launch-profile", "launch_profile")
-		// document/1 is extended by the agency; its staged source remains
+		// Agency-extended schemas preserve their staged source
 		// byte-for-byte pinned here, while Schema exposes the authored extension.
-		if version == kinds.DocumentSchema {
+		if version == kinds.DocumentSchema || version == kinds.AgentSchema || version == kinds.LaunchProfileSchema {
 			continue
 		}
 		exposed, err := kinds.Schema(version)

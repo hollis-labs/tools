@@ -36,6 +36,8 @@ type AgentDefinition struct {
 type Agent struct {
 	ContentIdentity
 	AgentDefinition
+	Context  []Reference `json:"context,omitempty"`
+	Variants []Reference `json:"variants,omitempty"`
 }
 type Cell struct {
 	Name       string           `json:"name"`

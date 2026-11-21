@@ -300,6 +300,34 @@ For example:
 }
 ```
 
+### Nanite agent materialization
+
+All materialization fields are optional, so earlier `agent/1` and
+`launch_profile/1` records remain valid. Launch profiles retain their required
+versioned Tether source. `launcher` identifies `tether`, `torque-unit` or
+`nanite`; `host` identifies `nanite-cli`, `nanite-service` or
+`surface-module:<module>/<host>` using lowercase alphanumeric/hyphen segments.
+`runtime.provider` selects `anthropic` or `openai`; `runtime.model` is at most
+200 characters. Runtime and settings objects reject unknown fields. Settings
+allow nonnegative integer `max_steps`, `max_output_tokens`, `context_window`,
+`compact_at`, `compact_keep_tokens`, `compact_input_tokens`, `turn_token_budget`
+and `daily_token_budget`; `subtask_limit` is an integer from 0 through 8.
+`cache_ttl` is empty, `5m` or `1h`; `idle_timeout` is integer digits followed by
+`ms`, `s`, `m` or `h`. No defaults are applied; explicit zero and empty cache TTL
+survive typed roundtrips. Agent `context` (at most 32) and `variants` (at most 16)
+contain the existing generic `{authority, kind, id, uri?}` references, preserving
+native identity and order. They do not imply graph edges or target existence.
+
+Nanite resolves the agent and its versioned launch profile during
+materialization, maps charter/roles and referenced skills/tools/context into
+an agent folder, resolves variant references as materialization inputs, and
+maps launcher/host/runtime preferences into the generated launch configuration.
+The running agent uses that folder; it never reads the Registry at runtime.
+Resolution, source availability and supported host/provider combinations remain
+materializer responsibilities. These authored fields convey no execution or
+permission authority. Environment, permission and credential fields are not
+part of this contract; secrets must never enter the Registry.
+
 ### Host inventory
 
 `host/1` adds current host inventory with hostname identity, bounded roles,

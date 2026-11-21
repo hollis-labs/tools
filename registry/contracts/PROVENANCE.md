@@ -48,3 +48,12 @@ See the README for fields and the pointer/edge-over-copy content guide.
 Registry publication admission hashes cover the complete exposed schema bundle.
 This extension changes that digest; publication plans prepared under the previous
 bundle must be prepared again after adopting the updated contracts.
+
+## Nanite materialization agency extensions
+
+CW-20261121-0055 adds optional materialization fields through
+`schemas/agent-1-registry.json` and `schemas/launch-profile-1-registry.json`.
+Schema discovery exposes these extensions; the original staged schemas and
+manifest remain byte-for-byte unchanged. Existing fixture admission is retained.
+As with document/1, adopting this schema bundle changes the publication digest;
+previously prepared publication plans must be prepared again.
