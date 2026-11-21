@@ -15,6 +15,7 @@ const (
 	ProjectSchema        = "project/1"
 	Project2Schema       = "project/2"
 	ToolSchema           = "tool/1"
+	ToolPackageSchema    = "tool-package/1"
 	RelationSchema       = "relation/1"
 	ClassificationSchema = "classification/1"
 	AgentSchema          = "agent/1"
@@ -52,6 +53,7 @@ func ValidateJSONValue(data []byte) error {
 var schemas embed.FS
 
 var schemaFiles = map[string]string{
+	ToolPackageSchema:   "schemas/tool-package-1.json",
 	ServiceSchema:       "schemas/service-1.json",
 	ConfigSchema:        "schemas/config-1.json",
 	KnowledgeSchema:     "schemas/knowledge-1.json",
@@ -73,7 +75,7 @@ var schemaFiles = map[string]string{
 
 // Schemas returns the supported versions in deterministic order.
 func Schemas() []string {
-	return []string{ProjectSchema, Project2Schema, ToolSchema, RelationSchema, ClassificationSchema, AgentSchema, AgencySchema, SkillSchema, DocumentSchema, WorkstreamSchema, CorrelationSchema, ServiceSchema, ConfigSchema, KnowledgeSchema, MCPServerSchema, LaunchProfileSchema}
+	return []string{ToolPackageSchema, ProjectSchema, Project2Schema, ToolSchema, RelationSchema, ClassificationSchema, AgentSchema, AgencySchema, SkillSchema, DocumentSchema, WorkstreamSchema, CorrelationSchema, ServiceSchema, ConfigSchema, KnowledgeSchema, MCPServerSchema, LaunchProfileSchema}
 }
 
 // Schema returns an independent copy of the JSON Schema document.
@@ -92,7 +94,8 @@ type compiledSchema struct {
 }
 
 var compiled = map[string]*compiledSchema{
-	ServiceSchema: {}, ConfigSchema: {}, KnowledgeSchema: {}, MCPServerSchema: {}, LaunchProfileSchema: {},
+	ToolPackageSchema: {},
+	ServiceSchema:     {}, ConfigSchema: {}, KnowledgeSchema: {}, MCPServerSchema: {}, LaunchProfileSchema: {},
 	ProjectSchema: {}, Project2Schema: {}, ToolSchema: {}, RelationSchema: {}, ClassificationSchema: {},
 	AgentSchema:       {},
 	AgencySchema:      {},
@@ -142,6 +145,9 @@ func ValidateJSON(version string, data []byte) error {
 	}
 	if err := entry.resolved.Validate(value); err != nil {
 		return fmt.Errorf("%s: %w", version, err)
+	}
+	if version == ToolPackageSchema {
+		return validateToolPackage(data)
 	}
 	if version == ToolSchema {
 		var t Tool

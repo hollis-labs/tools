@@ -298,3 +298,5 @@ Published export plan/diff/apply, publication changes cursors and temporary batc
 import contracts are described in [materialization](docs/materialization.md).
 The [agent guide skill](skills/use-registry/SKILL.md) covers lookup, authoring,
 reference reporting and the separate review/publication boundaries.
+
+Tool package publication and installation metadata: [tool-package/1](docs/tool-packages.md).

@@ -588,7 +588,7 @@ func prepare(in *Input, authority string) (Record, error) {
 	}
 	kind, _, _ := strings.Cut(in.Schema, "/")
 	switch kind {
-	case "project", "tool", "agent", "agency", "skill", "document", "workstream", "correlation", "service", "config", "knowledge", "mcp_server", "launch_profile":
+	case "tool-package", "project", "tool", "agent", "agency", "skill", "document", "workstream", "correlation", "service", "config", "knowledge", "mcp_server", "launch_profile":
 	default:
 		return Record{}, failure("unknown_schema", "record.schema", "not a record schema")
 	}
@@ -650,6 +650,19 @@ func savePrepared(ctx context.Context, tx store.Tx, r *Record) error {
 }
 func saveRecord(ctx context.Context, tx store.Tx, r *Record, allocated bool) error {
 	if old, err := readRecord(ctx, tx, r.ID, -1); err == nil {
+		if old.Kind == "tool-package" {
+			before, err := canonicalDigest(old.Payload)
+			if err != nil {
+				return err
+			}
+			after, err := canonicalDigest(r.Payload)
+			if err != nil {
+				return err
+			}
+			if before != after {
+				return failure("version_conflict", "record.payload", "tool package payload is immutable; publish a new version")
+			}
+		}
 		if err := protectMinted(ctx, tx, old, *r); err != nil {
 			return err
 		}

@@ -48,6 +48,8 @@ github.com/hollis-labs/substrate v0.1.1-0.20261120023626-babfaed3c70d h1:ANdRSe9
 github.com/hollis-labs/substrate v0.1.1-0.20261120023626-babfaed3c70d/go.mod h1:LNK7DIqGyVnvvKGYJIhnVKIdF1yIfNP9MtE252Y8G80=
 github.com/hollis-labs/tools/registry/contracts v0.0.0-20261120025733-4199eedcd2f4 h1:nKhWhebPfurGkPFdVmSQ5AqaUyzMSHpCySJ1iMqTqUg=
 github.com/hollis-labs/tools/registry/contracts v0.0.0-20261120025733-4199eedcd2f4/go.mod h1:kYlDIoTNOv56j0MtYUBZBnCgr4cGaIW0U97RQlqcLN4=
+github.com/hollis-labs/tools/registry/contracts v0.0.0-20261120235928-c1ee6ea11b9e h1:UaI1XWJrGgiAkrgv7+qbB9NhwPuxOk4rUM8HlF7EPho=
+github.com/hollis-labs/tools/registry/contracts v0.0.0-20261120235928-c1ee6ea11b9e/go.mod h1:kYlDIoTNOv56j0MtYUBZBnCgr4cGaIW0U97RQlqcLN4=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=

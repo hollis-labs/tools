@@ -81,7 +81,7 @@ func (v LaunchProfile) Validate() error { return validateValue(LaunchProfileSche
 
 func isRegistryKind(schema string) bool {
 	switch schema {
-	case ServiceSchema, ConfigSchema, KnowledgeSchema, MCPServerSchema, LaunchProfileSchema:
+	case ToolPackageSchema, ServiceSchema, ConfigSchema, KnowledgeSchema, MCPServerSchema, LaunchProfileSchema:
 		return true
 	}
 	return false

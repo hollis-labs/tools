@@ -27,3 +27,10 @@ The module path is `github.com/hollis-labs/tools/registry/contracts`. Future
 semver tags use `registry/contracts/vX.Y.Z`; this change does not release a tag.
 Run `go test -race ./...` and `go vet ./...` in this directory independently of
 the parent Registry module.
+
+## tool-package/1
+
+Agency-authored for CW-20261120-0220. Unlike the staged upstream schemas listed
+in schema-provenance.json, tool-package/1 originates here. Its strict wire shape,
+identity checks and secret admission are covered by tool_package_test.go.
+Registry owns immutable version mapping; consumers own archive verification.
