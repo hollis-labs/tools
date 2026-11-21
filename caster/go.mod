@@ -17,7 +17,7 @@ require (
 
 require (
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
-	github.com/oapi-codegen/runtime v1.9.1 // indirect
+	github.com/oapi-codegen/runtime v1.9.1
 )
 
 require (
@@ -31,7 +31,6 @@ require (
 	github.com/hollis-labs/libs/core/panics v0.1.0 // indirect
 	github.com/hollis-labs/libs/security/redact v0.2.0 // indirect
 	github.com/hollis-labs/libs/ui/ui-go v0.1.0 // indirect
-	github.com/hollis-labs/tools/caster/client v0.0.0
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
@@ -61,5 +60,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
-
-replace github.com/hollis-labs/tools/caster/client => ./client
