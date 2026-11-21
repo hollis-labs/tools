@@ -471,7 +471,7 @@ func TestPublicationReceiptsSurviveReopen(t *testing.T) {
 	}
 }
 
-// Admission hashes include the complete schema bundle, including host/1.
+// Admission hashes include the complete schema bundle, including Nanite fields.
 func TestPublicationGoldenVectors(t *testing.T) {
 	s := openTest(t, filepath.Join(t.TempDir(), "db"))
 	target := create(t, s, input("target"))
@@ -485,8 +485,8 @@ func TestPublicationGoldenVectors(t *testing.T) {
 		edges []Edge
 		want  string
 	}{
-		{"empty", nil, "sha256:e646dfdb935fbe8b91255429c4500218280a7bf7f596c303bc1255cb8ce4ad56"},
-		{"edge", []Edge{{ID: "edge-1", SourceRevision: "revision-1", Relation: kinds.Relation{Schema: kinds.RelationSchema, Type: kinds.Consumes, From: kinds.Reference{Authority: "registry", Kind: "project", ID: r.ID}, To: kinds.Reference{Authority: "registry", Kind: "project", ID: target.ID}, Source: "authored", Status: "proposed"}}}, "sha256:36cd14b1d0146f74e29b2bfccdf829294df4f35883598f4c8a550360970985e1"},
+		{"empty", nil, "sha256:3be1b41bd1adb657d0829e847860ce9fe65145af8e917e8cfa95bdf37d4bdd33"},
+		{"edge", []Edge{{ID: "edge-1", SourceRevision: "revision-1", Relation: kinds.Relation{Schema: kinds.RelationSchema, Type: kinds.Consumes, From: kinds.Reference{Authority: "registry", Kind: "project", ID: r.ID}, To: kinds.Reference{Authority: "registry", Kind: "project", ID: target.ID}, Source: "authored", Status: "proposed"}}}, "sha256:27fcdfe85f7d894c216e7509c354109046b17280b4c605a703676bc5954ced2f"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
