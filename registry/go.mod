@@ -15,7 +15,11 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require github.com/pelletier/go-toml/v2 v2.2.4 // indirect
+require (
+	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
+	github.com/oapi-codegen/runtime v1.9.1 // indirect
+	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
+)
 
 require (
 	github.com/danieljoos/wincred v1.2.3 // indirect
@@ -32,6 +36,7 @@ require (
 	github.com/hollis-labs/libs/security/redact v0.2.0 // indirect
 	github.com/hollis-labs/libs/security/secrets v0.1.0 // indirect
 	github.com/hollis-labs/libs/ui/ui-go v0.4.0 // indirect
+	github.com/hollis-labs/tools/registry/client v0.0.0
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
@@ -63,3 +68,5 @@ require (
 //   go mod tidy
 //   go run github.com/hollis-labs/substrate/cmd/substrate pins sync --app .
 //   go mod tidy
+
+replace github.com/hollis-labs/tools/registry/client => ./client
