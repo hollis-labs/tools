@@ -58,6 +58,17 @@ agencies, config, MCP servers, launch profiles, and tools without a reviewed
 conservative ground classification require verified human approval. **That human
 integration is unavailable in this version: approval and publication of these
 records fail closed for every credential, including owner-role credentials.**
+Dev-window exception: `REGISTRY_ELEVATED_PUBLICATION=operator` (default empty =
+closed; any other value is a startup error) with
+`REGISTRY_ELEVATED_PUBLICATION_PRINCIPALS` (comma list of API-key principal IDs,
+required when on) accepts an approved elevated decision only when the caller's
+principal is listed **and** the request carries none of `X-Tether-Session-Id`,
+`X-Forwarded-User-Id` or `X-Tether-Agent-Urn` (the Tether proxy sets them for agent-session callers and
+strips client-sent copies, so operator-token callers have neither). The receipt
+keeps `principal` and adds `decided_by: "operator"` and
+`human_decision: "operator-token (dev-window)"`; publish of an elevated approval
+requires the switch on, that marker, and the usual role/policy/expiry checks.
+
 An external approval reference, shared operator token, role label or source
 attestation is not evidence that a human decided. This change creates no human
 session binding, new grant, external issuer integration or live elevated record.

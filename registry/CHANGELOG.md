@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Add dev-window operator-token decision for elevated publication, behind
+  `REGISTRY_ELEVATED_PUBLICATION=operator` and
+  `REGISTRY_ELEVATED_PUBLICATION_PRINCIPALS`; default stays closed.
+
 - Add Registry-owned workstream ensure and launch correlation registration with
   narrow capabilities, permanent identity maps, atomic 30-day replay receipts,
   sticky workstream closure and conditional launch enrichment.

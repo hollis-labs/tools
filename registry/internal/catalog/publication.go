@@ -71,7 +71,14 @@ type Approval struct {
 	DecidedAt      string               `json:"decided_at"`
 	ExpiresAt      string               `json:"expires_at"`
 	Elevated       bool                 `json:"elevated"`
+	DecidedBy      string               `json:"decided_by,omitempty"`
+	HumanDecision  string               `json:"human_decision,omitempty"`
 }
+
+// operatorDecisionMarker labels an elevated approval decided by the operator
+// credential under the dev-window REGISTRY_ELEVATED_PUBLICATION=operator switch.
+const operatorDecisionMarker = "operator-token (dev-window)"
+
 type PublicationResult struct {
 	ID                  string            `json:"receipt_id"`
 	ApprovalID          string            `json:"approval_id"`
@@ -473,8 +480,12 @@ func (s *Service) publicationCall(ctx context.Context, p libauth.Principal, op s
 			if a.Decision != "approved" && a.Decision != "denied" && a.Decision != "withdrawn" {
 				return failure("validation_error", "decision", "approved, denied or withdrawn required")
 			}
+			operatorDecision := false
 			if a.Decision == "approved" && ap.Elevated {
-				return failure("forbidden", "human_approval", "verified human decision integration is unavailable; elevated publication remains closed")
+				if !s.operatorCaller(ctx, p) {
+					return failure("forbidden", "human_approval", "verified human decision integration is unavailable; elevated publication remains closed unless the caller is the operator")
+				}
+				operatorDecision = true
 			}
 			if a.Decision == "approved" && ap.PolicyRevision != policy.Revision {
 				return failure("version_conflict", "policy", "prepare against current policy")
@@ -484,6 +495,10 @@ func (s *Service) publicationCall(ctx context.Context, p libauth.Principal, op s
 			}
 			ap.Revision = newID()
 			ap.Principal = p.ID
+			if operatorDecision {
+				ap.DecidedBy = "operator"
+				ap.HumanDecision = operatorDecisionMarker
+			}
 			ap.Decision = a.Decision
 			ap.DecidedAt = time.Now().UTC().Format(time.RFC3339Nano)
 			out = ap
@@ -499,7 +514,7 @@ func (s *Service) publicationCall(ctx context.Context, p libauth.Principal, op s
 			if ap.Revision != a.ApprovalRevision || ap.ManifestDigest != a.Hash {
 				return failure("version_conflict", "approval_revision", "exact approval revision and manifest required")
 			}
-			if ap.Elevated {
+			if ap.Elevated && !s.operatorApproved(ap) {
 				return failure("forbidden", "human_approval", "elevated publication unavailable")
 			}
 			if ap.Decision != "approved" || ap.Action != "publish" || ap.PolicyRevision != policy.Revision || !validRole(policy.Roles[ap.Principal]) {
@@ -540,7 +555,7 @@ func (s *Service) publicationCall(ctx context.Context, p libauth.Principal, op s
 				if current.RevisionID != c.ExpectedPublishedRevision {
 					return failure("version_conflict", "expected_published_revision", "published pointer changed")
 				}
-				if publicationElevated(r) {
+				if publicationElevated(r) && !s.operatorApproved(ap) {
 					return failure("forbidden", "human_approval", "elevated publication unavailable")
 				}
 				// Preserve approved target pins even if a target has since published a newer

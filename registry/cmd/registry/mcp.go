@@ -130,6 +130,13 @@ func catalogService(app *module.App) (*catalog.Service, error) {
 		reviewers[id] = role
 	}
 	svc := catalog.New(db, bindings, reviewers)
+	principals, err := elevatedPublicationPrincipals(os.Getenv("REGISTRY_ELEVATED_PUBLICATION"), os.Getenv("REGISTRY_ELEVATED_PUBLICATION_PRINCIPALS"))
+	if err != nil {
+		return nil, err
+	}
+	if err = svc.ConfigureElevatedPublication(principals); err != nil {
+		return nil, err
+	}
 	targets := map[string]string{}
 	configuredTargets, _ := cfg["export_targets"].(map[string]any)
 	for name, value := range configuredTargets {
@@ -208,4 +215,26 @@ func mcpCmd(ctx context.Context, _ *module.App) *cobra.Command {
 	cmd.Flags().StringVar(&endpoint, "url", defaultURL(), "Registry service URL")
 	cmd.Flags().StringVar(&tokenFile, "token-file", "", "Credential file (reread on every service call)")
 	return cmd
+}
+
+// elevatedPublicationPrincipals parses the dev-window switch. Empty mode keeps
+// elevated publication closed; operator mode requires the principal list.
+func elevatedPublicationPrincipals(mode, list string) ([]string, error) {
+	switch mode {
+	case "":
+		return nil, nil
+	case "operator":
+	default:
+		return nil, fmt.Errorf("REGISTRY_ELEVATED_PUBLICATION must be empty or operator")
+	}
+	var out []string
+	for _, id := range strings.Split(list, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			out = append(out, id)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("REGISTRY_ELEVATED_PUBLICATION_PRINCIPALS is required when REGISTRY_ELEVATED_PUBLICATION=operator")
+	}
+	return out, nil
 }
