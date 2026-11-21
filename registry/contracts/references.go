@@ -30,6 +30,9 @@ func SemanticReferences(schema string, data []byte) ([]SemanticReference, error)
 	refs := []SemanticReference{}
 	add := func(relation EdgeType, ref Reference) { refs = append(refs, SemanticReference{relation, ref}) }
 	switch v := content.(type) {
+	case *Host:
+		add(PartOf, v.Project)
+		add(OperatedBy, v.Operator)
 	case *Service:
 		add(PartOf, v.Project)
 		for _, ref := range v.Config {
