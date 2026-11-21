@@ -16,6 +16,11 @@ require (
 )
 
 require (
+	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
+	github.com/oapi-codegen/runtime v1.9.1
+)
+
+require (
 	github.com/adrg/xdg v0.5.3 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect

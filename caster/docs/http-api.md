@@ -1,5 +1,7 @@
 # HTTP API: `caster serve`
 
+The contract is `openapi.yaml` (hand-written; a test holds it to the routes served). The Go client in `client/` is generated from it: `cd client && go generate ./...`.
+
 ```sh
 caster serve                          # the address is httphost.addr in the SUBSTRATE_CONFIG file (default 127.0.0.1:8991)
 KEY=$(cat <key file>)                 # a key from `caster identity key create --out`

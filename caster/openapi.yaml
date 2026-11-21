@@ -1,0 +1,516 @@
+openapi: 3.0.3
+info:
+  title: Caster HTTP API
+  version: 0.1.0
+  description: |
+    The API served by `caster serve` (a home node). JSON over the routes under `/api/`, one per
+    service operation. Hand-written and spec-first: the client in `client/` is generated from this
+    file, and a conformance test (internal/api/spec_test.go) fails if the routes served and the
+    routes declared here (method, path, scope) disagree.
+
+    Resolution states: a ref that does not resolve is an outcome, not an error. `not_found` and
+    `denied` come back as HTTP 404 and 403 with a body of the operation's normal result shape (a
+    `Meta` for head and get). Errors are the flat `Error` body.
+  license:
+    name: see repository LICENSE
+servers:
+  - url: http://127.0.0.1:8991
+    description: Default `httphost.addr`. Serve on loopback and reach it through a TLS proxy.
+security:
+  - bearerAuth: []
+tags:
+  - {name: refs, description: Resolve, snapshot and expand refs (cas://, caster://, torque://, tesseract://)}
+  - {name: notes, description: Named, versioned content}
+  - {name: actions, description: Actions on a ref}
+  - {name: shadow, description: Shadow-mode observation of ref detection}
+  - {name: identity, description: The calling identity}
+
+paths:
+  /api/whoami:
+    get:
+      operationId: whoami
+      tags: [identity]
+      summary: The calling identity and its scopes
+      x-scope: authenticated
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/WhoamiResult"}}}}
+        default: {$ref: "#/components/responses/Error"}
+
+  /api/head:
+    get:
+      operationId: head
+      tags: [refs]
+      summary: Metadata for a ref, without its content
+      x-scope: authenticated
+      description: The scope needed depends on the ref's scheme (`caster.read` for local refs, `caster.resolve` for `torque://` and `tesseract://`); the service layer decides.
+      parameters: [{$ref: "#/components/parameters/Ref"}]
+      responses:
+        "200": {description: resolved, content: {application/json: {schema: {$ref: "#/components/schemas/Meta"}}}}
+        "403": {description: denied; the body is a Meta with state `denied`, content: {application/json: {schema: {$ref: "#/components/schemas/Meta"}}}}
+        "404": {description: not found; the body is a Meta with state `not_found`, content: {application/json: {schema: {$ref: "#/components/schemas/Meta"}}}}
+        default: {$ref: "#/components/responses/Error"}
+
+  /api/get:
+    get:
+      operationId: get
+      tags: [refs]
+      summary: Fetch a ref's content
+      x-scope: authenticated
+      description: |
+        With `raw=1` a resolved ref is returned as `text/plain` (never the stored mime), with the
+        ref in the `X-Caster-Ref` header. Otherwise the result is JSON.
+      parameters:
+        - {$ref: "#/components/parameters/Ref"}
+        - name: max_bytes
+          in: query
+          description: 0 or absent means the default (65536); negative means unlimited.
+          schema: {type: integer}
+        - name: raw
+          in: query
+          description: Pass `1` for a plain-text body.
+          schema: {type: string, enum: ["1"]}
+      responses:
+        "200":
+          description: resolved
+          content:
+            application/json: {schema: {$ref: "#/components/schemas/GetResult"}}
+            text/plain: {schema: {type: string}}
+          headers:
+            X-Caster-Ref: {description: Set when raw=1, schema: {type: string}}
+        "403": {description: denied, content: {application/json: {schema: {$ref: "#/components/schemas/GetResult"}}}}
+        "404": {description: not found, content: {application/json: {schema: {$ref: "#/components/schemas/GetResult"}}}}
+        default: {$ref: "#/components/responses/Error"}
+
+  /api/list:
+    get:
+      operationId: list
+      tags: [notes]
+      summary: Latest revision of each named item
+      x-scope: caster.read
+      parameters:
+        - {name: ns, in: query, description: Namespace filter, schema: {type: string}}
+        - {name: tag, in: query, description: Tag filter, schema: {type: string}}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/ListResult"}}}}
+        default: {$ref: "#/components/responses/Error"}
+
+  /api/log:
+    get:
+      operationId: log
+      tags: [notes]
+      summary: Revision history of a name, newest first
+      x-scope: caster.read
+      parameters:
+        - {name: name, in: query, required: true, schema: {type: string}}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/LogResult"}}}}
+        default: {$ref: "#/components/responses/Error"}
+
+  /api/search:
+    get:
+      operationId: search
+      tags: [notes]
+      summary: Full-text search
+      x-scope: caster.read
+      parameters:
+        - {name: q, in: query, required: true, description: Full-text query. A malformed query is 400 `invalid`., schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer}}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/SearchResult"}}}}
+        default: {$ref: "#/components/responses/Error"}
+
+  /api/actions:
+    get:
+      operationId: listActions
+      tags: [actions]
+      summary: Actions available for a ref
+      x-scope: authenticated
+      parameters: [{$ref: "#/components/parameters/Ref"}]
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/ActionsResult"}}}}
+        "403": {description: denied, content: {application/json: {schema: {$ref: "#/components/schemas/ActionsResult"}}}}
+        "404": {description: not found, content: {application/json: {schema: {$ref: "#/components/schemas/ActionsResult"}}}}
+        default: {$ref: "#/components/responses/Error"}
+
+  /api/report:
+    get:
+      operationId: shadowReport
+      tags: [shadow]
+      summary: Shadow-mode measurement report
+      x-scope: caster.admin
+      parameters:
+        - name: since
+          in: query
+          description: A duration looking back from now, in Go syntax (`24h`, `90m`). Absent or unparsable means all time.
+          schema: {type: string, example: 24h}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/ReportResult"}}}}
+        default: {$ref: "#/components/responses/Error"}
+
+  /api/put:
+    post:
+      operationId: put
+      tags: [notes]
+      summary: Store content, optionally under a name
+      x-scope: caster.write
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/PutRequest"}}}}
+      responses:
+        "200": {description: stored, content: {application/json: {schema: {$ref: "#/components/schemas/PutResult"}}}}
+        default: {$ref: "#/components/responses/Error"}
+
+  /api/snap:
+    post:
+      operationId: snapshot
+      tags: [refs]
+      summary: Pin a ref's current bytes in content-addressed storage
+      x-scope: authenticated
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/SnapRequest"}}}}
+      responses:
+        "200": {description: snapshot taken, content: {application/json: {schema: {$ref: "#/components/schemas/SnapResult"}}}}
+        "403": {description: denied; nothing stored, content: {application/json: {schema: {$ref: "#/components/schemas/SnapResult"}}}}
+        "404": {description: not found; nothing stored, content: {application/json: {schema: {$ref: "#/components/schemas/SnapResult"}}}}
+        default: {$ref: "#/components/responses/Error"}
+
+  /api/scan:
+    post:
+      operationId: scan
+      tags: [refs]
+      summary: Find refs in text
+      x-scope: authenticated
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/ScanRequest"}}}}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/ScanResult"}}}}
+        default: {$ref: "#/components/responses/Error"}
+
+  /api/expand:
+    post:
+      operationId: expand
+      tags: [refs]
+      summary: Replace resolvable refs in text with their contents
+      x-scope: authenticated
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/ExpandRequest"}}}}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/ExpandResult"}}}}
+        default: {$ref: "#/components/responses/Error"}
+
+  /api/act:
+    post:
+      operationId: act
+      tags: [actions]
+      summary: Run an action on a ref
+      x-scope: caster.act
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/ActRequest"}}}}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/ActResult"}}}}
+        "403": {description: denied, content: {application/json: {schema: {$ref: "#/components/schemas/ActResult"}}}}
+        "404": {description: not found, content: {application/json: {schema: {$ref: "#/components/schemas/ActResult"}}}}
+        default: {$ref: "#/components/responses/Error"}
+
+  /api/observe:
+    post:
+      operationId: shadowObserve
+      tags: [shadow]
+      summary: Record a shadow-mode observation of text
+      x-scope: caster.observe
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/ObserveRequest"}}}}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/ObserveResult"}}}}
+        default: {$ref: "#/components/responses/Error"}
+
+  /api/label:
+    post:
+      operationId: shadowLabel
+      tags: [shadow]
+      summary: Label a ref detection true or false
+      x-scope: caster.admin
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/LabelRequest"}}}}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/LabelResult"}}}}
+        default: {$ref: "#/components/responses/Error"}
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: An identity API key (`caster identity key create`) or a token from `/api/token`.
+
+  parameters:
+    Ref:
+      name: ref
+      in: query
+      required: true
+      description: A cas://, caster://[ns/]name[@rev], torque:// or tesseract:// ref.
+      schema: {type: string}
+
+  responses:
+    Error:
+      description: |
+        An error. 400 `invalid` (bad ref, bad JSON, malformed query; 413 for a body over 8 MiB),
+        401 `unauthenticated`, 403 `denied` (missing scope), 502 `unavailable` (a backend is
+        unreachable), 500 `internal`.
+      content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: {type: string, enum: [unauthenticated, invalid, not_found, denied, unavailable, internal]}
+        message: {type: string}
+        details: {description: Optional structured detail.}
+
+    ResolutionState:
+      type: string
+      enum: [resolved, not_found, denied]
+
+    Meta:
+      type: object
+      description: Describes a ref without its content.
+      required: [ref, state, floating]
+      properties:
+        ref: {type: string}
+        state: {$ref: "#/components/schemas/ResolutionState"}
+        kind: {type: string}
+        title: {type: string}
+        mime: {type: string}
+        size: {type: integer, format: int64}
+        revision: {type: string}
+        sha256: {type: string}
+        floating: {type: boolean, description: True when the ref names no pinned revision.}
+
+    GetResult:
+      description: A Meta plus content.
+      allOf:
+        - $ref: "#/components/schemas/Meta"
+        - type: object
+          properties:
+            content: {type: string, description: The (possibly truncated) bytes as text; empty when binary.}
+            binary: {type: boolean}
+            truncated: {type: boolean}
+            total_bytes: {type: integer}
+
+    PutRequest:
+      type: object
+      required: [content]
+      properties:
+        name: {type: string, description: "[ns/]name. Empty stores an anonymous blob."}
+        title: {type: string}
+        tags: {type: string, description: Space separated.}
+        mime: {type: string}
+        source: {type: string, description: Provenance ref.}
+        content: {type: string}
+    PutResult:
+      type: object
+      required: [ref, cas, size]
+      properties:
+        ref: {type: string, description: "caster://…@rev when named, else cas://…"}
+        cas: {type: string}
+        size: {type: integer, format: int64}
+
+    SnapRequest:
+      type: object
+      required: [ref]
+      properties:
+        ref: {type: string}
+        name: {type: string}
+        tags: {type: string}
+    SnapResult:
+      type: object
+      required: [state, source]
+      properties:
+        state: {$ref: "#/components/schemas/ResolutionState"}
+        cas: {type: string}
+        ref: {type: string, description: Set when a name was given.}
+        source: {type: string}
+
+    Item:
+      type: object
+      required: [ref, rev, cas, updated]
+      properties:
+        ref: {type: string}
+        rev: {type: integer}
+        title: {type: string}
+        tags: {type: string}
+        cas: {type: string}
+        updated: {type: string, format: date-time}
+    ListResult:
+      type: object
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/Item"}}
+
+    Revision:
+      type: object
+      required: [rev, cas, at]
+      properties:
+        rev: {type: integer}
+        cas: {type: string}
+        title: {type: string}
+        at: {type: string, format: date-time}
+    LogResult:
+      type: object
+      required: [name, revisions]
+      properties:
+        name: {type: string}
+        revisions: {type: array, items: {$ref: "#/components/schemas/Revision"}}
+
+    Hit:
+      type: object
+      required: [cas, snippet]
+      properties:
+        cas: {type: string}
+        names: {type: array, items: {type: string}}
+        snippet: {type: string}
+    SearchResult:
+      type: object
+      required: [hits]
+      properties:
+        hits: {type: array, items: {$ref: "#/components/schemas/Hit"}}
+
+    ScanRequest:
+      type: object
+      required: [text]
+      properties:
+        text: {type: string}
+    Problem:
+      type: object
+      required: [ref, error]
+      properties:
+        ref: {type: string}
+        error: {type: string}
+    ScanResult:
+      type: object
+      required: [refs, unresolved]
+      properties:
+        refs: {type: array, items: {$ref: "#/components/schemas/Meta"}}
+        unresolved: {type: integer, description: Detected refs that did not resolve; counted, not listed.}
+        problems: {type: array, items: {$ref: "#/components/schemas/Problem"}}
+
+    ExpandRequest:
+      type: object
+      required: [text]
+      properties:
+        text: {type: string}
+        budget: {type: integer, description: Max bytes inserted per ref. 0 means 16 KiB.}
+    ExpandResult:
+      type: object
+      required: [text, resolved, refs]
+      properties:
+        text: {type: string}
+        resolved: {type: integer}
+        refs: {type: array, items: {$ref: "#/components/schemas/Meta"}}
+
+    ActionInfo:
+      type: object
+      required: [id, label, description, effect, needs]
+      properties:
+        id: {type: string, example: save-handoff}
+        label: {type: string}
+        description: {type: string}
+        effect: {type: string, description: "Effect class, for example remote_write."}
+        needs: {type: array, items: {type: string}, description: ActionContext fields that must be bound.}
+    ActionContext:
+      type: object
+      properties:
+        namespace: {type: string, description: Tesseract workspace namespace.}
+        session_id: {type: string}
+        agent_id: {type: string}
+        workstream_id: {type: string}
+    ActionsResult:
+      type: object
+      required: [ref, state, actions]
+      properties:
+        ref: {type: string}
+        state: {$ref: "#/components/schemas/ResolutionState"}
+        actions: {type: array, items: {$ref: "#/components/schemas/ActionInfo"}}
+    ActRequest:
+      type: object
+      required: [action, ref, context]
+      properties:
+        action: {type: string}
+        ref: {type: string}
+        context: {$ref: "#/components/schemas/ActionContext"}
+        dry_run: {type: boolean}
+    ActResult:
+      type: object
+      required: [action, status, state]
+      properties:
+        action: {type: string}
+        status: {type: string, enum: [done, replayed, dry_run]}
+        state: {$ref: "#/components/schemas/ResolutionState"}
+        source: {type: string}
+        outcome: {type: string}
+        key: {type: string}
+        plan: {type: string}
+
+    ObserveRequest:
+      type: object
+      required: [text]
+      properties:
+        text: {type: string}
+        source: {type: string}
+    ObserveResult:
+      type: object
+      required: [mode, cached, candidates, resolved, would_show]
+      properties:
+        mode: {type: string, enum: [shadow]}
+        cached: {type: boolean, description: This text was already observed at this generation.}
+        candidates: {type: integer}
+        resolved: {type: integer}
+        would_show: {type: integer}
+
+    LabelRequest:
+      type: object
+      required: [ref, verdict]
+      properties:
+        ref: {type: string}
+        verdict: {type: string, enum: ["true", "false"]}
+    LabelResult:
+      type: object
+      required: [updated]
+      properties:
+        updated: {type: integer, format: int64}
+
+    ExtractorReport:
+      type: object
+      required: [extractor, confidence, candidates, resolved, unresolved, errors, would_show, distinct_refs, resolve_rate, labeled_true, labeled_false]
+      properties:
+        extractor: {type: string}
+        confidence: {type: string}
+        candidates: {type: integer}
+        resolved: {type: integer}
+        unresolved: {type: integer}
+        errors: {type: integer}
+        would_show: {type: integer}
+        distinct_refs: {type: integer}
+        resolve_rate: {type: number, format: double}
+        labeled_true: {type: integer}
+        labeled_false: {type: integer}
+        precision: {type: number, format: double}
+    RefCount:
+      type: object
+      required: [ref, count]
+      properties:
+        ref: {type: string}
+        count: {type: integer}
+    ReportResult:
+      type: object
+      required: [mode, generation, observations, repeats, extractors, top_unresolved]
+      properties:
+        mode: {type: string, enum: [shadow]}
+        generation: {type: integer}
+        observations: {type: integer}
+        repeats: {type: integer, description: Sightings answered from the cache.}
+        extractors: {type: array, items: {$ref: "#/components/schemas/ExtractorReport"}}
+        top_unresolved: {type: array, items: {$ref: "#/components/schemas/RefCount"}}
+
+    WhoamiResult:
+      type: object
+      required: [id, scopes]
+      properties:
+        id: {type: string}
+        kind: {type: string}
+        label: {type: string}
+        scopes: {type: array, items: {type: string}}
+        expires_at: {type: string, format: date-time}

@@ -1,0 +1,7 @@
+# Generates the Caster API client and types from ../openapi.yaml.
+# Run `go generate ./...` in this directory.
+package: client
+output: client.gen.go
+generate:
+  models: true
+  client: true
