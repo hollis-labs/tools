@@ -58,14 +58,28 @@ type Skill struct {
 	Documents    []Reference         `json:"documents,omitempty"`
 	Source       *VersionedReference `json:"source,omitempty"`
 }
+type DocumentArchitecture struct {
+	State string `json:"state"`
+	Scope string `json:"scope"`
+}
+type DocumentTemplate struct {
+	Templates string `json:"templates"`
+}
+type DocumentCommunication struct {
+	Channel  string `json:"channel"`
+	Audience string `json:"audience"`
+}
 type Document struct {
 	ContentIdentity
-	Subtype       string      `json:"subtype"`
-	Format        string      `json:"format"`
-	Body          string      `json:"body"`
-	Purpose       string      `json:"purpose,omitempty"`
-	Applicability string      `json:"applicability,omitempty"`
-	References    []Reference `json:"references,omitempty"`
+	Subtype       string                 `json:"subtype"`
+	Architecture  *DocumentArchitecture  `json:"architecture,omitempty"`
+	Template      *DocumentTemplate      `json:"template,omitempty"`
+	Communication *DocumentCommunication `json:"communication,omitempty"`
+	Format        string                 `json:"format"`
+	Body          string                 `json:"body"`
+	Purpose       string                 `json:"purpose,omitempty"`
+	Applicability string                 `json:"applicability,omitempty"`
+	References    []Reference            `json:"references,omitempty"`
 }
 type Workstream struct {
 	ContentIdentity

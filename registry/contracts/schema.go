@@ -62,7 +62,7 @@ var schemaFiles = map[string]string{
 	AgentSchema:         "schemas/agent-1.json",
 	AgencySchema:        "schemas/agency-1.json",
 	SkillSchema:         "schemas/skill-1.json",
-	DocumentSchema:      "schemas/document-1.json",
+	DocumentSchema:      "schemas/document-1-registry.json",
 	WorkstreamSchema:    "schemas/workstream-1.json",
 	CorrelationSchema:   "schemas/correlation-1.json",
 
