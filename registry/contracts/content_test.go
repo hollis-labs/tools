@@ -140,3 +140,34 @@ func TestWorkstreamRetainsEmptySourceName(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentToolReferenceKinds(t *testing.T) {
+	for _, tc := range []struct {
+		kind  string
+		valid bool
+	}{
+		{"tool", true},
+		{"tool-package", true},
+		{"project", false},
+		{"skill", false},
+		{"tool_package", false},
+		{"", false},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			raw := []byte(`{"schema":"agent/1","id":"example","name":"Example","charter":"Read the brief","roles":["worker"],"tools":[{"authority":"registry","kind":"` + tc.kind + `","id":"native/../tool@1.2.3"}]}`)
+			if err := kinds.ValidateJSON(kinds.AgentSchema, raw); (err == nil) != tc.valid {
+				t.Fatalf("ValidateJSON: valid=%v, error=%v", tc.valid, err)
+			}
+			parsed, err := kinds.ParseContentJSON(kinds.AgentSchema, raw)
+			if (err == nil) != tc.valid {
+				t.Fatalf("ParseContentJSON: valid=%v, error=%v", tc.valid, err)
+			}
+			if tc.valid {
+				got := parsed.(*kinds.Agent).Tools
+				if len(got) != 1 || got[0].Kind != tc.kind || got[0].ID != "native/../tool@1.2.3" {
+					t.Fatalf("reference changed: %#v", got)
+				}
+			}
+		})
+	}
+}

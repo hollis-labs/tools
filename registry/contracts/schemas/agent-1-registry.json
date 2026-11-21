@@ -78,7 +78,7 @@
             "minLength": 1
           },
           "kind": {
-            "const": "tool"
+            "enum": ["tool", "tool-package"]
           },
           "id": {
             "type": "string",
