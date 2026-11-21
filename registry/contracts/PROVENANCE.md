@@ -44,3 +44,7 @@ unchanged and checked against the original manifest. The frozen source fixtures
 still pass; original document payloads require no migration. The extension adds
 subtype-specific required objects without changing existing subtype admission.
 See the README for fields and the pointer/edge-over-copy content guide.
+
+Registry publication admission hashes cover the complete exposed schema bundle.
+This extension changes that digest; publication plans prepared under the previous
+bundle must be prepared again after adopting the updated contracts.
